@@ -1334,6 +1334,88 @@ class NatNetClient:
         trace( "End Packet\n-----------------" )
         return message_id
 
+    def __process_data( self, data : bytes, print_level=0):
+        #return message ID
+        major = self.get_major()
+        minor = self.get_minor()
+
+        trace( "Begin Packet\n-----------------" )
+        show_nat_net_version = False
+        if show_nat_net_version:
+            trace("NatNetVersion " , str(self.__nat_net_requested_version[0]), " "\
+                , str(self.__nat_net_requested_version[1]), " "\
+                , str(self.__nat_net_requested_version[2]), " "\
+                , str(self.__nat_net_requested_version[3]))
+
+        message_id = get_message_id(data)
+        mocap_data = None
+
+        packet_size = int.from_bytes( data[2:4], byteorder='little' )
+
+        #skip the 4 bytes for message ID and packet_size
+        offset = 4
+        if message_id == self.NAT_FRAMEOFDATA :
+            trace( "Message ID  : %3.1d NAT_FRAMEOFDATA"% message_id )
+            trace( "Packet Size : ", packet_size )
+
+            offset_tmp, mocap_data = self.__unpack_mocap_data( data[offset:], packet_size, major, minor )
+            offset += offset_tmp
+            print("MoCap Frame: %d\n"%(mocap_data.prefix_data.frame_number))
+            # get a string version of the data for output
+            mocap_data_str=mocap_data.get_as_string()
+            if print_level >= 1:
+                print("%s\n"%mocap_data_str)
+
+        elif message_id == self.NAT_MODELDEF :
+            trace( "Message ID  : %3.1d NAT_MODELDEF"% message_id )
+            trace( "Packet Size : %d"% packet_size )
+            offset_tmp, data_descs = self.__unpack_data_descriptions( data[offset:], packet_size, major, minor)
+            offset += offset_tmp
+            print("Data Descriptions:\n")
+            # get a string version of the data for output
+            data_descs_str=data_descs.get_as_string()
+            if print_level>0:
+                print("%s\n"%(data_descs_str))
+
+        elif message_id == self.NAT_SERVERINFO :
+            trace( "Message ID  : %3.1d NAT_SERVERINFO"% message_id )
+            trace( "Packet Size : ", packet_size )
+            offset += self.__unpack_server_info( data[offset:], packet_size, major, minor)
+
+        elif message_id == self.NAT_RESPONSE :
+            trace( "Message ID  : %3.1d NAT_RESPONSE"% message_id )
+            trace( "Packet Size : ", packet_size )
+            if packet_size == 4 :
+                command_response = int.from_bytes( data[offset:offset+4], byteorder='little' )
+                offset += 4
+                trace( "Command response: %d"% command_response )
+            else:
+                show_remainder = False
+                message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
+                offset += len( message ) + 1
+                if(show_remainder):
+                    trace( "Command response:", message.decode( 'utf-8' ),\
+                        " separator:", separator, " remainder:",remainder )
+                else:
+                    trace( "Command response:", message.decode( 'utf-8' ))
+        elif message_id == self.NAT_UNRECOGNIZED_REQUEST :
+            trace( "Message ID  : %3.1d NAT_UNRECOGNIZED_REQUEST: "% message_id )
+            trace( "Packet Size : ", packet_size )
+            trace( "Received 'Unrecognized request' from server" )
+        elif message_id == self.NAT_MESSAGESTRING :
+            trace( "Message ID  : %3.1d NAT_MESSAGESTRING"% message_id)
+            trace( "Packet Size : ", packet_size )
+            message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
+            offset += len( message ) + 1
+            trace( "Received message from server:", message.decode( 'utf-8' ) )
+        else:
+            trace( "Message ID  : %3.1d UNKNOWN"% message_id )
+            trace( "Packet Size : ", packet_size )
+            trace( "ERROR: Unrecognized packet type" )
+
+        trace( "End Packet\n-----------------" )
+        return mocap_data
+
     def send_request( self, in_socket, command, command_str, address ):
         # Compose the message in our known message format
         packet_size = 0
@@ -1393,8 +1475,6 @@ class NatNetClient:
     def get_server_version(self):
         return self.__server_version
 
-
-
     def run( self ):
         # Create the data socket
         self.data_socket = self.__create_data_socket( self.data_port )
@@ -1429,6 +1509,51 @@ class NatNetClient:
         ## Request the model definitions
         #self.send_request(self.command_socket, self.NAT_REQUEST_MODELDEF, "",  (self.server_ip_address, self.command_port) )
         return True
+
+    def get_current_frame_data(self):
+        # Create the data socket
+        self.data_socket = self.__create_data_socket( self.data_port )
+        if self.data_socket is None :
+            print( "Could not open data channel" )
+            return False
+
+        message_id_dict={}
+        data=bytearray(0)
+        # 64k buffer size
+        recv_buffer_size=64*1024
+
+        mocap_data = None
+
+        # Block for input
+        try:
+            data, addr = self.data_socket.recvfrom( recv_buffer_size )
+        except socket.error as msg:
+            print("ERROR: data socket access error occurred:\n  %s" %msg)
+            return 1
+        except  socket.herror:
+            print("ERROR: data socket access herror occurred")
+            #return 2
+        except  socket.gaierror:
+            print("ERROR: data socket access gaierror occurred")
+            #return 3
+        except  socket.timeout:
+            #if self.use_multicast:
+            print("ERROR: data socket access timeout occurred. Server not responding")
+            #return 4
+        if len( data ) > 0 :
+            #peek ahead at message_id
+            message_id = get_message_id(data)
+            tmp_str="mi_%1.1d"%message_id
+            if tmp_str not in message_id_dict:
+                message_id_dict[tmp_str]=0
+            message_id_dict[tmp_str] += 1
+            
+            mocap_data = self.__process_data(data , 1)
+
+        self.data_socket.close()
+
+        return mocap_data
+
 
     def shutdown(self):
         print("shutdown called")

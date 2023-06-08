@@ -1,7 +1,9 @@
 import mainController
 import motive_client
+from pynput import keyboard
+import numpy as np
 
-port_name = "COM4"
+port_name = "COM3"
 controller = mainController.Controller(port_name)
 
 ROTATION_LEFT = {keyboard.KeyCode.from_char('r'), keyboard.Key.left}
@@ -24,28 +26,28 @@ BOTH_RIGID = {keyboard.Key.down, keyboard.KeyCode.from_char('x')}
 
 # The currently active modifiers
 current_keys = set()
+s = [0] * 2
 
 
-def manual_control(v, s):
+def manual_control(v, s, agent_id):
 
     while True:
-        q_current = motive_client.get_config()
+        w_current = motive_client.get_wheels_coords()
 
-        if q_current is not None:
+        if w_current is not None:
 
-            w = controller.wheel_drive(q_current, v, s)
-            controller.move_robot(w, s)
+            omega = controller.wheel_drive(w_current, v, s)
+            controller.move_robot(omega, s, agent_id)
 
             break
 
 
 def on_press(key):
-    global current_keys
+    global current_keys, s
 
     flag = True
 
     v = [0] * 5
-    s = [0] * 2
 
     omni_speed = 0.1
     rotation_speed = 0.7
@@ -136,7 +138,6 @@ def on_press(key):
             print("Segment 2 rigid")
             flag = False
             s[1] = 0
-
     if key in BOTH_SOFT:
         current_keys.add(key)
         if all(k in current_keys for k in BOTH_SOFT):
@@ -169,14 +170,14 @@ def on_press(key):
             print("right")
             v[2] = omni_speed
 
-    manual_control(v, s)
+    manual_control(v, s, 2)
 
 
 def on_release(key):
     global current_keys
     try:
         current_keys.remove(key)
-        controller.move_robot(np.array([0, 0, 0, 0]), s_current)
+        controller.move_robot(np.array([0, 0, 0, 0]), s, 2)
     except KeyError:
         pass
 
