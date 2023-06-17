@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+=======
+import sys
+from nat_net_client import NatNetClient
+>>>>>>> f8bff198c02b559c658887b43e57fdb69cbcc183
 import numpy as np
 import pandas as pd
 
