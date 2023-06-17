@@ -1,7 +1,7 @@
 import sys
-from NatNetClient import NatNetClient
-import DataDescriptions
-import MoCapData
+from nat_net_client import NatNetClient
+import data_descriptions
+import mo_cap_data
 import math
 import numpy as np
 import scipy.optimize as so
@@ -75,6 +75,7 @@ def euler_from_quaternion(rot):
 
     return roll_x, pitch_y, yaw_z  # in radians
 
+
 def transform_from_motive_frame(var, c_type="pos"):
     R = np.array([[-1, 0, 0], [0, 0, 1], [0, 1, 0]])
 
@@ -85,27 +86,32 @@ def transform_from_motive_frame(var, c_type="pos"):
     else:
         return "Error"
 
+
 def fun1(k, *args):
     l, l0, th0, p1, p0 = args
 
     # print("l: %s, l0: %s, th0: %s, p1: %s, p0: %s" % (l, l0, th0, p1, p0))
 
-    th = th0 + k*l
+    th = th0 + k * l
 
-    eq1 = p0[0] - l0/2 * np.cos(th) - p1[0] - np.sin(th) / k + np.sin(th0) / k
-    eq2 = p0[1] - l0/2 * np.sin(th) - p1[1] + np.cos(th) / k - np.cos(th0) / k
+    eq1 = p0[0] - l0 / 2 * np.cos(th) - p1[0] - \
+        np.sin(th) / k + np.sin(th0) / k
+    eq2 = p0[1] - l0 / 2 * np.sin(th) - p1[1] + \
+        np.cos(th) / k - np.cos(th0) / k
 
     # return [eq1, eq2]
     return eq1
+
 
 def fun2(k, *args):
     l, l0, phi, p1, p0, cup = args
 
     # print("l: %s, l0: %s, th0: %s, p1: %s, p0: %s" % (l, l0, th0, p1, p0))
 
-    th = phi + k*l
+    th = phi + k * l
 
-    eq1 = p1[0] + np.sin(th) / k - np.sin(phi) / k - p0[0] + np.cos(th) * cup[0] + np.sin(th) * cup[1]
+    eq1 = p1[0] + np.sin(th) / k - np.sin(phi) / k - \
+        p0[0] + np.cos(th) * cup[0] + np.sin(th) * cup[1]
 
     return eq1
 
@@ -116,14 +122,15 @@ def receive_mocap_data_frame(mocap_data):
     # print("%s\n"%mocap_data.labeled_marker_data.get_as_string(" ", 1))
 
     if count == 1:
-        data1 = {'pose': 1, 'model_id': data_model_id, 'marker_id': data_marker_id, 'marker_x': data_marker_x, 'marker_y': data_marker_y, 'marker_z': data_marker_z}
+        data1 = {'pose': 1, 'model_id': data_model_id, 'marker_id': data_marker_id,
+                 'marker_x': data_marker_x, 'marker_y': data_marker_y, 'marker_z': data_marker_z}
         df1 = pd.DataFrame(data=data1)
         df1.to_csv('markers.csv', index=False, mode='a', header=False)
 
-        data2 = {'pose': 1, 'id': data_rb_id, 'x': data_rb_x, 'y': data_rb_y, 'z': data_rb_z, 'a': data_rb_rot_a, 'b': data_rb_rot_b, 'c': data_rb_rot_c, 'd': data_rb_rot_d}
+        data2 = {'pose': 1, 'id': data_rb_id, 'x': data_rb_x, 'y': data_rb_y, 'z': data_rb_z,
+                 'a': data_rb_rot_a, 'b': data_rb_rot_b, 'c': data_rb_rot_c, 'd': data_rb_rot_d}
         df2 = pd.DataFrame(data=data2)
         df2.to_csv('rigid_bodies.csv', index=False, mode='a', header=False)
-
 
     agent1_config = [0, 0, 0, 0, 0]
     LU1_a = 0
@@ -145,9 +152,11 @@ def receive_mocap_data_frame(mocap_data):
         for marker in labeled_marker_list:
             model_id, marker_id = marker.get_id()
             if model_id == 1:
-                LU1_markers[marker_id] = transform_from_motive_frame(marker.pos, c_type="pos")
+                LU1_markers[marker_id] = transform_from_motive_frame(
+                    marker.pos, c_type="pos")
             if model_id == 0:
-                labeled_markers.append(transform_from_motive_frame(marker.pos, c_type="pos"))
+                labeled_markers.append(
+                    transform_from_motive_frame(marker.pos, c_type="pos"))
 
             data_model_id.append(model_id)
             data_marker_id.append(marker_id)
@@ -155,11 +164,14 @@ def receive_mocap_data_frame(mocap_data):
             data_marker_y.append(marker.pos[1])
             data_marker_z.append(marker.pos[2])
 
-        LU1_a = np.linalg.norm(np.array(LU1_markers[1]) - np.array(LU1_markers[2]))
-        LU1_c = np.linalg.norm(np.array(LU1_markers[1]) - np.array(LU1_markers[3]))
+        LU1_a = np.linalg.norm(
+            np.array(LU1_markers[1]) - np.array(LU1_markers[2]))
+        LU1_c = np.linalg.norm(
+            np.array(LU1_markers[1]) - np.array(LU1_markers[3]))
         LU1_h = LU1_c / 2
 
-        LU1_pos = 0.5 * LU1_h * np.array([np.cos(-np.pi/4), np.sin(-np.pi/4)])
+        LU1_pos = 0.5 * LU1_h * \
+            np.array([np.cos(-np.pi / 4), np.sin(-np.pi / 4)])
         VSS_cup_coord = np.array([LU1_a / 2 + seg1_cup, LU1_a / 2])
         VSS_cup_coord_ = np.array([LU1_a / 2 + seg1_cup, -LU1_a / 2])
 
@@ -178,22 +190,28 @@ def receive_mocap_data_frame(mocap_data):
 
         for rigid_body in rigid_body_list:
             if rigid_body.id_num == 1:
-                rb_pos = transform_from_motive_frame(rigid_body.pos, c_type="ang")
+                rb_pos = transform_from_motive_frame(
+                    rigid_body.pos, c_type="ang")
                 motive_angles = euler_from_quaternion(rigid_body.rot)
-                LU1_orient = transform_from_motive_frame(motive_angles, c_type="ang")
-                
-                R_lu1 = np.array([[np.cos(LU1_orient[2]), -np.sin(LU1_orient[2])], [np.sin(LU1_orient[2]), np.cos(LU1_orient[2])]])
+                LU1_orient = transform_from_motive_frame(
+                    motive_angles, c_type="ang")
+
+                R_lu1 = np.array([[np.cos(LU1_orient[2]), -np.sin(LU1_orient[2])],
+                                  [np.sin(LU1_orient[2]), np.cos(LU1_orient[2])]])
                 rb_pos_2d = np.array(rb_pos[:-1])
 
                 LU1_origin = rb_pos_2d + np.matmul(R_lu1, LU1_pos)
                 seg1_start_pos = LU1_origin + np.matmul(R_lu1, VSS_cup_coord)
 
-                k1 = so.fsolve(fun1, 1, args=(l, l0, LU1_orient[2], seg1_start_pos, origin[:-1]))[0]
+                k1 = so.fsolve(fun1, 1, args=(
+                    l, l0, LU1_orient[2], seg1_start_pos, origin[:-1]))[0]
                 agent1_config[2] = LU1_orient[2] + k1 * l
 
-                seg2_start_pos = np.array(origin[-1]) + l0 / 2 * np.array([np.cos(agent1_config[2]), np.sin(agent1_config[2])])
+                seg2_start_pos = np.array(
+                    origin[-1]) + l0 / 2 * np.array([np.cos(agent1_config[2]), np.sin(agent1_config[2])])
 
-                k2 = so.fsolve(fun2, 1, args=(l, l0, agent1_config[2], seg2_start_pos, LU2[:-1], VSS_cup_coord_))[0]
+                k2 = so.fsolve(fun2, 1, args=(
+                    l, l0, agent1_config[2], seg2_start_pos, LU2[:-1], VSS_cup_coord_))[0]
 
                 print(f"k1: {k1}")
                 print(f"k2: {k2}")

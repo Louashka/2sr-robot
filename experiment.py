@@ -1,4 +1,4 @@
-import mainController
+import main_controller
 import motive_client
 from pynput import keyboard
 import numpy as np

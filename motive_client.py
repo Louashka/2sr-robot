@@ -1,5 +1,5 @@
 import sys
-from NatNetClient import NatNetClient
+from nat_net_client import NatNetClient
 import numpy as np
 import pandas as pd
 
