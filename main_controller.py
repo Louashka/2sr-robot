@@ -21,7 +21,7 @@ class Controller:
                 i == 2 or i == 3), flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau]
 
         V = 1 / globals_.WHEEL_R * V_
-        omega = 1.2 * np.matmul(V, v)
+        omega = np.matmul(V, v)
 
         return omega.round(3)
 

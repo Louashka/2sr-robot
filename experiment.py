@@ -3,10 +3,10 @@ import motive_client
 from pynput import keyboard
 import numpy as np
 import sys
-from NatNetClient import NatNetClient
+from nat_net_client import NatNetClient
 
 port_name = "COM3"
-controller = mainController.Controller(port_name)
+controller = main_controller.Controller(port_name)
 
 ROTATION_LEFT = {keyboard.KeyCode.from_char('r'), keyboard.Key.left}
 ROTATION_RIGHT = {keyboard.KeyCode.from_char('r'), keyboard.Key.right}
@@ -34,16 +34,17 @@ data = None
 
 def manual_control(v, s, agent_id):
 
-    while True:
+    try:
         w_current = motive_client.get_wheels_coords(data)
 
         if w_current is not None:
 
             omega = controller.wheel_drive(w_current, v, s)
             controller.move_robot(omega, s, agent_id)
-            # controller.move_robot(np.array([0, 0, 0, 0]), s, agent_id)
 
-            break
+    except:
+        print("Error occured! The robot is stopped")
+        controller.move_robot(np.array([0, 0, 0, 0]), s, agent_id)
 
 
 def on_press(key):
@@ -223,9 +224,7 @@ if __name__ == "__main__":
     streaming_client.set_server_address(optionsDict["serverAddress"])
     streaming_client.set_use_multicast(optionsDict["use_multicast"])
 
-    # Configure the streaming client to call our rigid body handler on the emulator to send data out.
-    # streaming_client.new_frame_listener = receive_new_frame
-    # streaming_client.rigid_body_listener = receive_rigid_body_frame
+    # Configure the streaming client to call our markers handler on the emulator to send data out
     streaming_client.mocap_data_listener = receive_mocap_data_frame
 
     # Start up the streaming client now that the callbacks are set up.

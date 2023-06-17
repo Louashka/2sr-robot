@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 import sys
 from nat_net_client import NatNetClient
->>>>>>> f8bff198c02b559c658887b43e57fdb69cbcc183
 import numpy as np
 import pandas as pd
 
@@ -166,7 +163,7 @@ def __calc_wheels_ccoords(lu1_angle, lu2_angle):
     # w3.append(np.pi/2)
     # w4.append(0)
 
-    beta = [-np.pi/2, np.pi, np.pi/2, np.pi]
+    beta = [-np.pi / 2, np.pi, np.pi / 2, np.pi]
     w = [w2, w1, w3, w4]
 
     for i in range(4):
@@ -181,7 +178,7 @@ def get_wheels_coords(mocap_data):
     markers_df, rb_df = _unpack_data(mocap_data)
 
     if markers_df.empty or rb_df.empty:
-        print("No data received from Motive!")
+        raise Exception("No data received from Motive!")
     else:
         markers_df[['marker_x', 'marker_y', 'marker_z']] = markers_df[['marker_x', 'marker_y', 'marker_z']].apply(
             lambda x: pd.Series([_motive_to_g(x)[0], _motive_to_g(x)[1], _motive_to_g(x)[2]]), axis=1)

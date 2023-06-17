@@ -337,7 +337,7 @@ class NatNetClient:
         offset += 16
         # trace_mf( "\tOrientation : [%3.2f, %3.2f, %3.2f, %3.2f]"% (rot[0], rot[1], rot[2], rot[3] ))
 
-        rigid_body = MoCapData.RigidBody(new_id, pos, rot)
+        rigid_body = mo_cap_data.RigidBody(new_id, pos, rot)
 
         # Send information to any listener.
         if self.rigid_body_listener is not None:
@@ -353,7 +353,7 @@ class NatNetClient:
 
             rb_marker_list=[]
             for i in marker_count_range:
-                rb_marker_list.append(MoCapData.RigidBodyMarker())
+                rb_marker_list.append(mo_cap_data.RigidBodyMarker())
 
             # Marker positions
             for i in marker_count_range:
@@ -410,7 +410,7 @@ class NatNetClient:
         new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
         # trace_mf( "ID:", new_id )
-        skeleton = MoCapData.Skeleton(new_id)
+        skeleton = mo_cap_data.Skeleton(new_id)
 
         rigid_body_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
@@ -429,11 +429,11 @@ class NatNetClient:
         frame_number = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
         # trace_mf( "Frame #:", frame_number )
-        frame_prefix_data=MoCapData.FramePrefixData(frame_number)
+        frame_prefix_data=mo_cap_data.FramePrefixData(frame_number)
         return offset, frame_prefix_data
 
     def __unpack_marker_set_data( self, data, packet_size, major, minor):
-        marker_set_data=MoCapData.MarkerSetData()
+        marker_set_data=mo_cap_data.MarkerSetData()
         offset = 0
         # Marker set count (4 bytes)
         marker_set_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
@@ -441,7 +441,7 @@ class NatNetClient:
         # trace_mf( "Marker Set Count:", marker_set_count )
 
         for i in range( 0, marker_set_count ):
-            marker_data = MoCapData.MarkerData()
+            marker_data = mo_cap_data.MarkerData()
             # Model name
             model_name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( model_name ) + 1
@@ -472,7 +472,7 @@ class NatNetClient:
         return offset, marker_set_data
 
     def __unpack_rigid_body_data( self, data, packet_size, major, minor):
-        rigid_body_data = MoCapData.RigidBodyData()
+        rigid_body_data = mo_cap_data.RigidBodyData()
         offset = 0
         # Rigid body count (4 bytes)
         rigid_body_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
@@ -488,7 +488,7 @@ class NatNetClient:
 
 
     def __unpack_skeleton_data( self, data, packet_size, major, minor):
-        skeleton_data = MoCapData.SkeletonData()
+        skeleton_data = mo_cap_data.SkeletonData()
 
         offset = 0
         # Version 2.1 and later
@@ -512,7 +512,7 @@ class NatNetClient:
         return model_id, marker_id
 
     def __unpack_labeled_marker_data( self, data, packet_size, major, minor):
-        labeled_marker_data = MoCapData.LabeledMarkerData()
+        labeled_marker_data = mo_cap_data.LabeledMarkerData()
         offset = 0
         # Labeled markers (Version 2.3 and later)
         labeled_marker_count = 0
@@ -551,13 +551,13 @@ class NatNetClient:
                     offset += 4
                     # trace_mf( "  err  : [%3.2f]"% residual )
 
-                labeled_marker = MoCapData.LabeledMarker(tmp_id,pos,size,param, residual)
+                labeled_marker = mo_cap_data.LabeledMarker(tmp_id,pos,size,param, residual)
                 labeled_marker_data.add_labeled_marker(labeled_marker)
 
         return offset, labeled_marker_data
 
     def __unpack_force_plate_data( self, data, packet_size, major, minor):
-        force_plate_data = MoCapData.ForcePlateData()
+        force_plate_data = mo_cap_data.ForcePlateData()
         n_frames_show_max = 4
         offset = 0
         # Force Plate data (version 2.9 and later)
@@ -570,7 +570,7 @@ class NatNetClient:
                 # ID
                 force_plate_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
-                force_plate = MoCapData.ForcePlate(force_plate_id)
+                force_plate = mo_cap_data.ForcePlate(force_plate_id)
 
                 # Channel Count
                 force_plate_channel_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
@@ -580,7 +580,7 @@ class NatNetClient:
 
                 # Channel Data
                 for j in range( force_plate_channel_count ):
-                    fp_channel_data = MoCapData.ForcePlateChannelData()
+                    fp_channel_data = mo_cap_data.ForcePlateChannelData()
                     force_plate_channel_frame_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
                     offset += 4
                     out_string="\tChannel %3.1d: "%( j )
@@ -603,7 +603,7 @@ class NatNetClient:
         return offset, force_plate_data
 
     def __unpack_device_data( self, data, packet_size, major, minor):
-        device_data = MoCapData.DeviceData()
+        device_data = mo_cap_data.DeviceData()
         n_frames_show_max = 4
         offset = 0
         # Device data (version 2.11 and later)
@@ -617,7 +617,7 @@ class NatNetClient:
                 # ID
                 device_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
-                device = MoCapData.Device(device_id)
+                device = mo_cap_data.Device(device_id)
                 # Channel Count
                 device_channel_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
@@ -626,7 +626,7 @@ class NatNetClient:
 
                 # Channel Data
                 for j in range( 0, device_channel_count ):
-                    device_channel_data = MoCapData.DeviceChannelData()
+                    device_channel_data = mo_cap_data.DeviceChannelData()
                     device_channel_frame_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
                     offset += 4
                     out_string="\tChannel %3.1d "% (j)
@@ -650,7 +650,7 @@ class NatNetClient:
         return offset, device_data
 
     def __unpack_frame_suffix_data( self, data, packet_size, major, minor):
-        frame_suffix_data = MoCapData.FrameSuffixData()
+        frame_suffix_data = mo_cap_data.FrameSuffixData()
         offset = 0
 
         # Timecode
@@ -704,7 +704,7 @@ class NatNetClient:
 
     # Unpack data from a motion capture frame message
     def __unpack_mocap_data( self, data : bytes, packet_size, major, minor):
-        mocap_data = MoCapData.MoCapData()
+        mocap_data = mo_cap_data.MoCapData()
         # trace_mf( "MoCap Frame Begin\n-----------------" )
         data = memoryview( data )
         offset = 0

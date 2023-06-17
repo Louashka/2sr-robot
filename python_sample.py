@@ -20,9 +20,9 @@
 
 import sys
 import time
-from NatNetClient import NatNetClient
-import DataDescriptions
-import MoCapData
+from nat_net_client import NatNetClient
+import data_descriptions
+import mo_cap_data
 
 # This is a callback function that gets connected to the NatNet client
 # and called once per mocap frame.
