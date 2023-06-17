@@ -17,11 +17,11 @@ class Controller:
         for i in range(4):
             w = w_list[i]
             tau = w[0] * np.sin(w[2]) - w[1] * np.cos(w[2])
-            V_[i, :] = [flag_soft * int(i == 0), -flag_soft * int(
-                i == 2), flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau]
+            V_[i, :] = [flag_soft * int(i == 0 or i == 1), -flag_soft * int(
+                i == 2 or i == 3), flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau]
 
         V = 1 / globals_.WHEEL_R * V_
-        omega = np.matmul(V, v)
+        omega = 1.2 * np.matmul(V, v)
 
         return omega.round(3)
 

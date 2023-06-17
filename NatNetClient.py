@@ -30,13 +30,13 @@ def trace( *args ):
 #Used for Data Description functions
 def trace_dd( *args ):
     # uncomment the one you want to use
-    #print( "".join(map(str,args)) )
+    print( "".join(map(str,args)) )
     pass
 
 #Used for MoCap Frame Data functions
 def trace_mf( *args ):
     # uncomment the one you want to use
-    #print( "".join(map(str,args)) )
+    print( "".join(map(str,args)) )
     pass
 
 def get_message_id(data):
@@ -160,11 +160,11 @@ class NatNetClient:
                 self.__nat_net_requested_version[1] = minor
                 self.__nat_net_requested_version[2] = 0
                 self.__nat_net_requested_version[3] = 0
-                print("changing bitstream MAIN")
+                # print("changing bitstream MAIN")
                 # get original output state
-                #print_results = self.get_print_results()
+                print_results = self.get_print_results()
                 #turn off output
-                #self.set_print_results(False)
+                self.set_print_results(False)
                 # force frame send and play reset
                 self.send_command("TimelinePlay")
                 time.sleep(0.1)
@@ -175,7 +175,7 @@ class NatNetClient:
                 self.send_commands(tmpCommands,False)
                 time.sleep(2)
                 #reset to original output state
-                #self.set_print_results(print_results)
+                self.set_print_results(print_results)
         return return_code
 
 
@@ -223,17 +223,17 @@ class NatNetClient:
             try:
                 result.bind( ('', 0) )
             except socket.error as msg:
-                print("ERROR: command socket error occurred:\n%s" %msg)
-                print("Check Motive/Server mode requested mode agreement.  You requested Multicast ")
+                # print("ERROR: command socket error occurred:\n%s" %msg)
+                # print("Check Motive/Server mode requested mode agreement.  You requested Multicast ")
                 result = None
             except  socket.herror:
-                print("ERROR: command socket herror occurred")
+                # print("ERROR: command socket herror occurred")
                 result = None
             except  socket.gaierror:
-                print("ERROR: command socket gaierror occurred")
+                # print("ERROR: command socket gaierror occurred")
                 result = None
             except  socket.timeout:
-                print("ERROR: command socket timeout occurred. Server not responding")
+                # print("ERROR: command socket timeout occurred. Server not responding")
                 result = None
             # set to broadcast mode
             result.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -245,17 +245,17 @@ class NatNetClient:
             try:
                 result.bind( (self.local_ip_address, 0) )
             except socket.error as msg:
-                print("ERROR: command socket error occurred:\n%s" %msg)
-                print("Check Motive/Server mode requested mode agreement.  You requested Unicast ")
+                # print("ERROR: command socket error occurred:\n%s" %msg)
+                # print("Check Motive/Server mode requested mode agreement.  You requested Unicast ")
                 result = None
             except socket.herror:
-                print("ERROR: command socket herror occurred")
+                # print("ERROR: command socket herror occurred")
                 result = None
             except socket.gaierror:
-                print("ERROR: command socket gaierror occurred")
+                # print("ERROR: command socket gaierror occurred")
                 result = None
             except socket.timeout:
-                print("ERROR: command socket timeout occurred. Server not responding")
+                # print("ERROR: command socket timeout occurred. Server not responding")
                 result = None
 
             # set timeout to allow for keep alive messages
@@ -278,17 +278,17 @@ class NatNetClient:
             try:
                 result.bind( (self.local_ip_address, port) )
             except socket.error as msg:
-                print("ERROR: data socket error occurred:\n%s" %msg)
-                print("  Check Motive/Server mode requested mode agreement.  You requested Multicast ")
+                # print("ERROR: data socket error occurred:\n%s" %msg)
+                # print("  Check Motive/Server mode requested mode agreement.  You requested Multicast ")
                 result = None
             except socket.herror:
-                print("ERROR: data socket herror occurred")
+                # print("ERROR: data socket herror occurred")
                 result = None
             except socket.gaierror:
-                print("ERROR: data socket gaierror occurred")
+                # print("ERROR: data socket gaierror occurred")
                 result = None
             except socket.timeout:
-                print("ERROR: data socket timeout occurred. Server not responding")
+                # print("ERROR: data socket timeout occurred. Server not responding")
                 result = None
         else:
             # Unicast case
@@ -300,17 +300,17 @@ class NatNetClient:
             try:
                 result.bind( ('', 0) )
             except socket.error as msg:
-                print("ERROR: data socket error occurred:\n%s" %msg)
-                print("Check Motive/Server mode requested mode agreement.  You requested Unicast ")
+                # print("ERROR: data socket error occurred:\n%s" %msg)
+                # print("Check Motive/Server mode requested mode agreement.  You requested Unicast ")
                 result = None
             except socket.herror:
-                print("ERROR: data socket herror occurred")
+                # print("ERROR: data socket herror occurred")
                 result = None
             except socket.gaierror:
-                print("ERROR: data socket gaierror occurred")
+                # print("ERROR: data socket gaierror occurred")
                 result = None
             except socket.timeout:
-                print("ERROR: data socket timeout occurred. Server not responding")
+                # print("ERROR: data socket timeout occurred. Server not responding")
                 result = None
             
             if(self.multicast_address != "255.255.255.255"):
@@ -326,16 +326,16 @@ class NatNetClient:
         new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
 
-        trace_mf( "RB: %3.1d ID: %3.1d"% (rb_num, new_id))
+        # trace_mf( "RB: %3.1d ID: %3.1d"% (rb_num, new_id))
 
         # Position and orientation
         pos = Vector3.unpack( data[offset:offset+12] )
         offset += 12
-        trace_mf( "\tPosition    : [%3.2f, %3.2f, %3.2f]"% (pos[0], pos[1], pos[2] ))
+        # trace_mf( "\tPosition    : [%3.2f, %3.2f, %3.2f]"% (pos[0], pos[1], pos[2] ))
 
         rot = Quaternion.unpack( data[offset:offset+16] )
         offset += 16
-        trace_mf( "\tOrientation : [%3.2f, %3.2f, %3.2f, %3.2f]"% (rot[0], rot[1], rot[2], rot[3] ))
+        # trace_mf( "\tOrientation : [%3.2f, %3.2f, %3.2f, %3.2f]"% (rot[0], rot[1], rot[2], rot[3] ))
 
         rigid_body = MoCapData.RigidBody(new_id, pos, rot)
 
@@ -349,7 +349,7 @@ class NatNetClient:
             marker_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
             marker_count_range = range( 0, marker_count )
-            trace_mf( "\tMarker Count:", marker_count )
+            # trace_mf( "\tMarker Count:", marker_count )
 
             rb_marker_list=[]
             for i in marker_count_range:
@@ -359,7 +359,7 @@ class NatNetClient:
             for i in marker_count_range:
                 pos = Vector3.unpack( data[offset:offset+12] )
                 offset += 12
-                trace_mf( "\tMarker", i, ":", pos[0],",", pos[1],",", pos[2] )
+                # trace_mf( "\tMarker", i, ":", pos[0],",", pos[1],",", pos[2] )
                 rb_marker_list[i].pos=pos
 
 
@@ -368,14 +368,14 @@ class NatNetClient:
                 for i in marker_count_range:
                     new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
                     offset += 4
-                    trace_mf( "\tMarker ID", i, ":", new_id )
+                    # trace_mf( "\tMarker ID", i, ":", new_id )
                     rb_marker_list[i].id=new_id
 
                 # Marker sizes
                 for i in marker_count_range:
                     size = FloatValue.unpack( data[offset:offset+4] )
                     offset += 4
-                    trace_mf( "\tMarker Size", i, ":", size[0] )
+                    # trace_mf( "\tMarker Size", i, ":", size[0] )
                     rb_marker_list[i].size=size
 
             for i in marker_count_range:
@@ -383,7 +383,7 @@ class NatNetClient:
         if major >= 2 :
             marker_error, = FloatValue.unpack( data[offset:offset+4] )
             offset += 4
-            trace_mf( "\tMarker Error: %3.2f"% marker_error )
+            # trace_mf( "\tMarker Error: %3.2f"% marker_error )
             rigid_body.error = marker_error
 
         # Version 2.6 and later
@@ -394,7 +394,7 @@ class NatNetClient:
             is_valid_str='False'
             if tracking_valid:
                 is_valid_str = 'True'
-            trace_mf( "\tTracking Valid: %s"%is_valid_str)
+            # trace_mf( "\tTracking Valid: %s"%is_valid_str)
             if tracking_valid:
                 rigid_body.tracking_valid = True
             else:
@@ -409,12 +409,12 @@ class NatNetClient:
         offset = 0
         new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "ID:", new_id )
+        # trace_mf( "ID:", new_id )
         skeleton = MoCapData.Skeleton(new_id)
 
         rigid_body_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "Rigid Body Count : %3.1d"% rigid_body_count )
+        # trace_mf( "Rigid Body Count : %3.1d"% rigid_body_count )
         for rb_num in range( 0, rigid_body_count ):
             offset_tmp, rigid_body = self.__unpack_rigid_body( data[offset:], major, minor, rb_num )
             skeleton.add_rigid_body(rigid_body)
@@ -428,7 +428,7 @@ class NatNetClient:
         # Frame number (4 bytes)
         frame_number = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "Frame #:", frame_number )
+        # trace_mf( "Frame #:", frame_number )
         frame_prefix_data=MoCapData.FramePrefixData(frame_number)
         return offset, frame_prefix_data
 
@@ -438,36 +438,36 @@ class NatNetClient:
         # Marker set count (4 bytes)
         marker_set_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "Marker Set Count:", marker_set_count )
+        # trace_mf( "Marker Set Count:", marker_set_count )
 
         for i in range( 0, marker_set_count ):
             marker_data = MoCapData.MarkerData()
             # Model name
             model_name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( model_name ) + 1
-            trace_mf( "Model Name      : ", model_name.decode( 'utf-8' ) )
+            # trace_mf( "Model Name      : ", model_name.decode( 'utf-8' ) )
             marker_data.set_model_name(model_name)
             # Marker count (4 bytes)
             marker_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_mf( "Marker Count    : ", marker_count )
+            # trace_mf( "Marker Count    : ", marker_count )
 
             for j in range( 0, marker_count ):
                 pos = Vector3.unpack( data[offset:offset+12] )
                 offset += 12
-                trace_mf( "\tMarker %3.1d : [%3.2f,%3.2f,%3.2f]"%( j, pos[0], pos[1], pos[2] ))
+                # trace_mf( "\tMarker %3.1d : [%3.2f,%3.2f,%3.2f]"%( j, pos[0], pos[1], pos[2] ))
                 marker_data.add_pos(pos)
             marker_set_data.add_marker_data(marker_data)
 
         # Unlabeled markers count (4 bytes)
         unlabeled_markers_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "Unlabeled Markers Count:", unlabeled_markers_count )
+        # trace_mf( "Unlabeled Markers Count:", unlabeled_markers_count )
 
         for i in range( 0, unlabeled_markers_count ):
             pos = Vector3.unpack( data[offset:offset+12] )
             offset += 12
-            trace_mf( "\tMarker %3.1d : [%3.2f,%3.2f,%3.2f]"%( i, pos[0], pos[1], pos[2] ))
+            # trace_mf( "\tMarker %3.1d : [%3.2f,%3.2f,%3.2f]"%( i, pos[0], pos[1], pos[2] ))
             marker_set_data.add_unlabeled_marker(pos)
         return offset, marker_set_data
 
@@ -477,7 +477,7 @@ class NatNetClient:
         # Rigid body count (4 bytes)
         rigid_body_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_mf( "Rigid Body Count:", rigid_body_count )
+        # trace_mf( "Rigid Body Count:", rigid_body_count )
 
         for i in range( 0, rigid_body_count ):
             offset_tmp, rigid_body = self.__unpack_rigid_body( data[offset:], major, minor, i )
@@ -496,7 +496,7 @@ class NatNetClient:
         if( ( major == 2 and minor > 0 ) or major > 2 ):
             skeleton_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_mf( "Skeleton Count:", skeleton_count )
+            # trace_mf( "Skeleton Count:", skeleton_count )
             for _ in range( 0, skeleton_count ):
                 rel_offset, skeleton = self.__unpack_skeleton( data[offset:], major, minor )
                 offset += rel_offset
@@ -519,7 +519,7 @@ class NatNetClient:
         if( ( major == 2 and minor > 3 ) or major > 2 ):
             labeled_marker_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_mf( "Labeled Marker Count:", labeled_marker_count )
+            # trace_mf( "Labeled Marker Count:", labeled_marker_count )
             for _ in range( 0, labeled_marker_count ):
                 model_id = 0
                 marker_id = 0
@@ -530,9 +530,9 @@ class NatNetClient:
                 offset += 12
                 size = FloatValue.unpack( data[offset:offset+4] )
                 offset += 4
-                trace_mf("ID     : [MarkerID: %3.1d] [ModelID: %3.1d]"%(marker_id,model_id))
-                trace_mf("  pos  : [%3.2f, %3.2f, %3.2f]"%(pos[0],pos[1],pos[2]))
-                trace_mf("  size : [%3.2f]"%size)
+                # trace_mf("ID     : [MarkerID: %3.1d] [ModelID: %3.1d]"%(marker_id,model_id))
+                # trace_mf("  pos  : [%3.2f, %3.2f, %3.2f]"%(pos[0],pos[1],pos[2]))
+                # trace_mf("  size : [%3.2f]"%size)
 
 
                 # Version 2.6 and later
@@ -549,7 +549,7 @@ class NatNetClient:
                 if major >= 3 :
                     residual, = FloatValue.unpack( data[offset:offset+4] )
                     offset += 4
-                    trace_mf( "  err  : [%3.2f]"% residual )
+                    # trace_mf( "  err  : [%3.2f]"% residual )
 
                 labeled_marker = MoCapData.LabeledMarker(tmp_id,pos,size,param, residual)
                 labeled_marker_data.add_labeled_marker(labeled_marker)
@@ -565,7 +565,7 @@ class NatNetClient:
         if( ( major == 2 and minor >= 9 ) or major > 2 ):
             force_plate_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_mf( "Force Plate Count:", force_plate_count )
+            # trace_mf( "Force Plate Count:", force_plate_count )
             for i in range( 0, force_plate_count ):
                 # ID
                 force_plate_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
@@ -576,7 +576,7 @@ class NatNetClient:
                 force_plate_channel_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
 
-                trace_mf( "\tForce Plate %3.1d ID: %3.1d Num Channels: %3.1d"% (i, force_plate_id, force_plate_channel_count ))
+                # trace_mf( "\tForce Plate %3.1d ID: %3.1d Num Channels: %3.1d"% (i, force_plate_id, force_plate_channel_count ))
 
                 # Channel Data
                 for j in range( force_plate_channel_count ):
@@ -597,7 +597,7 @@ class NatNetClient:
                             out_string += "%3.2f "%(force_plate_channel_val)
                     if n_frames_show < force_plate_channel_frame_count:
                         out_string += " showing %3.1d of %3.1d frames"%(n_frames_show, force_plate_channel_frame_count)
-                    trace_mf( "%s"% out_string )
+                    # trace_mf( "%s"% out_string )
                     force_plate.add_channel_data(fp_channel_data)
                 force_plate_data.add_force_plate(force_plate)
         return offset, force_plate_data
@@ -611,7 +611,7 @@ class NatNetClient:
         if ( major == 2 and minor >= 11 ) or (major > 2) :
             device_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_mf( "Device Count:", device_count )
+            # trace_mf( "Device Count:", device_count )
             for i in range( 0, device_count ):
 
                 # ID
@@ -622,7 +622,7 @@ class NatNetClient:
                 device_channel_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
 
-                trace_mf( "\tDevice %3.1d      ID: %3.1d Num Channels: %3.1d"% (i, device_id, device_channel_count ))
+                # trace_mf( "\tDevice %3.1d      ID: %3.1d Num Channels: %3.1d"% (i, device_id, device_channel_count ))
 
                 # Channel Data
                 for j in range( 0, device_channel_count ):
@@ -644,7 +644,7 @@ class NatNetClient:
                         device_channel_data.add_frame_entry(device_channel_val)
                     if n_frames_show < device_channel_frame_count:
                         out_string += " showing %3.1d of %3.1d frames"%(n_frames_show, device_channel_frame_count)
-                    trace_mf( "%s"% out_string )
+                    # trace_mf( "%s"% out_string )
                     device.add_channel_data(device_channel_data)
                 device_data.add_device(device)
         return offset, device_data
@@ -669,24 +669,24 @@ class NatNetClient:
         else:
             timestamp, = FloatValue.unpack( data[offset:offset+4] )
             offset += 4
-        trace_mf("Timestamp : %3.2f"%timestamp)
+        # trace_mf("Timestamp : %3.2f"%timestamp)
         frame_suffix_data.timestamp = timestamp
 
         # Hires Timestamp (Version 3.0 and later)
         if major >= 3 :
             stamp_camera_mid_exposure = int.from_bytes( data[offset:offset+8], byteorder='little' )
-            trace_mf("Mid-exposure timestamp         : %3.1d"%stamp_camera_mid_exposure)
+            # trace_mf("Mid-exposure timestamp         : %3.1d"%stamp_camera_mid_exposure)
             offset += 8
             frame_suffix_data.stamp_camera_mid_exposure = stamp_camera_mid_exposure
 
             stamp_data_received = int.from_bytes( data[offset:offset+8], byteorder='little' )
             offset += 8
             frame_suffix_data.stamp_data_received = stamp_data_received
-            trace_mf("Camera data received timestamp : %3.1d"%stamp_data_received)
+            # trace_mf("Camera data received timestamp : %3.1d"%stamp_data_received)
 
             stamp_transmit = int.from_bytes( data[offset:offset+8], byteorder='little' )
             offset += 8
-            trace_mf("Transmit timestamp             : %3.1d"%stamp_transmit)
+            # trace_mf("Transmit timestamp             : %3.1d"%stamp_transmit)
             frame_suffix_data.stamp_transmit = stamp_transmit
 
 
@@ -705,7 +705,7 @@ class NatNetClient:
     # Unpack data from a motion capture frame message
     def __unpack_mocap_data( self, data : bytes, packet_size, major, minor):
         mocap_data = MoCapData.MoCapData()
-        trace_mf( "MoCap Frame Begin\n-----------------" )
+        # trace_mf( "MoCap Frame Begin\n-----------------" )
         data = memoryview( data )
         offset = 0
         rel_offset = 0
@@ -783,7 +783,7 @@ class NatNetClient:
             data_dict[ "tracked_models_changed"] = tracked_models_changed
 
             self.new_frame_listener( data_dict )
-        trace_mf( "MoCap Frame End\n-----------------" )
+        # trace_mf( "MoCap Frame End\n-----------------" )
         return offset, mocap_data
 
 
@@ -795,16 +795,16 @@ class NatNetClient:
 
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
         offset += len( name ) + 1
-        trace_dd( "Marker Set Name: %s" % (name.decode( 'utf-8' )) )
+        # trace_dd( "Marker Set Name: %s" % (name.decode( 'utf-8' )) )
         ms_desc.set_name(name)
 
         marker_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_dd( "Marker Count : %3.1d" % marker_count)
+        # trace_dd( "Marker Count : %3.1d" % marker_count)
         for i in range( 0, marker_count ):
             name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( name ) + 1
-            trace_dd( "\t%2.1d Marker Name: %s"%(i, name.decode( 'utf-8' ) ))
+            # trace_dd( "\t%2.1d Marker Name: %s"%(i, name.decode( 'utf-8' ) ))
             ms_desc.add_marker_name(name)
 
         return offset, ms_desc
@@ -819,33 +819,33 @@ class NatNetClient:
             name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( name ) + 1
             rb_desc.set_name(name)
-            trace_dd( "\tRigid Body Name   : ", name.decode( 'utf-8' ) )
+            # trace_dd( "\tRigid Body Name   : ", name.decode( 'utf-8' ) )
 
         # ID
         new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
         rb_desc.set_id(new_id)
-        trace_dd( "\tID                : ", str(new_id))
+        # trace_dd( "\tID                : ", str(new_id))
 
         #Parent ID
         parent_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
         rb_desc.set_parent_id(parent_id)
-        trace_dd( "\tParent ID         : ", parent_id)
+        # trace_dd( "\tParent ID         : ", parent_id)
 
         # Position Offsets
         pos = Vector3.unpack( data[offset:offset+12] )
         offset += 12
         rb_desc.set_pos(pos[0],pos[1],pos[2])
 
-        trace_dd( "\tPosition          : [%3.2f, %3.2f, %3.2f]"% (pos[0], pos[1], pos[2] ))
+        # trace_dd( "\tPosition          : [%3.2f, %3.2f, %3.2f]"% (pos[0], pos[1], pos[2] ))
 
         # Version 3.0 and higher, rigid body marker information contained in description
         if (major >= 3) or (major == 0) :
             # Marker Count
             marker_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_dd( "\tNumber of Markers : ", marker_count )
+            # trace_dd( "\tNumber of Markers : ", marker_count )
 
             marker_count_range = range( 0, marker_count )
             offset1 = offset
@@ -871,12 +871,12 @@ class NatNetClient:
 
                 rb_marker=DataDescriptions.RBMarker(marker_name,active_label,marker_offset)
                 rb_desc.add_rb_marker(rb_marker)
-                trace_dd( "\t%3.1d Marker Label: %s Position: [%3.2f %3.2f %3.2f] %s" % (marker,active_label,\
-                   marker_offset[0], marker_offset[1], marker_offset[2],marker_name ))
+                # trace_dd( "\t%3.1d Marker Label: %s Position: [%3.2f %3.2f %3.2f] %s" % (marker,active_label,\
+                   # marker_offset[0], marker_offset[1], marker_offset[2],marker_name ))
 
             offset = offset3
         
-        trace_dd("\tunpack_rigid_body_description processed bytes: ", offset)
+        # trace_dd("\tunpack_rigid_body_description processed bytes: ", offset)
         return offset, rb_desc
 
     # Unpack a skeleton description packet
@@ -888,22 +888,22 @@ class NatNetClient:
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
         offset += len( name ) + 1
         skeleton_desc.set_name(name)
-        trace_dd( "Name : %s"% name.decode( 'utf-8' ) )
+        # trace_dd( "Name : %s"% name.decode( 'utf-8' ) )
 
         #ID
         new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
         skeleton_desc.set_id(new_id)
-        trace_dd( "ID : %3.1d"% new_id )
+        # trace_dd( "ID : %3.1d"% new_id )
 
         # # of RigidBodies
         rigid_body_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_dd( "Rigid Body (Bone) Count : %3.1d" % rigid_body_count)
+        # trace_dd( "Rigid Body (Bone) Count : %3.1d" % rigid_body_count)
 
         # Loop over all Rigid Bodies
         for i in range( 0, rigid_body_count ):
-            trace_dd("Rigid Body (Bone) ", i)
+            # trace_dd("Rigid Body (Bone) ", i)
             offset_tmp, rb_desc_tmp = self.__unpack_rigid_body_description( data[offset:], major, minor )
             offset+= offset_tmp
             skeleton_desc.add_rigid_body_description(rb_desc_tmp)
@@ -918,39 +918,39 @@ class NatNetClient:
             new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
             fp_desc.set_id(new_id)
-            trace_dd("\tID : ", str(new_id))
+            # trace_dd("\tID : ", str(new_id))
 
             # Serial Number
             serial_number, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( serial_number ) + 1
             fp_desc.set_serial_number(serial_number)
-            trace_dd( "\tSerial Number : ", serial_number.decode( 'utf-8' ) )
+            # trace_dd( "\tSerial Number : ", serial_number.decode( 'utf-8' ) )
 
             # Dimensions
             f_width = FloatValue.unpack( data[offset:offset+4])
             offset += 4
-            trace_dd( "\tWidth  : %3.2f"% f_width)
+            # trace_dd( "\tWidth  : %3.2f"% f_width)
             f_length = FloatValue.unpack( data[offset:offset+4])
             offset += 4
             fp_desc.set_dimensions(f_width[0], f_length[0])
-            trace_dd( "\tLength : %3.2f"% f_length)
+            # trace_dd( "\tLength : %3.2f"% f_length)
 
             # Origin
             origin = Vector3.unpack( data[offset:offset+12] )
             offset += 12
             fp_desc.set_origin(origin[0],origin[1],origin[2])
-            trace_dd( "\tOrigin : %3.2f, %3.2f, %3.2f"%( origin[0], origin[1], origin[2] ))
+            # trace_dd( "\tOrigin : %3.2f, %3.2f, %3.2f"%( origin[0], origin[1], origin[2] ))
 
             # Calibration Matrix 12x12 floats
-            trace_dd("Cal Matrix:")
+            # trace_dd("Cal Matrix:")
             cal_matrix_tmp= [[0.0 for col in range(12)] for row in range(12)]
 
             for i in range(0,12):
                 cal_matrix_row=FPCalMatrixRow.unpack(data[offset:offset+(12*4)])
-                trace_dd("\t%3.1d %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e" % (i
-                      , cal_matrix_row[0], cal_matrix_row[1], cal_matrix_row[2], cal_matrix_row[3]
-                      , cal_matrix_row[4], cal_matrix_row[5], cal_matrix_row[6], cal_matrix_row[7]
-                      , cal_matrix_row[8], cal_matrix_row[9], cal_matrix_row[10], cal_matrix_row[11]))
+                # trace_dd("\t%3.1d %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e %3.3e" % (i
+                      # , cal_matrix_row[0], cal_matrix_row[1], cal_matrix_row[2], cal_matrix_row[3]
+                      # , cal_matrix_row[4], cal_matrix_row[5], cal_matrix_row[6], cal_matrix_row[7]
+                      # , cal_matrix_row[8], cal_matrix_row[9], cal_matrix_row[10], cal_matrix_row[11]))
                 cal_matrix_tmp[i] = copy.deepcopy(cal_matrix_row)
                 offset += (12*4)
             fp_desc.set_cal_matrix(cal_matrix_tmp)
@@ -958,10 +958,10 @@ class NatNetClient:
             corners = FPCorners.unpack(data[offset:offset + (12*4)])
             offset += (12*4)
             o_2=0
-            trace_dd("Corners:")
+            # trace_dd("Corners:")
             corners_tmp = [[0.0 for col in range(3)] for row in range(4)]
             for i in range(0,4):
-                trace_dd("\t%3.1d %3.3e %3.3e %3.3e"%(i, corners[o_2], corners[o_2+1], corners[o_2+2]))
+                # trace_dd("\t%3.1d %3.3e %3.3e %3.3e"%(i, corners[o_2], corners[o_2+1], corners[o_2+2]))
                 corners_tmp[i][0]=corners[o_2]
                 corners_tmp[i][1]=corners[o_2+1]
                 corners_tmp[i][2]=corners[o_2+2]
@@ -972,27 +972,27 @@ class NatNetClient:
             plate_type = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
             fp_desc.set_plate_type(plate_type)
-            trace_dd ("Plate Type : ", plate_type)
+            # trace_dd ("Plate Type : ", plate_type)
 
             # Channel Data Type int
             channel_data_type = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
             fp_desc.set_channel_data_type(channel_data_type)
-            trace_dd("Channel Data Type : ", channel_data_type)
+            # trace_dd("Channel Data Type : ", channel_data_type)
 
             # Number of Channels int
             num_channels = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
-            trace_dd("Number of Channels : ", num_channels)
+            # trace_dd("Number of Channels : ", num_channels)
 
             # Channel Names list of NoC strings
             for i in range(0, num_channels):
                 channel_name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
                 offset += len( channel_name ) + 1
-                trace_dd( "\tChannel Name %3.1d: %s"%(i, channel_name.decode( 'utf-8' ) ))
+                # trace_dd( "\tChannel Name %3.1d: %s"%(i, channel_name.decode( 'utf-8' ) ))
                 fp_desc.add_channel_name(channel_name)
 
-        trace_dd("unpackForcePlate processed ", offset, " bytes")
+        # trace_dd("unpackForcePlate processed ", offset, " bytes")
         return offset, fp_desc
 
     def __unpack_device_description(self, data, major, minor):
@@ -1002,44 +1002,44 @@ class NatNetClient:
             # new_id
             new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
-            trace_dd("\tID : ", str(new_id))
+            # trace_dd("\tID : ", str(new_id))
 
             # Name
             name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( name ) + 1
-            trace_dd( "\tName : ", name.decode( 'utf-8' ) )
+            # trace_dd( "\tName : ", name.decode( 'utf-8' ) )
 
             # Serial Number
             serial_number, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( serial_number ) + 1
-            trace_dd( "\tSerial Number : ", serial_number.decode( 'utf-8' ) )
+            # trace_dd( "\tSerial Number : ", serial_number.decode( 'utf-8' ) )
 
 
             # Device Type int
             device_type = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
-            trace_dd ("Device Type : ", device_type)
+            # trace_dd ("Device Type : ", device_type)
 
             # Channel Data Type int
             channel_data_type = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
-            trace_dd("Channel Data Type : ", channel_data_type)
+            # trace_dd("Channel Data Type : ", channel_data_type)
 
             device_desc = DataDescriptions.DeviceDescription(new_id,name,serial_number,device_type,channel_data_type)
 
             # Number of Channels int
             num_channels = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset+=4
-            trace_dd("Number of Channels ", num_channels)
+            # trace_dd("Number of Channels ", num_channels)
 
             # Channel Names list of NoC strings
             for i in range(0, num_channels):
                 channel_name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
                 offset += len( channel_name ) + 1
                 device_desc.add_channel_name(channel_name)
-                trace_dd( "\tChannel ",i," Name : ", channel_name.decode( 'utf-8' ) )
+                # trace_dd( "\tChannel ",i," Name : ", channel_name.decode( 'utf-8' ) )
 
-        trace_dd("unpack_device_description processed ", offset, " bytes")
+        # trace_dd("unpack_device_description processed ", offset, " bytes")
         return offset, device_desc
 
     def __unpack_camera_description(self, data, major, minor):
@@ -1047,17 +1047,17 @@ class NatNetClient:
         # Name
         name, separator, remainder = bytes(data[offset:]).partition( b'\0' )
         offset += len( name ) + 1
-        trace_dd( "\tName       : %s"% name.decode( 'utf-8' ) )
+        # trace_dd( "\tName       : %s"% name.decode( 'utf-8' ) )
         # Position
         position = Vector3.unpack( data[offset:offset+12] )
         offset += 12
-        trace_dd( "\tPosition   : [%3.2f, %3.2f, %3.2f]"% (position[0], position[1], position[2] ))
+        # trace_dd( "\tPosition   : [%3.2f, %3.2f, %3.2f]"% (position[0], position[1], position[2] ))
 
         # Orientation
         orientation = Quaternion.unpack( data[offset:offset+16] )
         offset += 16
-        trace_dd( "\tOrientation: [%3.2f, %3.2f, %3.2f, %3.2f]"% (orientation[0], orientation[1], orientation[2], orientation[3] ))
-        trace_dd("unpack_camera_description processed %3.1d bytes"% offset)
+        # trace_dd( "\tOrientation: [%3.2f, %3.2f, %3.2f, %3.2f]"% (orientation[0], orientation[1], orientation[2], orientation[3] ))
+        # trace_dd("unpack_camera_description processed %3.1d bytes"% offset)
 
         camera_desc=DataDescriptions.CameraDescription(name, position, orientation)
         return offset, camera_desc
@@ -1070,41 +1070,41 @@ class NatNetClient:
         # # of data sets to process
         dataset_count = int.from_bytes( data[offset:offset+4], byteorder='little' )
         offset += 4
-        trace_dd("Dataset Count : ", str(dataset_count))
+        # trace_dd("Dataset Count : ", str(dataset_count))
         for i in range( 0, dataset_count ):
-            trace_dd("Dataset ", str(i))
+            # trace_dd("Dataset ", str(i))
             data_type = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
             data_tmp=None
             if data_type == 0 :
-                trace_dd("Type: 0 Markerset")
+                # trace_dd("Type: 0 Markerset")
                 offset_tmp, data_tmp = self.__unpack_marker_set_description( data[offset:], major, minor )
             elif data_type == 1 :
-                trace_dd("Type: 1 Rigid Body")
+                # trace_dd("Type: 1 Rigid Body")
                 offset_tmp, data_tmp = self.__unpack_rigid_body_description( data[offset:], major, minor )
             elif data_type == 2 :
-                trace_dd("Type: 2 Skeleton")
+                # trace_dd("Type: 2 Skeleton")
                 offset_tmp, data_tmp = self.__unpack_skeleton_description( data[offset:], major, minor )
             elif data_type == 3 :
-                trace_dd("Type: 3 Force Plate")
+                # trace_dd("Type: 3 Force Plate")
                 offset_tmp, data_tmp = self.__unpack_force_plate_description(data[offset:], major, minor)
             elif data_type == 4 :
-                trace_dd("Type: 4 Device")
+                # trace_dd("Type: 4 Device")
                 offset_tmp, data_tmp = self.__unpack_device_description(data[offset:], major, minor)
             elif data_type == 5 :
-                trace_dd("Type: 5 Camera")
+                # trace_dd("Type: 5 Camera")
                 offset_tmp, data_tmp = self.__unpack_camera_description(data[offset:], major, minor)
             else:
-                print("Type: " + str(data_type) + " UNKNOWN")
-                print("ERROR: Type decode failure" )
-                print("\t"+ str(i + 1) +" datasets processed of " + str(dataset_count))
-                print("\t "+ str(offset) +" bytes processed of " + str(packet_size) )
-                print("\tPACKET DECODE STOPPED")
+                # print("Type: " + str(data_type) + " UNKNOWN")
+                # print("ERROR: Type decode failure" )
+                # print("\t"+ str(i + 1) +" datasets processed of " + str(dataset_count))
+                # print("\t "+ str(offset) +" bytes processed of " + str(packet_size) )
+                # print("\tPACKET DECODE STOPPED")
                 return offset
             offset += offset_tmp
             data_descs.add_data(data_tmp)
-            trace_dd("\t"+ str(i) +" datasets processed of " + str(dataset_count))
-            trace_dd("\t "+ str(offset) +" bytes processed of " + str(packet_size) )
+            # trace_dd("\t"+ str(i) +" datasets processed of " + str(dataset_count))
+            # trace_dd("\t "+ str(offset) +" bytes processed of " + str(packet_size) )
 
         return offset, data_descs
 
@@ -1145,16 +1145,16 @@ class NatNetClient:
 
 
 
-        trace_mf("Sending Application Name: ", self.__application_name)
-        trace_mf("NatNetVersion " , str(self.__nat_net_stream_version_server[0]), " "
-            , str(self.__nat_net_stream_version_server[1]), " "
-            , str(self.__nat_net_stream_version_server[2]), " "
-                , str(self.__nat_net_stream_version_server[3]))
+        # trace_mf("Sending Application Name: ", self.__application_name)
+        # trace_mf("NatNetVersion " , str(self.__nat_net_stream_version_server[0]), " "
+            # , str(self.__nat_net_stream_version_server[1]), " "
+            # , str(self.__nat_net_stream_version_server[2]), " "
+            #     , str(self.__nat_net_stream_version_server[3]))
 
-        trace_mf("ServerVersion " , str(self.__server_version[0]), " "
-            , str(self.__server_version[1]), " "
-            , str(self.__server_version[2]), " "
-                , str(self.__server_version[3]) )
+        # trace_mf("ServerVersion " , str(self.__server_version[0]), " "
+            # , str(self.__server_version[1]), " "
+            # , str(self.__server_version[2]), " "
+            #     , str(self.__server_version[3]) )
         return offset
 
 
@@ -1171,19 +1171,19 @@ class NatNetClient:
                 data, addr = in_socket.recvfrom( recv_buffer_size )
             except socket.error as msg:
                 if stop():
-                    #print("ERROR: command socket access error occurred:\n  %s" %msg)
-                    #return 1
-                    print("shutting down")
+                    # print("ERROR: command socket access error occurred:\n  %s" %msg)
+                    return 1
+                    # print("shutting down")
             except  socket.herror:
-                print("ERROR: command socket access herror occurred")
+                # print("ERROR: command socket access herror occurred")
                 return 2
             except  socket.gaierror:
-                print("ERROR: command socket access gaierror occurred")
+                # print("ERROR: command socket access gaierror occurred")
                 return 3
             except  socket.timeout:
                 if(self.use_multicast):
-                    print("ERROR: command socket access timeout occurred. Server not responding")
-                    #return 4
+                    # print("ERROR: command socket access timeout occurred. Server not responding")
+                    return 4
 
             if len( data ) > 0 :
                 #peek ahead at message_id
@@ -1221,18 +1221,18 @@ class NatNetClient:
                 data, addr = in_socket.recvfrom( recv_buffer_size )
             except socket.error as msg:
                 if not stop():
-                    print("ERROR: data socket access error occurred:\n  %s" %msg)
+                    # print("ERROR: data socket access error occurred:\n  %s" %msg)
                     return 1
             except  socket.herror:
-                print("ERROR: data socket access herror occurred")
-                #return 2
+                # print("ERROR: data socket access herror occurred")
+                return 2
             except  socket.gaierror:
-                print("ERROR: data socket access gaierror occurred")
-                #return 3
+                # print("ERROR: data socket access gaierror occurred")
+                return 3
             except  socket.timeout:
                 #if self.use_multicast:
-                print("ERROR: data socket access timeout occurred. Server not responding")
-                #return 4
+                # print("ERROR: data socket access timeout occurred. Server not responding")
+                return 4
             if len( data ) > 0 :
                 #peek ahead at message_id
                 message_id = get_message_id(data)
@@ -1258,13 +1258,13 @@ class NatNetClient:
         major = self.get_major()
         minor = self.get_minor()
 
-        trace( "Begin Packet\n-----------------" )
+        # trace( "Begin Packet\n-----------------" )
         show_nat_net_version = False
-        if show_nat_net_version:
-            trace("NatNetVersion " , str(self.__nat_net_requested_version[0]), " "\
-                , str(self.__nat_net_requested_version[1]), " "\
-                , str(self.__nat_net_requested_version[2]), " "\
-                , str(self.__nat_net_requested_version[3]))
+        # if show_nat_net_version:
+            # trace("NatNetVersion " , str(self.__nat_net_requested_version[0]), " "\
+                # , str(self.__nat_net_requested_version[1]), " "\
+                # , str(self.__nat_net_requested_version[2]), " "\
+                # , str(self.__nat_net_requested_version[3]))
 
         message_id = get_message_id(data)
 
@@ -1273,148 +1273,66 @@ class NatNetClient:
         #skip the 4 bytes for message ID and packet_size
         offset = 4
         if message_id == self.NAT_FRAMEOFDATA :
-            trace( "Message ID  : %3.1d NAT_FRAMEOFDATA"% message_id )
-            trace( "Packet Size : ", packet_size )
+            # trace( "Message ID  : %3.1d NAT_FRAMEOFDATA"% message_id )
+            # trace( "Packet Size : ", packet_size )
 
             offset_tmp, mocap_data = self.__unpack_mocap_data( data[offset:], packet_size, major, minor )
             offset += offset_tmp
-            print("MoCap Frame: %d\n"%(mocap_data.prefix_data.frame_number))
+            # print("MoCap Frame: %d\n"%(mocap_data.prefix_data.frame_number))
             # get a string version of the data for output
             mocap_data_str=mocap_data.get_as_string()
-            if print_level >= 1:
-                print("%s\n"%mocap_data_str)
+            # if print_level >= 1:
+                # print("%s\n"%mocap_data_str)
 
         elif message_id == self.NAT_MODELDEF :
-            trace( "Message ID  : %3.1d NAT_MODELDEF"% message_id )
-            trace( "Packet Size : %d"% packet_size )
+            # trace( "Message ID  : %3.1d NAT_MODELDEF"% message_id )
+            # trace( "Packet Size : %d"% packet_size )
             offset_tmp, data_descs = self.__unpack_data_descriptions( data[offset:], packet_size, major, minor)
             offset += offset_tmp
-            print("Data Descriptions:\n")
+            # print("Data Descriptions:\n")
             # get a string version of the data for output
             data_descs_str=data_descs.get_as_string()
-            if print_level>0:
-                print("%s\n"%(data_descs_str))
+            # if print_level>0:
+                # print("%s\n"%(data_descs_str))
 
         elif message_id == self.NAT_SERVERINFO :
-            trace( "Message ID  : %3.1d NAT_SERVERINFO"% message_id )
-            trace( "Packet Size : ", packet_size )
+            # trace( "Message ID  : %3.1d NAT_SERVERINFO"% message_id )
+            # trace( "Packet Size : ", packet_size )
             offset += self.__unpack_server_info( data[offset:], packet_size, major, minor)
 
         elif message_id == self.NAT_RESPONSE :
-            trace( "Message ID  : %3.1d NAT_RESPONSE"% message_id )
-            trace( "Packet Size : ", packet_size )
+            # trace( "Message ID  : %3.1d NAT_RESPONSE"% message_id )
+            # trace( "Packet Size : ", packet_size )
             if packet_size == 4 :
                 command_response = int.from_bytes( data[offset:offset+4], byteorder='little' )
                 offset += 4
-                trace( "Command response: %d"% command_response )
+                # trace( "Command response: %d"% command_response )
             else:
                 show_remainder = False
                 message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
                 offset += len( message ) + 1
-                if(show_remainder):
-                    trace( "Command response:", message.decode( 'utf-8' ),\
-                        " separator:", separator, " remainder:",remainder )
-                else:
-                    trace( "Command response:", message.decode( 'utf-8' ))
-        elif message_id == self.NAT_UNRECOGNIZED_REQUEST :
-            trace( "Message ID  : %3.1d NAT_UNRECOGNIZED_REQUEST: "% message_id )
-            trace( "Packet Size : ", packet_size )
-            trace( "Received 'Unrecognized request' from server" )
+                # if(show_remainder):
+                    # trace( "Command response:", message.decode( 'utf-8' ),\
+                        # " separator:", separator, " remainder:",remainder )
+                # else:
+                    # trace( "Command response:", message.decode( 'utf-8' ))
+        # elif message_id == self.NAT_UNRECOGNIZED_REQUEST :
+            # trace( "Message ID  : %3.1d NAT_UNRECOGNIZED_REQUEST: "% message_id )
+            # trace( "Packet Size : ", packet_size )
+            # trace( "Received 'Unrecognized request' from server" )
         elif message_id == self.NAT_MESSAGESTRING :
-            trace( "Message ID  : %3.1d NAT_MESSAGESTRING"% message_id)
-            trace( "Packet Size : ", packet_size )
+            # trace( "Message ID  : %3.1d NAT_MESSAGESTRING"% message_id)
+            # trace( "Packet Size : ", packet_size )
             message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
             offset += len( message ) + 1
-            trace( "Received message from server:", message.decode( 'utf-8' ) )
-        else:
-            trace( "Message ID  : %3.1d UNKNOWN"% message_id )
-            trace( "Packet Size : ", packet_size )
-            trace( "ERROR: Unrecognized packet type" )
+            # trace( "Received message from server:", message.decode( 'utf-8' ) )
+        # else:
+            # trace( "Message ID  : %3.1d UNKNOWN"% message_id )
+            # trace( "Packet Size : ", packet_size )
+            # trace( "ERROR: Unrecognized packet type" )
 
-        trace( "End Packet\n-----------------" )
+        # trace( "End Packet\n-----------------" )
         return message_id
-
-    def __process_data( self, data : bytes, print_level=0):
-        #return message ID
-        major = self.get_major()
-        minor = self.get_minor()
-
-        trace( "Begin Packet\n-----------------" )
-        show_nat_net_version = False
-        if show_nat_net_version:
-            trace("NatNetVersion " , str(self.__nat_net_requested_version[0]), " "\
-                , str(self.__nat_net_requested_version[1]), " "\
-                , str(self.__nat_net_requested_version[2]), " "\
-                , str(self.__nat_net_requested_version[3]))
-
-        message_id = get_message_id(data)
-        mocap_data = None
-
-        packet_size = int.from_bytes( data[2:4], byteorder='little' )
-
-        #skip the 4 bytes for message ID and packet_size
-        offset = 4
-        if message_id == self.NAT_FRAMEOFDATA :
-            trace( "Message ID  : %3.1d NAT_FRAMEOFDATA"% message_id )
-            trace( "Packet Size : ", packet_size )
-
-            offset_tmp, mocap_data = self.__unpack_mocap_data( data[offset:], packet_size, major, minor )
-            offset += offset_tmp
-            print("MoCap Frame: %d\n"%(mocap_data.prefix_data.frame_number))
-            # get a string version of the data for output
-            mocap_data_str=mocap_data.get_as_string()
-            if print_level >= 1:
-                print("%s\n"%mocap_data_str)
-
-        elif message_id == self.NAT_MODELDEF :
-            trace( "Message ID  : %3.1d NAT_MODELDEF"% message_id )
-            trace( "Packet Size : %d"% packet_size )
-            offset_tmp, data_descs = self.__unpack_data_descriptions( data[offset:], packet_size, major, minor)
-            offset += offset_tmp
-            print("Data Descriptions:\n")
-            # get a string version of the data for output
-            data_descs_str=data_descs.get_as_string()
-            if print_level>0:
-                print("%s\n"%(data_descs_str))
-
-        elif message_id == self.NAT_SERVERINFO :
-            trace( "Message ID  : %3.1d NAT_SERVERINFO"% message_id )
-            trace( "Packet Size : ", packet_size )
-            offset += self.__unpack_server_info( data[offset:], packet_size, major, minor)
-
-        elif message_id == self.NAT_RESPONSE :
-            trace( "Message ID  : %3.1d NAT_RESPONSE"% message_id )
-            trace( "Packet Size : ", packet_size )
-            if packet_size == 4 :
-                command_response = int.from_bytes( data[offset:offset+4], byteorder='little' )
-                offset += 4
-                trace( "Command response: %d"% command_response )
-            else:
-                show_remainder = False
-                message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
-                offset += len( message ) + 1
-                if(show_remainder):
-                    trace( "Command response:", message.decode( 'utf-8' ),\
-                        " separator:", separator, " remainder:",remainder )
-                else:
-                    trace( "Command response:", message.decode( 'utf-8' ))
-        elif message_id == self.NAT_UNRECOGNIZED_REQUEST :
-            trace( "Message ID  : %3.1d NAT_UNRECOGNIZED_REQUEST: "% message_id )
-            trace( "Packet Size : ", packet_size )
-            trace( "Received 'Unrecognized request' from server" )
-        elif message_id == self.NAT_MESSAGESTRING :
-            trace( "Message ID  : %3.1d NAT_MESSAGESTRING"% message_id)
-            trace( "Packet Size : ", packet_size )
-            message, separator, remainder = bytes(data[offset:]).partition( b'\0' )
-            offset += len( message ) + 1
-            trace( "Received message from server:", message.decode( 'utf-8' ) )
-        else:
-            trace( "Message ID  : %3.1d UNKNOWN"% message_id )
-            trace( "Packet Size : ", packet_size )
-            trace( "ERROR: Unrecognized packet type" )
-
-        trace( "End Packet\n-----------------" )
-        return mocap_data
 
     def send_request( self, in_socket, command, command_str, address ):
         # Compose the message in our known message format
@@ -1454,8 +1372,8 @@ class NatNetClient:
     def send_commands(self,tmpCommands, print_results: bool =True):
         for sz_command in tmpCommands:
             return_code = self.send_command(sz_command)
-            if(print_results):
-                print("Command: %s - return_code: %d"% (sz_command, return_code) )
+            # if(print_results):
+                # print("Command: %s - return_code: %d"% (sz_command, return_code) )
 
     def send_keep_alive(self,in_socket, server_ip_address, server_port):
         return self.send_request(in_socket, self.NAT_KEEPALIVE, "", (server_ip_address, server_port))
@@ -1479,13 +1397,13 @@ class NatNetClient:
         # Create the data socket
         self.data_socket = self.__create_data_socket( self.data_port )
         if self.data_socket is None :
-            print( "Could not open data channel" )
+            # print( "Could not open data channel" )
             return False
 
         # Create the command socket
         self.command_socket = self.__create_command_socket()
         if self.command_socket is None :
-            print( "Could not open command channel" )
+            # print( "Could not open command channel" )
             return False
         self.__is_locked = True
 
@@ -1510,53 +1428,9 @@ class NatNetClient:
         #self.send_request(self.command_socket, self.NAT_REQUEST_MODELDEF, "",  (self.server_ip_address, self.command_port) )
         return True
 
-    def get_current_frame_data(self):
-        # Create the data socket
-        self.data_socket = self.__create_data_socket( self.data_port )
-        if self.data_socket is None :
-            print( "Could not open data channel" )
-            return False
-
-        message_id_dict={}
-        data=bytearray(0)
-        # 64k buffer size
-        recv_buffer_size=64*1024
-
-        mocap_data = None
-
-        # Block for input
-        try:
-            data, addr = self.data_socket.recvfrom( recv_buffer_size )
-        except socket.error as msg:
-            print("ERROR: data socket access error occurred:\n  %s" %msg)
-            return 1
-        except  socket.herror:
-            print("ERROR: data socket access herror occurred")
-            #return 2
-        except  socket.gaierror:
-            print("ERROR: data socket access gaierror occurred")
-            #return 3
-        except  socket.timeout:
-            #if self.use_multicast:
-            print("ERROR: data socket access timeout occurred. Server not responding")
-            #return 4
-        if len( data ) > 0 :
-            #peek ahead at message_id
-            message_id = get_message_id(data)
-            tmp_str="mi_%1.1d"%message_id
-            if tmp_str not in message_id_dict:
-                message_id_dict[tmp_str]=0
-            message_id_dict[tmp_str] += 1
-            
-            mocap_data = self.__process_data(data , 1)
-
-        self.data_socket.close()
-
-        return mocap_data
-
 
     def shutdown(self):
-        print("shutdown called")
+        # print("shutdown called")
         self.stop_threads = True
         # closing sockets causes blocking recvfrom to throw
         # an exception and break the loop

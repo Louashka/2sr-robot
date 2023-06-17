@@ -1,39 +1,5 @@
-import sys
-from NatNetClient import NatNetClient
 import numpy as np
 import pandas as pd
-
-optionsDict = {}
-optionsDict["clientAddress"] = "127.0.0.1"
-optionsDict["serverAddress"] = "127.0.0.1"
-optionsDict["use_multicast"] = True
-
-mocap_data = None
-
-
-def my_parse_args(arg_list, args_dict):
-    # set up base values
-    arg_list_len = len(arg_list)
-    if arg_list_len > 1:
-        args_dict["serverAddress"] = arg_list[1]
-        if arg_list_len > 2:
-            args_dict["clientAddress"] = arg_list[2]
-        if arg_list_len > 3:
-            if len(arg_list[3]):
-                args_dict["use_multicast"] = True
-                if arg_list[3][0].upper() == "U":
-                    args_dict["use_multicast"] = False
-
-    return args_dict
-
-
-# This will create a new NatNet client
-optionsDict = my_parse_args(sys.argv, optionsDict)
-
-streaming_client = NatNetClient()
-streaming_client.set_client_address(optionsDict["clientAddress"])
-streaming_client.set_server_address(optionsDict["serverAddress"])
-streaming_client.set_use_multicast(optionsDict["use_multicast"])
 
 
 def _unpack_data(mocap_data):
@@ -116,11 +82,11 @@ def _euler_from_quaternion(coeffs):
     return [roll_x, pitch_y, yaw_z]  # in radians
 
 
-def _sort_points(marker_df, rb_df):
-    marker_df["order"] = 0
+def _sort_points(markers_df, rb_df):
+    markers_df["order"] = 0
 
     lu1_df = rb_df[rb_df["id"] == 2]
-    free_markers_df = marker_df[df["model_id"] == 0]
+    free_markers_df = markers_df[markers_df["model_id"] == 0]
 
     vsf_start = free_markers_df.head(1)
     min_dist = np.linalg.norm(
@@ -135,8 +101,8 @@ def _sort_points(marker_df, rb_df):
             min_dist = dist
             min_index = index
 
-    markers_df_.at[min_index, 'order'] = 1
-    free_markers_pose_df.at[min_index, 'order'] = 1
+    markers_df.at[min_index, 'order'] = 1
+    free_markers_df.at[min_index, 'order'] = 1
 
     for i in range(1, 6):
         current_df = free_markers_df[free_markers_df['order'] == 0]
@@ -181,28 +147,38 @@ def __calc_wheels_ccoords(lu1_angle, lu2_angle):
 
     R1 = np.array([[np.cos(lu1_angle), -np.sin(lu1_angle)],
                    [np.sin(lu1_angle), np.cos(lu1_angle)]])
-    w1 = np.matmul(R1, w1_0)
-    w2 = np.matmul(R1, w2_0)
+    w1 = np.matmul(R1, w1_0).T[0]
+    w2 = np.matmul(R1, w2_0).T[0]
+
+    # w1.append(0)
+    # w2.append(-np.pi/2)
 
     R2 = np.array([[np.cos(lu2_angle), -np.sin(lu2_angle)],
                    [np.sin(lu2_angle), np.cos(lu2_angle)]])
-    w3 = np.matmul(R2, w3_0)
-    w4 = np.matmul(R2, w4_0)
+    w3 = np.matmul(R2, w3_0).T[0]
+    w4 = np.matmul(R2, w4_0).T[0]
 
-    w = [w1, w2, w3, w4]
+    # w3.append(np.pi/2)
+    # w4.append(0)
+
+    beta = [-np.pi/2, np.pi, np.pi/2, np.pi]
+    w = [w2, w1, w3, w4]
+
+    for i in range(4):
+        w[i] = np.append(w[i], beta[i])
 
     return w
 
 
-def get_wheels_coords():
-    w_coords = []
+def get_wheels_coords(mocap_data):
+    w_coords = None
 
-    mocap_data = streaming_client.get_current_frame_data()
+    markers_df, rb_df = _unpack_data(mocap_data)
 
-    if mocap_data is not None:
-        markers_df, rb_df = _unpack_data(mocap_data)
-
-        markers_df[['marker_x', 'marker_y', 'marker_z']] = markers_df_[['marker_x', 'marker_y', 'marker_z']].apply(
+    if markers_df.empty or rb_df.empty:
+        print("No data received from Motive!")
+    else:
+        markers_df[['marker_x', 'marker_y', 'marker_z']] = markers_df[['marker_x', 'marker_y', 'marker_z']].apply(
             lambda x: pd.Series([_motive_to_g(x)[0], _motive_to_g(x)[1], _motive_to_g(x)[2]]), axis=1)
         rb_df[['x', 'y', 'z']] = rb_df[['x', 'y', 'z']].apply(lambda x: pd.Series(
             [_motive_to_g(x)[0], _motive_to_g(x)[1], _motive_to_g(x)[2]]), axis=1)

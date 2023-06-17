@@ -2,6 +2,8 @@ import mainController
 import motive_client
 from pynput import keyboard
 import numpy as np
+import sys
+from NatNetClient import NatNetClient
 
 port_name = "COM3"
 controller = mainController.Controller(port_name)
@@ -27,17 +29,19 @@ BOTH_RIGID = {keyboard.Key.down, keyboard.KeyCode.from_char('x')}
 # The currently active modifiers
 current_keys = set()
 s = [0] * 2
+data = None
 
 
 def manual_control(v, s, agent_id):
 
     while True:
-        w_current = motive_client.get_wheels_coords()
+        w_current = motive_client.get_wheels_coords(data)
 
         if w_current is not None:
 
             omega = controller.wheel_drive(w_current, v, s)
             controller.move_robot(omega, s, agent_id)
+            # controller.move_robot(np.array([0, 0, 0, 0]), s, agent_id)
 
             break
 
@@ -182,7 +186,51 @@ def on_release(key):
         pass
 
 
+def receive_mocap_data_frame(mocap_data):
+    global data
+
+    data = mocap_data
+
+
+def my_parse_args(arg_list, args_dict):
+    # set up base values
+    arg_list_len = len(arg_list)
+    if arg_list_len > 1:
+        args_dict["serverAddress"] = arg_list[1]
+        if arg_list_len > 2:
+            args_dict["clientAddress"] = arg_list[2]
+        if arg_list_len > 3:
+            if len(arg_list[3]):
+                args_dict["use_multicast"] = True
+                if arg_list[3][0].upper() == "U":
+                    args_dict["use_multicast"] = False
+
+    return args_dict
+
+
 if __name__ == "__main__":
+
+    optionsDict = {}
+    optionsDict["clientAddress"] = "127.0.0.1"
+    optionsDict["serverAddress"] = "127.0.0.1"
+    optionsDict["use_multicast"] = True
+
+    # This will create a new NatNet client
+    optionsDict = my_parse_args(sys.argv, optionsDict)
+
+    streaming_client = NatNetClient()
+    streaming_client.set_client_address(optionsDict["clientAddress"])
+    streaming_client.set_server_address(optionsDict["serverAddress"])
+    streaming_client.set_use_multicast(optionsDict["use_multicast"])
+
+    # Configure the streaming client to call our rigid body handler on the emulator to send data out.
+    # streaming_client.new_frame_listener = receive_new_frame
+    # streaming_client.rigid_body_listener = receive_rigid_body_frame
+    streaming_client.mocap_data_listener = receive_mocap_data_frame
+
+    # Start up the streaming client now that the callbacks are set up.
+    # This will run perpetually, and operate on a separate thread.
+    is_running = streaming_client.run()
 
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
