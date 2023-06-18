@@ -1,0 +1,44 @@
+INSTRUCTIONS
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+1. Download the project from GitHub
+    1.1 Open PowerShell and navigate to the folder where you want to keep the project
+    1.2 Download the project by "git clone https://github.com/Louashka/2sr-swarm-control.git"
+
+2. Create a branch where you will commit your changes
+    2.1 Create a branch by "git branch adam"
+    2.2 Switch to this branc by "git checkout adam"
+
+3. In the following task, you are assigned to develop a system that allows robots to detect objects
+placed within a workspace, approach them, and grasp them. The objects can have arbitrary closed
+curves as their shapes. To accomplish this, a camera has been installed on top of the workspace,
+which captures both the robots and the object to be manipulated.
+
+Your objective is to implement a real-time object contour reconstruction system using Python and the
+OpenCV library. The system should be capable of reconstructing the contours of the object in
+real-time and returning them as an array of connected 2D points.
+
+Write down the code in manip_shape_detection.py.
+
+    3.1  Install the necessary software components, including Python and the OpenCV library
+    3.2  Initialize the camera capture object
+    3.3  Adjust the camera parameters if needed (e.g., resolution, frame rate) by calling appropriate
+         functions on the cap object
+    3.4  Start a while loop to continuously capture and process frames from the camera
+    3.5  Convert the captured frame to grayscale for better contour detection
+    3.6  Apply any necessary image processing techniques (e.g., thresholding, blurring) to enhance the
+         object's contours
+    3.7  Detect and extract contours using the cv2.findContours() function
+    3.8  Filter out small or noisy contours based on their area or length
+    3.9  Optionally, apply additional contour refinement techniques such as smoothing, approximation,
+    or convex hull to improve the accuracy of the detected contour
+    3.10 Iterate over the detected contours and convert them to arrays of connected 2D points
+    3.11 Once you have finished processing frames, release the camera capture and close any open windows
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+NAMING CONVENTION
+
+- files, variables: snake case (e.g. lower_case_with_underscores)
+- classes, functions: camel case (e.g. CamelCase for a class and camelCase for a function)
