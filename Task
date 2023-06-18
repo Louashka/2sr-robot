@@ -36,6 +36,12 @@ Write down the code in manip_shape_detection.py.
     3.10 Iterate over the detected contours and convert them to arrays of connected 2D points
     3.11 Once you have finished processing frames, release the camera capture and close any open windows
 
+4. Submit changes to your branch
+    4.1 Check if you are on your branch!! "git status" (must return "adam")
+    4.2 Add files "git add ."
+    4.3 Commit your changes "git commit -m "... your message ...""
+    4.4 Submit changes to GitHub "git push"
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 NAMING CONVENTION
