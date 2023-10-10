@@ -8,7 +8,9 @@ class Controller:
     def __init__(self, port_name):
         self.serial_port = serial.Serial(port_name, 115200)
 
-    def wheel_drive(self, w_list, v, s):
+    def get_wheels_velocities(self, w_list, v, s):
+
+        # w_list contains coordinates (position and orientation) of wheels
 
         flag_soft = int(s[0] or s[1])
         flag_rigid = int(not (s[0] or s[1]))

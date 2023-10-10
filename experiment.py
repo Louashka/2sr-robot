@@ -1,4 +1,4 @@
-import main_controller
+import agent_controller
 import motive_client
 from pynput import keyboard
 import numpy as np
@@ -6,30 +6,34 @@ import sys
 from nat_net_client import NatNetClient
 
 port_name = "COM3"
-controller = main_controller.Controller(port_name)
+controller = agent_controller.Controller(port_name)
 
-ROTATION_LEFT = {keyboard.KeyCode.from_char('r'), keyboard.Key.left}
-ROTATION_RIGHT = {keyboard.KeyCode.from_char('r'), keyboard.Key.right}
+ROTATION_LEFT = {keyboard.Key.ctrl, keyboard.Key.left}
+ROTATION_RIGHT = {keyboard.Key.ctrl, keyboard.Key.right}
 
-LEFT_LU_FORWARD = {keyboard.KeyCode.from_char('1'), keyboard.Key.up}
-LEFT_LU_BACKWARD = {keyboard.KeyCode.from_char('1'), keyboard.Key.down}
+LEFT_LU_FORWARD = {keyboard.KeyCode.from_char('z'), keyboard.Key.up}
+LEFT_LU_BACKWARD = {keyboard.KeyCode.from_char('z'), keyboard.Key.down}
+RIGHT_LU_FORWARD = {keyboard.KeyCode.from_char('x'), keyboard.Key.up}
+RIGHT_LU_BACKWARD = {keyboard.KeyCode.from_char('x'), keyboard.Key.down}
+BOTH_LU_FORWARD = {keyboard.KeyCode.from_char('c'), keyboard.Key.up}
+BOTH_LU_BACKWARD = {keyboard.KeyCode.from_char('c'), keyboard.Key.down}
 
-RIGHT_LU_FORWARD = {keyboard.KeyCode.from_char('2'), keyboard.Key.up}
-RIGHT_LU_BACKWARD = {keyboard.KeyCode.from_char('2'), keyboard.Key.down}
-BOTH_LU_FORWARD = {keyboard.KeyCode.from_char('3'), keyboard.Key.up}
-BOTH_LU_BACKWARD = {keyboard.KeyCode.from_char('3'), keyboard.Key.down}
-
-S1_SOFT = {keyboard.Key.left, keyboard.KeyCode.from_char('s')}
-S1_RIGID = {keyboard.Key.left, keyboard.KeyCode.from_char('x')}
-S2_SOFT = {keyboard.Key.right, keyboard.KeyCode.from_char('s')}
-S2_RIGID = {keyboard.Key.right, keyboard.KeyCode.from_char('x')}
-BOTH_SOFT = {keyboard.Key.up, keyboard.KeyCode.from_char('s')}
-BOTH_RIGID = {keyboard.Key.down, keyboard.KeyCode.from_char('x')}
+S1_SOFT = {keyboard.KeyCode.from_char(
+    'z'), keyboard.KeyCode.from_char('s'), keyboard.Key.up}
+S1_RIGID = {keyboard.KeyCode.from_char(
+    'z'), keyboard.KeyCode.from_char('s'), keyboard.Key.down}
+S2_SOFT = {keyboard.KeyCode.from_char(
+    'x'), keyboard.KeyCode.from_char('s'), keyboard.Key.up}
+S2_RIGID = {keyboard.KeyCode.from_char(
+    'x'), keyboard.KeyCode.from_char('s'), keyboard.Key.down}
+BOTH_SOFT = {keyboard.KeyCode.from_char('s'), keyboard.Key.up}
+BOTH_RIGID = {keyboard.KeyCode.from_char('s'), keyboard.Key.down}
 
 # The currently active modifiers
 current_keys = set()
 s = [0] * 2
 data = None
+agent_id = 1
 
 
 def manual_control(v, s, agent_id):
@@ -39,7 +43,7 @@ def manual_control(v, s, agent_id):
 
         if w_current is not None:
 
-            omega = controller.wheel_drive(w_current, v, s)
+            omega = controller.get_wheels_velocities(w_current, v, s)
             controller.move_robot(omega, s, agent_id)
 
     except:
@@ -160,19 +164,19 @@ def on_press(key):
     if flag:
 
         if key == keyboard.Key.up:
-            print("forward")
+            print("Forward")
             v[3] = omni_speed
 
         if key == keyboard.Key.down:
-            print("backward")
+            print("Backward")
             v[3] = -omni_speed
 
         if key == keyboard.Key.left:
-            print("left")
+            print("Left")
             v[2] = -omni_speed
 
         if key == keyboard.Key.right:
-            print("right")
+            print("Right")
             v[2] = omni_speed
 
     manual_control(v, s, 2)
@@ -182,7 +186,7 @@ def on_release(key):
     global current_keys
     try:
         current_keys.remove(key)
-        controller.move_robot(np.array([0, 0, 0, 0]), s, 2)
+        controller.move_robot(np.array([0, 0, 0, 0]), s, agent_id)
     except KeyError:
         pass
 
