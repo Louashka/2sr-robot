@@ -23,7 +23,7 @@ def _unpack_data(mocap_data):
     rigid_body_data = mocap_data.rigid_body_data
     labeled_marker_data = mocap_data.labeled_marker_data
 
-    if labeled_marker_data.get_labeled_marker_count() == 12:
+    if labeled_marker_data.get_labeled_marker_count() == 9:
         rigid_body_list = rigid_body_data.rigid_body_list
         labeled_marker_list = labeled_marker_data.labeled_marker_list
 
@@ -87,7 +87,7 @@ def _euler_from_quaternion(coeffs):
 def _sort_points(markers_df, rb_df):
     markers_df["order"] = 0
 
-    lu1_df = rb_df[rb_df["id"] == 2]
+    lu1_df = rb_df[rb_df["id"] == 1]
     free_markers_df = markers_df[markers_df["model_id"] == 0]
 
     vsf_start = free_markers_df.head(1)
@@ -140,7 +140,7 @@ def _get_angle(p1, p2):
     return alpha
 
 
-def __calc_wheels_ccoords(lu1_angle, lu2_angle):
+def __calc_wheels_coords(lu1_angle, lu2_angle):
     w1_0 = 2 * np.array([[-0.005], [-0.0325]])
     w2_0 = 2 * np.array([[0.0325], [0.0045]])
 
@@ -191,7 +191,7 @@ def get_wheels_coords(mocap_data):
             [_euler_from_quaternion(x)[0], _euler_from_quaternion(x)[1], _euler_from_quaternion(x)[2]]), axis=1)
         markers_df = _sort_points(markers_df, rb_df)
 
-        lu1_angle = rb_df[rb_df["id"] == 2].yaw.values[0]
+        lu1_angle = rb_df[rb_df["id"] == 1].yaw.values[0]
 
         p = []
         for i in range(3, 6):
@@ -202,6 +202,6 @@ def get_wheels_coords(mocap_data):
         alpha2 = _get_angle(p[1], p[2])
         lu2_angle = 2 * alpha2 - alpha1
 
-        w_coords = __calc_wheels_ccoords(lu1_angle, lu2_angle)
+        w_coords = __calc_wheels_coords(lu1_angle, lu2_angle)
 
     return w_coords

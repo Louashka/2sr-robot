@@ -13,7 +13,7 @@ WHEEL_R = 10 * 10**(-3)  # wheel radius
 WHEEL_TH = 12 * 10**(-3)  # wheel thickness
 WHEEL_MARGIN = 10**(-3)
 
-BETA = [0, -math.pi / 2, math.pi / 2, 0]
+BETA = [math.pi / 2, math.pi, -math.pi / 2, math.pi]
 
 H1 = L_VSS_CNN + BLOCK_SIDE - WHEEL_R
 H2 = BLOCK_SIDE + WHEEL_TH / 2 + WHEEL_MARGIN
