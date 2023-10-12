@@ -101,12 +101,12 @@ def receive_mocap_data_frame(mocap_data):
     # print("%s\n"%mocap_data.labeled_marker_data.get_as_string(" ", 1))
 
     if count == 1:
-        data1 = {'pose': 1, 'model_id': data_model_id, 'marker_id': data_marker_id,
+        data1 = {'pose': 8, 'model_id': data_model_id, 'marker_id': data_marker_id,
                  'marker_x': data_marker_x, 'marker_y': data_marker_y, 'marker_z': data_marker_z}
         df1 = pd.DataFrame(data=data1)
         df1.to_csv('markers.csv', index=False, mode='a', header=False)
 
-        data2 = {'pose': 1, 'id': data_rb_id, 'x': data_rb_x, 'y': data_rb_y, 'z': data_rb_z,
+        data2 = {'pose': 8, 'id': data_rb_id, 'x': data_rb_x, 'y': data_rb_y, 'z': data_rb_z,
                  'a': data_rb_rot_a, 'b': data_rb_rot_b, 'c': data_rb_rot_c, 'd': data_rb_rot_d}
         df2 = pd.DataFrame(data=data2)
         df2.to_csv('rigid_bodies.csv', index=False, mode='a', header=False)
@@ -120,7 +120,7 @@ def receive_mocap_data_frame(mocap_data):
     rigid_body_data = mocap_data.rigid_body_data
     labeled_marker_data = mocap_data.labeled_marker_data
 
-    if labeled_marker_data.get_labeled_marker_count() == 12:
+    if labeled_marker_data.get_labeled_marker_count() == 9:
         rigid_body_list = rigid_body_data.rigid_body_list
         labeled_marker_list = labeled_marker_data.labeled_marker_list
 

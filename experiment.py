@@ -5,7 +5,7 @@ import numpy as np
 import sys
 from nat_net_client import NatNetClient
 
-port_name = "COM3"
+port_name = "COM5"
 controller = agent_controller.Controller(port_name)
 
 ROTATION_LEFT = {keyboard.Key.ctrl, keyboard.Key.left}
