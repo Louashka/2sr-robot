@@ -2,6 +2,7 @@ import sys
 from nat_net_client import NatNetClient
 import numpy as np
 import pandas as pd
+import globals_
 
 
 def _unpack_data(mocap_data):
@@ -140,7 +141,7 @@ def _get_angle(p1, p2):
     return alpha
 
 
-def __calc_wheels_coords(lu1_angle, lu2_angle):
+def __calc_wheels_coords(lu1_pos, lu1_angle, lu2_pos, lu2_angle):
     w1_0 = 2 * np.array([[-0.005], [-0.0325]])
     w2_0 = 2 * np.array([[0.0325], [0.0045]])
 
@@ -149,25 +150,31 @@ def __calc_wheels_coords(lu1_angle, lu2_angle):
 
     R1 = np.array([[np.cos(lu1_angle), -np.sin(lu1_angle)],
                    [np.sin(lu1_angle), np.cos(lu1_angle)]])
-    w1 = np.matmul(R1, w1_0).T[0]
-    w2 = np.matmul(R1, w2_0).T[0]
-
-    # w1.append(0)
-    # w2.append(-np.pi/2)
+    w1 = np.matmul(R1, w1_0).T[0] + lu1_pos
+    w2 = np.matmul(R1, w2_0).T[0] + lu1_pos
 
     R2 = np.array([[np.cos(lu2_angle), -np.sin(lu2_angle)],
                    [np.sin(lu2_angle), np.cos(lu2_angle)]])
-    w3 = np.matmul(R2, w3_0).T[0]
-    w4 = np.matmul(R2, w4_0).T[0]
+    w3 = np.matmul(R2, w3_0).T[0] + lu2_pos
+    w4 = np.matmul(R2, w4_0).T[0] + lu2_pos
 
-    # w3.append(np.pi/2)
-    # w4.append(0)
+    w = [w1, w2, w3, w4]
 
-    beta = [-np.pi / 2, np.pi, np.pi / 2, np.pi]
-    w = [w2, w1, w3, w4]
+    centroid = [(lu1_pos[0] + lu2_pos[0]) / 2, (lu1_pos[1] + lu2_pos[1]) / 2]
+    direction = _get_angle(lu1_pos, lu2_pos)
+
+    R_origin = np.array([[np.cos(direction), -np.sin(direction)],
+                         [np.sin(direction), np.cos(direction)]])
 
     for i in range(4):
-        w[i] = np.append(w[i], beta[i])
+        w_b0 = np.array([w[i] - centroid]).T
+        w[i] = np.matmul(R_origin, w_b0).T[0]
+
+    for i in range(2):
+        w[i] = np.append(w[i], lu1_angle + globals_.BETA[i])
+
+    for i in range(2, 4):
+        w[i] = np.append(w[i], lu2_angle + globals_.BETA[i])
 
     return w
 
@@ -202,6 +209,11 @@ def get_wheels_coords(mocap_data):
         alpha2 = _get_angle(p[1], p[2])
         lu2_angle = 2 * alpha2 - alpha1
 
-        w_coords = __calc_wheels_coords(lu1_angle, lu2_angle)
+        lu1_pos = [rb_df[rb_df["id"] == 1].x.values[0], rb_df[rb_df["id"] == 1].y.values[0]]
+
+        lu2_df = markers_df[(markers_df["model_id"] == 0) & (markers_df["order"] == 6)]
+        lu2_pos = [lu2_df.marker_x.values[0], lu2_df.marker_y.values[0]]
+
+        w_coords = __calc_wheels_coords(lu1_pos, lu1_angle, lu2_pos, lu2_angle)
 
     return w_coords

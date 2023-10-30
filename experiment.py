@@ -8,8 +8,8 @@ from nat_net_client import NatNetClient
 port_name = "COM5"
 controller = agent_controller.Controller(port_name)
 
-ROTATION_LEFT = {keyboard.Key.ctrl, keyboard.Key.left}
-ROTATION_RIGHT = {keyboard.Key.ctrl, keyboard.Key.right}
+ROTATION_LEFT = {keyboard.KeyCode.from_char('a'), keyboard.Key.left}
+ROTATION_RIGHT = {keyboard.KeyCode.from_char('a'), keyboard.Key.right}
 
 LEFT_LU_FORWARD = {keyboard.KeyCode.from_char('z'), keyboard.Key.up}
 LEFT_LU_BACKWARD = {keyboard.KeyCode.from_char('z'), keyboard.Key.down}
@@ -58,9 +58,9 @@ def on_press(key):
 
     v = [0] * 5
 
-    omni_speed = 0.1
-    rotation_speed = 0.7
-    lu_speed = 0.1
+    omni_speed = 0.12
+    rotation_speed = 1
+    lu_speed = 0.12
 
     if key in ROTATION_LEFT:
         current_keys.add(key)
@@ -179,7 +179,7 @@ def on_press(key):
             print("Right")
             v[2] = omni_speed
 
-    manual_control(v, s, 2)
+    manual_control(v, s, agent_id)
 
 
 def on_release(key):
