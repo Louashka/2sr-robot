@@ -1,7 +1,7 @@
 from pynput import keyboard
 
 
-class KeyboardController:
+class ActionsHandler:
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
 
@@ -10,10 +10,10 @@ class KeyboardController:
         self.__rotation_speed = rotation_speed
         self.__lu_speed = lu_speed  # Speed of the locomotion units int thxe soft mode
 
+        self.__current_keys = set()
+
         self.__v = [0] * 5
         self.__s = [0, 0]
-
-        self.__current_keys = set()
 
         # Key combinations
         self.__keyboard_combinations = {
@@ -112,7 +112,7 @@ class KeyboardController:
             },
         }
 
-    def __handleKeyCombination(self) -> list:
+    def __handleKeyCombination(self):
         for combination, keys in self.__keyboard_combinations.items():
             if (keys == self.__current_keys):
                 action = self.__keyboard_actions[combination]["callback"]
@@ -123,19 +123,24 @@ class KeyboardController:
                 break
             else:
                 self.__v = [0] * 5
-                self.__s = [0, 0]
 
-        return self.__v, self.__s
-
-    def onPress(self, key) -> list:
+    def onPress(self, key):
         self.__current_keys.add(key)
 
-        return self.__handleKeyCombination()
+        self.__handleKeyCombination()
 
-    def onRelease(self, key) -> list:
+    def onRelease(self, key):
         try:
             self.__current_keys.remove(key)
         except KeyError:
             self.__current_keys.clear()
 
-        return self.__handleKeyCombination()
+        self.__handleKeyCombination()
+
+    @property
+    def v(self):
+        return self.__v
+
+    @property
+    def s(self):
+        return self.__s
