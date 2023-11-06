@@ -1,61 +1,41 @@
 import sys
 from nat_net_client import NatNetClient
 import numpy as np
+import math
 import pandas as pd
 import globals_
+import matplotlib.pyplot as plt
+
+m_pos = ['marker_x', 'marker_y', 'marker_z']
+rb_pos = ['x', 'y', 'z']
+rb_params = ['a', 'b', 'c', 'd']
+rb_angles = ['roll', 'pitch', 'yaw']
 
 
 def _unpack_data(mocap_data):
-    data_model_id = []
-    data_marker_id = []
-    data_marker_x = []
-    data_marker_y = []
-    data_marker_z = []
 
-    data_rb_id = []
-    data_rb_x = []
-    data_rb_y = []
-    data_rb_z = []
-    data_rb_rot_a = []
-    data_rb_rot_b = []
-    data_rb_rot_c = []
-    data_rb_rot_d = []
+    markers = []
+    rigid_bodies = []
 
     rigid_body_data = mocap_data.rigid_body_data
     labeled_marker_data = mocap_data.labeled_marker_data
 
     if labeled_marker_data.get_labeled_marker_count() == 9:
-        rigid_body_list = rigid_body_data.rigid_body_list
         labeled_marker_list = labeled_marker_data.labeled_marker_list
+        rigid_body_list = rigid_body_data.rigid_body_list
 
         for marker in labeled_marker_list:
             model_id, marker_id = marker.get_id()
-
-            data_model_id.append(model_id)
-            data_marker_id.append(marker_id)
-            data_marker_x.append(marker.pos[0])
-            data_marker_y.append(marker.pos[1])
-            data_marker_z.append(marker.pos[2])
+            marker = {'model_id': model_id, 'marker_id': marker_id,
+                      'marker_x': marker.pos[0], 'marker_y': marker.pos[1], 'marker_z': marker.pos[2]}
+            markers.append(marker)
 
         for rigid_body in rigid_body_list:
-            data_rb_id.append(rigid_body.id_num)
-            data_rb_x.append(rigid_body.pos[0])
-            data_rb_y.append(rigid_body.pos[1])
-            data_rb_z.append(rigid_body.pos[2])
-            data_rb_rot_a.append(rigid_body.rot[0])
-            data_rb_rot_b.append(rigid_body.rot[1])
-            data_rb_rot_c.append(rigid_body.rot[2])
-            data_rb_rot_d.append(rigid_body.rot[3])
+            rigid_body = {'id': rigid_body.id_num, 'x': rigid_body.pos[0], 'y': rigid_body.pos[1], 'z': rigid_body.pos[2], 'a': rigid_body.rot[0],
+                          'b': rigid_body.rot[1], 'c': rigid_body.rot[2], 'd': rigid_body.rot[3]}
+            rigid_bodies.append(rigid_body)
 
-    data1 = {'model_id': data_model_id, 'marker_id': data_marker_id,
-             'marker_x': data_marker_x, 'marker_y': data_marker_y, 'marker_z': data_marker_z}
-    markers_df = pd.DataFrame(data=data1)
-
-    data2 = {'id': data_rb_id, 'x': data_rb_x, 'y': data_rb_y, 'z': data_rb_z,
-             'a': data_rb_rot_a, 'b': data_rb_rot_b, 'c': data_rb_rot_c, 'd': data_rb_rot_d}
-    rb_df = pd.DataFrame(data=data2)
-
-    return markers_df, rb_df
+    return markers, rigid_bodies
 
 
 def _motiveToG(coords):
@@ -85,46 +65,44 @@ def _quaternionToEuler(coeffs):
     return [roll_x, pitch_y, yaw_z]  # in radians
 
 
-def _rankPoints(markers_df, lu1_df):
+def _rankPoints(markers, head_LU):
 
-    free_markers_df = markers_df[markers_df['model_id'] == 0]
+    # free_markers = [marker for marker in markers if marker['model_id'] == 0]
+    head_LU_pos = np.array([head_LU.get(coord) for coord in rb_pos])
 
     # Define remaining points and their id's that correspond to thei original indicies
-    remaining_points = free_markers_df[[
-        'marker_x', 'marker_y', 'marker_z']].values.tolist()
-    remaining_points_id = list(range(0, 6))
+    # remaining_points = [[free_marker.get(coord) for coord in m_pos] for free_marker in free_markers]
+    remaining_points = [marker for marker in markers.values() if marker['model_id'] == 0]
+    for remaining_point in remaining_points:
+        remaining_point['pos'] = np.array([remaining_point.get(coord) for coord in m_pos])
+    # remaining_points_ind = list(range(0, 6))
 
     # List of points ranks
-    ranks = [0] * len(remaining_points)
+    # ranks = [0] * len(remaining_points)
     rank = 1  # Current rank
 
     # Find the point closest to the head LU
-    distances = np.linalg.norm(
-        remaining_points - lu1_df[['x', 'y', 'z']].values, axis=1)
+    distances = np.linalg.norm([point['pos'] for point in remaining_points] - head_LU_pos, axis=1)
 
     current_index = distances.argmin()
-    current_point_id = remaining_points_id[current_index]
 
     # Find the rank of the rest of the points
     while remaining_points:
         current_point = remaining_points.pop(current_index)
-        current_point_id = remaining_points_id.pop(current_index)
+        markers.get(current_point['marker_id'])['rank'] = rank
 
-        ranks[current_point_id] = rank
         rank += 1  # Update rank
 
         if(remaining_points):
             distances = np.linalg.norm(
-                remaining_points - np.array(current_point), axis=1)
+                [point['pos'] for point in remaining_points] - current_point['pos'], axis=1)
             current_index = distances.argmin()
 
-    markers_df['order'] = 0
-    markers_df['order'][markers_df['model_id'] == 0] = ranks
+    for marker in markers.values():
+        if marker['model_id'] != 0:
+            marker['rank'] = 0
 
-    # Sort the 'markers_df' DataFrame by order
-    sorted_markers_df = markers_df.sort_values(by=['order'])
-
-    return sorted_markers_df
+    # return markers
 
 
 def _getAngle(p1, p2):
@@ -138,11 +116,11 @@ def _getAngle(p1, p2):
 
 
 def __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle):
-    w1_0 = 2 * np.array([[-0.005], [-0.0325]])
-    w2_0 = 2 * np.array([[0.0325], [0.0045]])
+    w1_0 = np.array([[-0.022167], [-0.00933]])
+    w2_0 = np.array([[0.015833], [-0.036833]])
 
-    w3_0 = 2 * np.array([[-0.027], [0.01]])
-    w4_0 = 2 * np.array([[0.0105], [-0.027]])
+    w3_0 = np.array([[0.0275], [0]])
+    w4_0 = np.array([[-0.0105], [-0.0275]])
 
     R1 = np.array([[np.cos(lu1_angle), -np.sin(lu1_angle)],
                    [np.sin(lu1_angle), np.cos(lu1_angle)]])
@@ -176,55 +154,88 @@ def __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle):
 
 
 # Calculate the wheels' coordinates from the mocap data
-def getWheelsCoords(mocap_data):
+def getWheelsCoords(markers, rigid_bodies):
 
     # A list of wheels coordinates
     w = None
 
     # Retreive location of the markers and rigid_bodies
-    markers_df, rb_df = _unpack_data(mocap_data)
+    # markers, rigid_bodies = _unpack_data(mocap_data)
 
-    if markers_df.empty or rb_df.empty:
+    if len(markers) == 0 or len(rigid_bodies) == 0:
         raise Exception("No data received from Motive!")
     else:
+
         # Convert values from the Motive frame to the global frame
-        markers_df[['marker_x', 'marker_y', 'marker_z']] = markers_df[[
-            'marker_x', 'marker_y', 'marker_z']].apply(lambda x: pd.Series(_motiveToG(x)), axis=1)
-        rb_df[['x', 'y', 'z']] = rb_df[['x', 'y', 'z']].apply(lambda x: pd.Series(
-            [_motiveToG(x)[0], _motiveToG(x)[1], _motiveToG(x)[2]]), axis=1)
-        rb_df[['a', 'b', 'c', 'd']] = rb_df[['a', 'b', 'c', 'd']].apply(
-            lambda x: pd.Series(_quatTransform(x)), axis=1)
+        for marker in markers.values():
+            new_pos = _motiveToG([marker.get(coord) for coord in m_pos])
+            for i in range(3):
+                marker[m_pos[i]] = new_pos[i]
 
-        # Convert quaternions to Euler angles
-        rb_df[['roll', 'pitch', 'yaw']] = rb_df[['a', 'b', 'c', 'd']].apply(
-            lambda x: pd.Series(_quaternionToEuler(x)), axis=1)
+        for rigid_body in rigid_bodies.values():
+            new_pos = _motiveToG([rigid_body.get(coord) for coord in rb_pos])
+            for i in range(3):
+                rigid_body[rb_pos[i]] = new_pos[i]
 
+            new_params = _quatTransform(
+                [rigid_body.get(param) for param in rb_params])
+            for i in range(4):
+                rigid_body[rb_params[i]] = new_params[i]
+
+            # Convert quaternions to Euler angles
+            euler_angles = _quaternionToEuler(
+                [rigid_body.get(param) for param in rb_params])
+            for i in range(3):
+                rigid_body[rb_angles[i]] = euler_angles[i]
+
+        markers_x = [marker.get('marker_x') for marker in markers.values()]
+        markers_y = [marker.get('marker_y') for marker in markers.values()]
+
+        plt.scatter(markers_x, markers_y)
+
+        # Get the position of the head LU
+        head_LU = rigid_bodies[1]
+
+        plt.plot(head_LU['x'], head_LU['y'], 'r*')
+        plt.plot([head_LU['x'], head_LU['x'] + 0.05 * np.cos(head_LU['yaw'])],
+                [head_LU['y'], head_LU['y'] + 0.05 * np.sin(head_LU['yaw'])], 'r')
+        
         # Sort markers along the bridge
-        markers_df = _sortPoints(markers_df, rb_df)
+        _rankPoints(markers, head_LU)
 
-        # Get the position of the locomotion units
-        lu1_pos = [rb_df[rb_df["id"] == 1].x.values[0],
-                   rb_df[rb_df["id"] == 1].y.values[0]]
+        vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
+        vsf_markers.sort(key=lambda marker: marker['rank'])
 
-        # Position of the tail LU is defined by the last marker in order
-        lu2_df = markers_df[(markers_df["model_id"] == 0)
-                            & (markers_df["order"] == 6)]
-        lu2_pos = [lu2_df.marker_x.values[0], lu2_df.marker_y.values[0]]
+        vsf_markers_x = [vsf_marker['marker_x'] for vsf_marker in vsf_markers]
+        vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
 
-        # Get the orientation of the head LU
-        lu1_angle = rb_df[rb_df["id"] == 1].yaw.values[0]
+        plt.plot(vsf_markers_x, vsf_markers_y, color='orange')
 
-        # Get the position of the tail LU
-        p = []
-        for i in range(3, 6):
-            p.append(markers_df[markers_df["order"] == i]
-                     [["marker_x", "marker_y", "marker_z"]].values[0])
+        plt.axis('equal')
+        plt.show()
 
-        alpha1 = _getAngle(p[0], p[1])
-        alpha2 = _getAngle(p[1], p[2])
-        lu2_angle = 2 * alpha2 - alpha1
 
-        # Calculate the wheels' coordinates from LU's coordinates
-        w = __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle)
+
+  
+    #     # Position of the tail LU is defined by the last marker in order
+    #     lu2_df = markers_df[(markers_df["model_id"] == 0)
+    #                         & (markers_df["order"] == 6)]
+    #     lu2_pos = [lu2_df.marker_x.values[0], lu2_df.marker_y.values[0]]
+
+    #     # Get the orientation of the head LU
+    #     lu1_angle = rb_df[rb_df["id"] == 1].yaw.values[0]
+
+    #     # Get the orientation of the tail LU
+    #     p = []
+    #     for i in range(3, 6):
+    #         p.append(markers_df[markers_df["order"] == i]
+    #                  [["marker_x", "marker_y", "marker_z"]].values[0])
+
+    #     alpha1 = _getAngle(p[0], p[1])
+    #     alpha2 = _getAngle(p[1], p[2])
+    #     lu2_angle = 2 * alpha2 - alpha1
+
+    #     # Calculate the wheels' coordinates from LU's coordinates
+    #     w = __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle)
 
     return w
