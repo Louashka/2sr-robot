@@ -160,52 +160,55 @@ def __calcWheelsCoords(LU_head_frame, LU_tail_frame):
 
     return w
 
-def _wheelsToBodyFrame(body_frame, LU_head, LU_tail_angle, w):
+def _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, w):
+    wheels_bf = w.copy()
 
-    R_origin = np.array([[np.cos(body_frame[2]), -np.sin(body_frame[2])],
-                         [np.sin(body_frame[2]), np.cos(body_frame[2])]])
+    R_ob = np.array([[np.cos(body_frame[2]), -np.sin(body_frame[2])],
+                     [np.sin(body_frame[2]), np.cos(body_frame[2])]])
+    
+    T_ob = np.block([[R_ob, np.array([body_frame[:2]]).T], [np.zeros((1,2)), 1]])
+    T_bo = np.linalg.inv(T_ob)
 
     for i in range(4):
-        w_b0 = np.array([w[i] - body_frame[:2]]).T
-        w[i] = np.matmul(R_origin, w_b0).T[0]
-
+        w_b0 = [wheels_bf[i][0], wheels_bf[i][1], 1]
+        wheels_bf[i] = np.matmul(T_bo, w_b0).T[:-1]
     for i in range(2):
-        w[i] = np.append(w[i], LU_head['yaw'] + globals_.BETA[i])
+        wheels_bf[i] = np.append(wheels_bf[i], (LU_head_theta - body_frame[2]) % (2 * np.pi) + globals_.BETA[i])
 
     for i in range(2, 4):
-        w[i] = np.append(w[i], LU_tail_angle + globals_.BETA[i])
+        wheels_bf[i] = np.append(wheels_bf[i], (LU_tail_theta - body_frame[2]) % (2 * np.pi) + globals_.BETA[i])
 
-    return w
+    return wheels_bf
 
-def _displayRobot(markers, all_frames, wheels):
+def _displayRobot(markers, all_frames, wheels_global, wheels_bf):
 
     # Unpack frames
     LU_head_frame, LU_tail_frame, body_frame = all_frames
 
-    fig, ax = plt.subplots()
+    fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))
 
     # Plot all captured markers
     markers_x = [marker.get('marker_x') for marker in markers.values()]
     markers_y = [marker.get('marker_y') for marker in markers.values()]
 
-    ax.scatter(markers_x, markers_y)
+    axs[0].scatter(markers_x, markers_y)
     
     # Plot the block of the head LU
     LU_head_rect = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha))
-    ax.add_patch(Rectangle(LU_head_rect, a, a, angle=math.degrees(LU_head_frame[2]), edgecolor='black', facecolor='none'))
+    axs[0].add_patch(Rectangle(LU_head_rect, a, a, angle=math.degrees(LU_head_frame[2]), edgecolor='black', facecolor='none'))
 
     # Plot the block of the tail LU
     LU_tail_centre = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha))
-    ax.add_patch(Rectangle(LU_tail_centre, a, a, angle=math.degrees(LU_tail_frame[2]), edgecolor='black', facecolor='none'))
+    axs[0].add_patch(Rectangle(LU_tail_centre, a, a, angle=math.degrees(LU_tail_frame[2]), edgecolor='black', facecolor='none'))
 
     # Plot all frames
     for frame in all_frames:
-        ax.plot(frame[0], frame[1], 'r*')
-        ax.plot([frame[0], frame[0] + 0.03 * np.cos(frame[2])], [frame[1], frame[1] + 0.03 * np.sin(frame[2])], 'r')
+        axs[0].plot(frame[0], frame[1], 'r*')
+        axs[0].plot([frame[0], frame[0] + 0.03 * np.cos(frame[2])], [frame[1], frame[1] + 0.03 * np.sin(frame[2])], 'r')
 
     # Plot wheels
-    for wheel in wheels:
-        ax.plot(wheel[0], wheel[1], 'mo', markersize=15)
+    for wheel in wheels_global:
+        axs[0].plot(wheel[0], wheel[1], 'mo', markersize=15)
 
     # Plot the bridge curve
     vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
@@ -214,16 +217,29 @@ def _displayRobot(markers, all_frames, wheels):
     vsf_markers_x = [vsf_marker['marker_x'] for vsf_marker in vsf_markers]
     vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
 
-    ax.plot(vsf_markers_x, vsf_markers_y, color='orange')
+    axs[0].plot(vsf_markers_x, vsf_markers_y, color='orange')
 
     # Connect the bridge with the LU's
     vsf_start = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha - np.pi), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha - np.pi))
-    ax.plot([vsf_start[0], vsf_markers_x[0]], [vsf_start[1], vsf_markers_y[0]], color='orange')
+    axs[0].plot([vsf_start[0], vsf_markers_x[0]], [vsf_start[1], vsf_markers_y[0]], color='orange')
 
     vsf_end = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha - np.pi/2), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha - np.pi/2))
-    ax.plot([vsf_end[0], vsf_markers_x[-1]], [vsf_end[1], vsf_markers_y[-1]], color='orange')
+    axs[0].plot([vsf_end[0], vsf_markers_x[-1]], [vsf_end[1], vsf_markers_y[-1]], color='orange')
 
-    ax.axis('equal')
+    axs[0].axis('equal')
+
+
+    # PRINT THE ROBOT IN A BODY FRAME
+
+    axs[1].plot(0, 0, 'r*')
+    axs[1].plot([0, 0.05 * np.cos(0)], [0, 0.05 * np.sin(0)], 'r')
+
+    for wheel in wheels_bf:
+        axs[1].plot(wheel[0], wheel[1], 'mo', markersize=15)
+        axs[1].plot([wheel[0], wheel[0] + 0.03 * np.cos(wheel[2])], [wheel[1], wheel[1] + 0.03 * np.sin(wheel[2])], 'r')
+    
+    axs[1].axis('equal')
+
     plt.show()
 
 
@@ -287,10 +303,10 @@ def getWheelsCoords(markers, rigid_bodies):
 
         alpha1 = _getAngle(p[0], p[1])
         alpha2 = _getAngle(p[1], p[2])
-        LU_tail_angle = 2 * alpha2 - alpha1
+        LU_tail_theta = 2 * alpha2 - alpha1
 
         # Define the frame of the tail LU
-        LU_tail_frame = [LU_tail['marker_x'], LU_tail['marker_y'], LU_tail_angle]
+        LU_tail_frame = [LU_tail['marker_x'], LU_tail['marker_y'], LU_tail_theta]
 
         # Define the body frame
         body_frame = [(LU_head_x + LU_tail_frame[0]) / 2, (LU_head_y + LU_tail_frame[1]) / 2]
@@ -302,9 +318,10 @@ def getWheelsCoords(markers, rigid_bodies):
         all_frames = [LU_head_frame, LU_tail_frame, body_frame]
 
         # Calculate the wheels' coordinates from LU's coordinates
-        wheels = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
+        wheels_global = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
+        wheels_bf = _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, wheels_global)
 
         # Plot a robot 
-        _displayRobot(markers, all_frames, wheels)
+        _displayRobot(markers, all_frames, wheels_global, wheels_bf)
 
-    return wheels
+    return wheels_bf
