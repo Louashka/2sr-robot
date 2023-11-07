@@ -125,7 +125,7 @@ def _calcLUHeadOrientation(LU_head_markers):
     i_next = i + 1 if i < 2 else 0
 
     delta = points[i, :] - points[i_next, :]
-    theta = math.atan2(delta[1], delta[0]) + math.pi
+    theta = np.arctan2(delta[1], delta[0]) + math.pi
 
     return theta
 
@@ -161,8 +161,6 @@ def __calcWheelsCoords(LU_head_frame, LU_tail_frame):
     return w
 
 def _wheelsToBodyFrame(body_frame, LU_head, LU_tail_angle, w):
-    # centroid = [(LU_head_pos[0] + LU_tail_pos[0]) / 2, (LU_head_pos[1] + LU_tail_pos[1]) / 2]
-    # direction = _getAngle(LU_head_pos, LU_tail_pos)
 
     R_origin = np.array([[np.cos(body_frame[2]), -np.sin(body_frame[2])],
                          [np.sin(body_frame[2]), np.cos(body_frame[2])]])
@@ -179,7 +177,10 @@ def _wheelsToBodyFrame(body_frame, LU_head, LU_tail_angle, w):
 
     return w
 
-def _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels):
+def _displayRobot(markers, all_frames, wheels):
+
+    # Unpack frames
+    LU_head_frame, LU_tail_frame, body_frame = all_frames
 
     fig, ax = plt.subplots()
 
@@ -188,23 +189,19 @@ def _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels):
     markers_y = [marker.get('marker_y') for marker in markers.values()]
 
     ax.scatter(markers_x, markers_y)
-
-    # Plot the rb frame connected to the head LU
-    ax.plot(LU_head_frame[0], LU_head_frame[1], 'r*')
-    ax.plot([LU_head_frame[0], LU_head_frame[0] + 0.02 * np.cos(LU_head_frame[2])],
-            [LU_head_frame[1], LU_head_frame[1] + 0.02 * np.sin(LU_head_frame[2])], 'r') 
     
     # Plot the block of the head LU
     LU_head_rect = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha))
     ax.add_patch(Rectangle(LU_head_rect, a, a, angle=math.degrees(LU_head_frame[2]), edgecolor='black', facecolor='none'))
 
-    # Plot the tail LU frame
-    ax.plot(LU_tail_frame[0], LU_tail_frame[1], 'r*')
-    ax.plot([LU_tail_frame[0], LU_tail_frame[0] + 0.02 * np.cos(LU_tail_frame[2])], [LU_tail_frame[1], LU_tail_frame[1] + 0.02 * np.sin(LU_tail_frame[2])], 'r')
-
     # Plot the block of the tail LU
     LU_tail_centre = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha))
     ax.add_patch(Rectangle(LU_tail_centre, a, a, angle=math.degrees(LU_tail_frame[2]), edgecolor='black', facecolor='none'))
+
+    # Plot all frames
+    for frame in all_frames:
+        ax.plot(frame[0], frame[1], 'r*')
+        ax.plot([frame[0], frame[0] + 0.03 * np.cos(frame[2])], [frame[1], frame[1] + 0.03 * np.sin(frame[2])], 'r')
 
     # Plot wheels
     for wheel in wheels:
@@ -218,6 +215,13 @@ def _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels):
     vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
 
     ax.plot(vsf_markers_x, vsf_markers_y, color='orange')
+
+    # Connect the bridge with the LU's
+    vsf_start = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha - np.pi), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha - np.pi))
+    ax.plot([vsf_start[0], vsf_markers_x[0]], [vsf_start[1], vsf_markers_y[0]], color='orange')
+
+    vsf_end = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha - np.pi/2), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha - np.pi/2))
+    ax.plot([vsf_end[0], vsf_markers_x[-1]], [vsf_end[1], vsf_markers_y[-1]], color='orange')
 
     ax.axis('equal')
     plt.show()
@@ -288,9 +292,19 @@ def getWheelsCoords(markers, rigid_bodies):
         # Define the frame of the tail LU
         LU_tail_frame = [LU_tail['marker_x'], LU_tail['marker_y'], LU_tail_angle]
 
+        # Define the body frame
+        body_frame = [(LU_head_x + LU_tail_frame[0]) / 2, (LU_head_y + LU_tail_frame[1]) / 2]
+        body_frame_theta = _getAngle(LU_head_frame[:2],LU_tail_frame[:2])
+
+        body_frame.append(body_frame_theta)
+
+        # Combine all frames
+        all_frames = [LU_head_frame, LU_tail_frame, body_frame]
+
         # Calculate the wheels' coordinates from LU's coordinates
         wheels = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
 
-        _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels)
+        # Plot a robot 
+        _displayRobot(markers, all_frames, wheels)
 
     return wheels
