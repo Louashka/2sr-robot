@@ -5,11 +5,24 @@ import math
 import pandas as pd
 import globals_
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
 rb_pos = ['x', 'y', 'z']
 rb_params = ['a', 'b', 'c', 'd']
 rb_angles = ['roll', 'pitch', 'yaw']
+
+# CONSTANTS
+# Length and width of the LU  
+a = 0.042 
+# Distance between LU center and its corner
+r = a * math.sqrt(2) / 2 
+# Angle between LU orientation and r
+alpha = math.radians(-135)
+
+# Coords of the real LU center w.r.t. the rb position
+LU_head_center_r = 0.01074968
+LU_head_center_angle = math.radians(-60.2551187)
 
 
 def _unpack_data(mocap_data):
@@ -67,18 +80,14 @@ def _quaternionToEuler(coeffs):
 
 def _rankPoints(markers, head_LU):
 
-    # free_markers = [marker for marker in markers if marker['model_id'] == 0]
     head_LU_pos = np.array([head_LU.get(coord) for coord in rb_pos])
 
     # Define remaining points and their id's that correspond to thei original indicies
-    # remaining_points = [[free_marker.get(coord) for coord in m_pos] for free_marker in free_markers]
     remaining_points = [marker for marker in markers.values() if marker['model_id'] == 0]
     for remaining_point in remaining_points:
         remaining_point['pos'] = np.array([remaining_point.get(coord) for coord in m_pos])
-    # remaining_points_ind = list(range(0, 6))
 
     # List of points ranks
-    # ranks = [0] * len(remaining_points)
     rank = 1  # Current rank
 
     # Find the point closest to the head LU
@@ -102,8 +111,23 @@ def _rankPoints(markers, head_LU):
         if marker['model_id'] != 0:
             marker['rank'] = 0
 
-    # return markers
 
+def _calcLUHeadOrientation(LU_head_markers):
+    points = []
+
+    for marker in LU_head_markers:
+        points.append([marker['marker_x'], marker['marker_y']])
+
+    points = np.array(points)
+    triangle_sides = np.linalg.norm(points - np.roll(points, -1, 0), axis=1)
+
+    i = triangle_sides.argsort()[1]
+    i_next = i + 1 if i < 2 else 0
+
+    delta = points[i, :] - points[i_next, :]
+    theta = math.atan2(delta[1], delta[0]) + math.pi
+
+    return theta
 
 def _getAngle(p1, p2):
 
@@ -115,42 +139,88 @@ def _getAngle(p1, p2):
     return alpha
 
 
-def __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle):
-    w1_0 = np.array([[-0.022167], [-0.00933]])
-    w2_0 = np.array([[0.015833], [-0.036833]])
+def __calcWheelsCoords(LU_head_frame, LU_tail_frame):
+    w1_0 = np.array([[-0.0275], [0]])
+    w2_0 = np.array([[0.0105], [-0.0275]])
 
     w3_0 = np.array([[0.0275], [0]])
-    w4_0 = np.array([[-0.0105], [-0.0275]])
+    w4_0 = np.array([[-0.0105], [-0.027]])
 
-    R1 = np.array([[np.cos(lu1_angle), -np.sin(lu1_angle)],
-                   [np.sin(lu1_angle), np.cos(lu1_angle)]])
-    w1 = np.matmul(R1, w1_0).T[0] + lu1_pos
-    w2 = np.matmul(R1, w2_0).T[0] + lu1_pos
+    R1 = np.array([[np.cos(LU_head_frame[2]), -np.sin(LU_head_frame[2])],
+                   [np.sin(LU_head_frame[2]), np.cos(LU_head_frame[2])]])
+    w1 = np.matmul(R1, w1_0).T[0] + LU_head_frame[:2]
+    w2 = np.matmul(R1, w2_0).T[0] + LU_head_frame[:2]
 
-    R2 = np.array([[np.cos(lu2_angle), -np.sin(lu2_angle)],
-                   [np.sin(lu2_angle), np.cos(lu2_angle)]])
-    w3 = np.matmul(R2, w3_0).T[0] + lu2_pos
-    w4 = np.matmul(R2, w4_0).T[0] + lu2_pos
+    R2 = np.array([[np.cos(LU_tail_frame[2]), -np.sin(LU_tail_frame[2])],
+                   [np.sin(LU_tail_frame[2]), np.cos(LU_tail_frame[2])]])
+    w3 = np.matmul(R2, w3_0).T[0] + LU_tail_frame[:2]
+    w4 = np.matmul(R2, w4_0).T[0] + LU_tail_frame[:2]
 
     w = [w1, w2, w3, w4]
 
-    centroid = [(lu1_pos[0] + lu2_pos[0]) / 2, (lu1_pos[1] + lu2_pos[1]) / 2]
-    direction = _get_angle(lu1_pos, lu2_pos)
+    return w
 
-    R_origin = np.array([[np.cos(direction), -np.sin(direction)],
-                         [np.sin(direction), np.cos(direction)]])
+def _wheelsToBodyFrame(body_frame, LU_head, LU_tail_angle, w):
+    # centroid = [(LU_head_pos[0] + LU_tail_pos[0]) / 2, (LU_head_pos[1] + LU_tail_pos[1]) / 2]
+    # direction = _getAngle(LU_head_pos, LU_tail_pos)
+
+    R_origin = np.array([[np.cos(body_frame[2]), -np.sin(body_frame[2])],
+                         [np.sin(body_frame[2]), np.cos(body_frame[2])]])
 
     for i in range(4):
-        w_b0 = np.array([w[i] - centroid]).T
+        w_b0 = np.array([w[i] - body_frame[:2]]).T
         w[i] = np.matmul(R_origin, w_b0).T[0]
 
     for i in range(2):
-        w[i] = np.append(w[i], lu1_angle + globals_.BETA[i])
+        w[i] = np.append(w[i], LU_head['yaw'] + globals_.BETA[i])
 
     for i in range(2, 4):
-        w[i] = np.append(w[i], lu2_angle + globals_.BETA[i])
+        w[i] = np.append(w[i], LU_tail_angle + globals_.BETA[i])
 
     return w
+
+def _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels):
+
+    fig, ax = plt.subplots()
+
+    # Plot all captured markers
+    markers_x = [marker.get('marker_x') for marker in markers.values()]
+    markers_y = [marker.get('marker_y') for marker in markers.values()]
+
+    ax.scatter(markers_x, markers_y)
+
+    # Plot the rb frame connected to the head LU
+    ax.plot(LU_head_frame[0], LU_head_frame[1], 'r*')
+    ax.plot([LU_head_frame[0], LU_head_frame[0] + 0.02 * np.cos(LU_head_frame[2])],
+            [LU_head_frame[1], LU_head_frame[1] + 0.02 * np.sin(LU_head_frame[2])], 'r') 
+    
+    # Plot the block of the head LU
+    LU_head_rect = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha))
+    ax.add_patch(Rectangle(LU_head_rect, a, a, angle=math.degrees(LU_head_frame[2]), edgecolor='black', facecolor='none'))
+
+    # Plot the tail LU frame
+    ax.plot(LU_tail_frame[0], LU_tail_frame[1], 'r*')
+    ax.plot([LU_tail_frame[0], LU_tail_frame[0] + 0.02 * np.cos(LU_tail_frame[2])], [LU_tail_frame[1], LU_tail_frame[1] + 0.02 * np.sin(LU_tail_frame[2])], 'r')
+
+    # Plot the block of the tail LU
+    LU_tail_centre = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha))
+    ax.add_patch(Rectangle(LU_tail_centre, a, a, angle=math.degrees(LU_tail_frame[2]), edgecolor='black', facecolor='none'))
+
+    # Plot wheels
+    for wheel in wheels:
+        ax.plot(wheel[0], wheel[1], 'mo', markersize=15)
+
+    # Plot the bridge curve
+    vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
+    vsf_markers.sort(key=lambda marker: marker['rank'])
+
+    vsf_markers_x = [vsf_marker['marker_x'] for vsf_marker in vsf_markers]
+    vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
+
+    ax.plot(vsf_markers_x, vsf_markers_y, color='orange')
+
+    ax.axis('equal')
+    plt.show()
 
 
 # Calculate the wheels' coordinates from the mocap data
@@ -188,54 +258,39 @@ def getWheelsCoords(markers, rigid_bodies):
             for i in range(3):
                 rigid_body[rb_angles[i]] = euler_angles[i]
 
-        markers_x = [marker.get('marker_x') for marker in markers.values()]
-        markers_y = [marker.get('marker_y') for marker in markers.values()]
-
-        plt.scatter(markers_x, markers_y)
-
-        # Get the position of the head LU
-        head_LU = rigid_bodies[1]
-
-        plt.plot(head_LU['x'], head_LU['y'], 'r*')
-        plt.plot([head_LU['x'], head_LU['x'] + 0.05 * np.cos(head_LU['yaw'])],
-                [head_LU['y'], head_LU['y'] + 0.05 * np.sin(head_LU['yaw'])], 'r')
         
-        # Sort markers along the bridge
-        _rankPoints(markers, head_LU)
+        # Get position of the head LU
+        LU_head_rb = rigid_bodies[1]
+        # Rank markers along the bridge
+        _rankPoints(markers, LU_head_rb)
 
-        vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
-        vsf_markers.sort(key=lambda marker: marker['rank'])
+        # Define the frame of the head LU
+        LU_head_theta = _calcLUHeadOrientation([marker for marker in markers.values() if marker['model_id'] == 1])
+        LU_head_x = LU_head_rb['x'] + LU_head_center_r*np.cos(LU_head_theta + LU_head_center_angle)
+        LU_head_y = LU_head_rb['y'] + LU_head_center_r*np.sin(LU_head_theta + LU_head_center_angle)
 
-        vsf_markers_x = [vsf_marker['marker_x'] for vsf_marker in vsf_markers]
-        vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
+        LU_head_frame = [LU_head_x, LU_head_y, LU_head_theta]
 
-        plt.plot(vsf_markers_x, vsf_markers_y, color='orange')
+        # Position of the tail LU is defined by the last marker in order
+        LU_tail = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] == 6][0]
 
-        plt.axis('equal')
-        plt.show()
+        # Get the orientation of the tail LU
+        p = []
+        for i in range(3, 6):
+            for marker in markers.values():
+                if marker['rank'] == i:
+                    p.append(marker['pos'])
 
+        alpha1 = _getAngle(p[0], p[1])
+        alpha2 = _getAngle(p[1], p[2])
+        LU_tail_angle = 2 * alpha2 - alpha1
 
+        # Define the frame of the tail LU
+        LU_tail_frame = [LU_tail['marker_x'], LU_tail['marker_y'], LU_tail_angle]
 
-  
-    #     # Position of the tail LU is defined by the last marker in order
-    #     lu2_df = markers_df[(markers_df["model_id"] == 0)
-    #                         & (markers_df["order"] == 6)]
-    #     lu2_pos = [lu2_df.marker_x.values[0], lu2_df.marker_y.values[0]]
+        # Calculate the wheels' coordinates from LU's coordinates
+        wheels = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
 
-    #     # Get the orientation of the head LU
-    #     lu1_angle = rb_df[rb_df["id"] == 1].yaw.values[0]
+        _displayRobot(markers, LU_head_frame, LU_tail_frame, wheels)
 
-    #     # Get the orientation of the tail LU
-    #     p = []
-    #     for i in range(3, 6):
-    #         p.append(markers_df[markers_df["order"] == i]
-    #                  [["marker_x", "marker_y", "marker_z"]].values[0])
-
-    #     alpha1 = _getAngle(p[0], p[1])
-    #     alpha2 = _getAngle(p[1], p[2])
-    #     lu2_angle = 2 * alpha2 - alpha1
-
-    #     # Calculate the wheels' coordinates from LU's coordinates
-    #     w = __calcWheelsCoords(lu1_pos, lu1_angle, lu2_pos, lu2_angle)
-
-    return w
+    return wheels
