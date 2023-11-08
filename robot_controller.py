@@ -3,8 +3,8 @@ import numpy as np
 import globals_
 
 
-# port_name = "COM5"
-port_name = "/dev/tty.usbserial-0001"
+port_name = "COM5"
+# port_name = "/dev/tty.usbserial-0001"
 serial_port = serial.Serial(port_name, 115200)
 
 

@@ -3,8 +3,8 @@ import robot_keyboard
 import motive_client
 from pynput import keyboard
 import numpy as np
-import globals_
 from nat_net_client import NatNetClient
+import sys
 
 # Constants
 OMNI_SPEED = 0.12
@@ -19,15 +19,7 @@ class ManualController(robot_keyboard.ActionsHandler):
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
         super().__init__(omni_speed, rotation_speed, lu_speed)
 
-        self.__mocap_data = None
-
-    @property
-    def mocap_data(self):
-        return self.__mocap_data
-
-    @mocap_data.setter
-    def mocap_data(self, value) -> None:
-        self.__mocap_data = mocap_data
+        self.mocap_data = None
 
     def executeAction(self):
         try:
@@ -38,20 +30,20 @@ class ManualController(robot_keyboard.ActionsHandler):
                     w_current, self.v, self.s)
                 robot_controller.moveRobot(omega, self.s, AGENT_ID)
         except Exception as e:
-            # print(f"Error occurred: {e}. The robot is stopped")
-            # robot_controller.moveRobot(
-            #     np.array([0, 0, 0, 0]), self.s, AGENT_ID)
+            print(f"Error occurred: {e}. The robot is stopped")
+            robot_controller.moveRobot(
+                np.array([0, 0, 0, 0]), self.s, AGENT_ID)
 
-            w1_0 = 2 * np.array([[-0.005], [-0.0325], [globals_.BETA[0]]])
-            w2_0 = 2 * np.array([[0.0325], [0.0045], [globals_.BETA[1]]])
+            # w1_0 = 2 * np.array([[-0.005], [-0.0325], [globals_.BETA[0]]])
+            # w2_0 = 2 * np.array([[0.0325], [0.0045], [globals_.BETA[1]]])
 
-            w3_0 = 2 * np.array([[-0.027], [0.01], [globals_.BETA[2]]])
-            w4_0 = 2 * np.array([[0.0105], [-0.027], [globals_.BETA[3]]])
+            # w3_0 = 2 * np.array([[-0.027], [0.01], [globals_.BETA[2]]])
+            # w4_0 = 2 * np.array([[0.0105], [-0.027], [globals_.BETA[3]]])
 
-            w_current = [w1_0.T[0], w2_0.T[0], w3_0.T[0], w4_0.T[0]]
-            omega = robot_controller.getOmega(
-                w_current, self.v, self.s)
-            robot_controller.moveRobot(omega, self.s, AGENT_ID)
+            # w_current = [w1_0.T[0], w2_0.T[0], w3_0.T[0], w4_0.T[0]]
+            # omega = robot_controller.getOmega(
+            #     w_current, self.v, self.s)
+            # robot_controller.moveRobot(omega, self.s, AGENT_ID)
 
     def onPress(self, key) -> None:
         super().onPress(key)
@@ -66,31 +58,41 @@ manual_controller = ManualController(OMNI_SPEED, ROTATION_SPEED, LU_SPEED)
 
 
 def receiveMocapDataFrame(data):
-    manual_controller.mocap_data(data)
+    manual_controller.mocap_data = data
 
 
 def parseArgs(arg_list, args_dict):
-    pass
+    arg_list_len = len(arg_list)
+    if arg_list_len > 1:
+        args_dict["serverAddress"] = arg_list[1]
+        if arg_list_len > 2:
+            args_dict["clientAddress"] = arg_list[2]
+        if arg_list_len > 3:
+            if len(arg_list[3]):
+                args_dict["use_multicast"] = True
+                if arg_list[3][0].upper() == "U":
+                    args_dict["use_multicast"] = False
+    return args_dict
 
 
 if __name__ == "__main__":
 
-    # options_dict = {}
-    # options_dict["clientAddress"] = "127.0.0.1"
-    # options_dict["serverAddress"] = "127.0.0.1"
-    # options_dict["use_multicast"] = True
+    options_dict = {}
+    options_dict["clientAddress"] = "127.0.0.1"
+    options_dict["serverAddress"] = "127.0.0.1"
+    options_dict["use_multicast"] = True
 
-    # # This will create a new NatNet client
-    # options_dict = parseArgs(sys.argv, options_dict)
+    # This will create a new NatNet client
+    options_dict = parseArgs(sys.argv, options_dict)
 
-    # streaming_client = NatNetClient()
-    # streaming_client.set_client_address(options_dict["clientAddress"])
-    # streaming_client.set_server_address(options_dict["serverAddress"])
-    # streaming_client.set_use_multicast(options_dict["use_multicast"])
+    streaming_client = NatNetClient()
+    streaming_client.set_client_address(options_dict["clientAddress"])
+    streaming_client.set_server_address(options_dict["serverAddress"])
+    streaming_client.set_use_multicast(options_dict["use_multicast"])
 
-    # streaming_client.mocap_data_listener = receiveMocapDataFrame
+    streaming_client.mocap_data_listener = receiveMocapDataFrame
 
-    # is_running = streaming_client.run()
+    is_running = streaming_client.run()
 
     with keyboard.Listener(on_press=manual_controller.onPress, on_release=manual_controller.onRelease) as listener:
         listener.join()

@@ -37,16 +37,19 @@ def _unpack_data(mocap_data):
         labeled_marker_list = labeled_marker_data.labeled_marker_list
         rigid_body_list = rigid_body_data.rigid_body_list
 
+        markers = {}
+        rigid_bodies = {}
+
         for marker in labeled_marker_list:
             model_id, marker_id = marker.get_id()
             marker = {'model_id': model_id, 'marker_id': marker_id,
                       'marker_x': marker.pos[0], 'marker_y': marker.pos[1], 'marker_z': marker.pos[2]}
-            markers.append(marker)
+            markers[marker_id] = marker
 
         for rigid_body in rigid_body_list:
             rigid_body = {'id': rigid_body.id_num, 'x': rigid_body.pos[0], 'y': rigid_body.pos[1], 'z': rigid_body.pos[2], 'a': rigid_body.rot[0],
                           'b': rigid_body.rot[1], 'c': rigid_body.rot[2], 'd': rigid_body.rot[3]}
-            rigid_bodies.append(rigid_body)
+            rigid_bodies[rigid_body['id']] = rigid_body
 
     return markers, rigid_bodies
 
@@ -244,13 +247,13 @@ def _displayRobot(markers, all_frames, wheels_global, wheels_bf):
 
 
 # Calculate the wheels' coordinates from the mocap data
-def getWheelsCoords(markers, rigid_bodies):
+def getWheelsCoords(mocap_data):
 
     # A list of wheels coordinates
     w = None
 
     # Retreive location of the markers and rigid_bodies
-    # markers, rigid_bodies = _unpack_data(mocap_data)
+    markers, rigid_bodies = _unpack_data(mocap_data)
 
     if len(markers) == 0 or len(rigid_bodies) == 0:
         raise Exception("No data received from Motive!")
@@ -322,6 +325,6 @@ def getWheelsCoords(markers, rigid_bodies):
         wheels_bf = _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, wheels_global)
 
         # Plot a robot 
-        _displayRobot(markers, all_frames, wheels_global, wheels_bf)
+        # _displayRobot(markers, all_frames, wheels_global, wheels_bf)
 
     return wheels_bf
