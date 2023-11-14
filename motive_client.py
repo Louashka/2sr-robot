@@ -1,24 +1,12 @@
-import sys
 from nat_net_client import NatNetClient
 import numpy as np
 import math
-import pandas as pd
 import globals_
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
 rb_pos = ['x', 'y', 'z']
 rb_params = ['a', 'b', 'c', 'd']
 rb_angles = ['roll', 'pitch', 'yaw']
-
-# CONSTANTS
-# Length and width of the LU  
-a = 0.042 
-# Distance between LU center and its corner
-r = a * math.sqrt(2) / 2 
-# Angle between LU orientation and r
-alpha = math.radians(-135)
 
 # Coords of the real LU center w.r.t. the rb position
 LU_head_center_r = 0.01074968
@@ -183,71 +171,9 @@ def _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, w):
 
     return wheels_bf
 
-def _displayRobot(markers, all_frames, wheels_global, wheels_bf):
 
-    # Unpack frames
-    LU_head_frame, LU_tail_frame, body_frame = all_frames
-
-    fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))
-
-    # Plot all captured markers
-    markers_x = [marker.get('marker_x') for marker in markers.values()]
-    markers_y = [marker.get('marker_y') for marker in markers.values()]
-
-    axs[0].scatter(markers_x, markers_y)
-    
-    # Plot the block of the head LU
-    LU_head_rect = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha))
-    axs[0].add_patch(Rectangle(LU_head_rect, a, a, angle=math.degrees(LU_head_frame[2]), edgecolor='black', facecolor='none'))
-
-    # Plot the block of the tail LU
-    LU_tail_centre = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha))
-    axs[0].add_patch(Rectangle(LU_tail_centre, a, a, angle=math.degrees(LU_tail_frame[2]), edgecolor='black', facecolor='none'))
-
-    # Plot all frames
-    for frame in all_frames:
-        axs[0].plot(frame[0], frame[1], 'r*')
-        axs[0].plot([frame[0], frame[0] + 0.03 * np.cos(frame[2])], [frame[1], frame[1] + 0.03 * np.sin(frame[2])], 'r')
-
-    # Plot wheels
-    for wheel in wheels_global:
-        axs[0].plot(wheel[0], wheel[1], 'mo', markersize=15)
-
-    # Plot the bridge curve
-    vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
-    vsf_markers.sort(key=lambda marker: marker['rank'])
-
-    vsf_markers_x = [vsf_marker['marker_x'] for vsf_marker in vsf_markers]
-    vsf_markers_y = [vsf_marker['marker_y'] for vsf_marker in vsf_markers]
-
-    axs[0].plot(vsf_markers_x, vsf_markers_y, color='orange')
-
-    # Connect the bridge with the LU's
-    vsf_start = (LU_head_frame[0] + r*np.cos(LU_head_frame[2] + alpha - np.pi), LU_head_frame[1] + r*np.sin(LU_head_frame[2] + alpha - np.pi))
-    axs[0].plot([vsf_start[0], vsf_markers_x[0]], [vsf_start[1], vsf_markers_y[0]], color='orange')
-
-    vsf_end = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha - np.pi/2), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha - np.pi/2))
-    axs[0].plot([vsf_end[0], vsf_markers_x[-1]], [vsf_end[1], vsf_markers_y[-1]], color='orange')
-
-    axs[0].axis('equal')
-
-
-    # PRINT THE ROBOT IN A BODY FRAME
-
-    axs[1].plot(0, 0, 'r*')
-    axs[1].plot([0, 0.05 * np.cos(0)], [0, 0.05 * np.sin(0)], 'r')
-
-    for wheel in wheels_bf:
-        axs[1].plot(wheel[0], wheel[1], 'mo', markersize=15)
-        axs[1].plot([wheel[0], wheel[0] + 0.03 * np.cos(wheel[2])], [wheel[1], wheel[1] + 0.03 * np.sin(wheel[2])], 'r')
-    
-    axs[1].axis('equal')
-
-    plt.show()
-
-
-# Calculate the wheels' coordinates from the mocap data
-def getWheelsCoords(data):
+# Calculate robot configuration from the mocap data
+def getRobotConfig(data):
 
     # Retreive markers and rigid_bodies data
     if len(data) == 1:
@@ -324,7 +250,4 @@ def getWheelsCoords(data):
         wheels_global = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
         wheels_bf = _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, wheels_global)
 
-        # Plot a robot 
-        _displayRobot(markers, all_frames, wheels_global, wheels_bf)
-
-    return wheels_bf
+    return markers, all_frames, wheels_global, wheels_bf
