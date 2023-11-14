@@ -247,13 +247,13 @@ def _displayRobot(markers, all_frames, wheels_global, wheels_bf):
 
 
 # Calculate the wheels' coordinates from the mocap data
-def getWheelsCoords(mocap_data):
+def getWheelsCoords(data):
 
-    # A list of wheels coordinates
-    w = None
-
-    # Retreive location of the markers and rigid_bodies
-    markers, rigid_bodies = _unpack_data(mocap_data)
+    # Retreive markers and rigid_bodies data
+    if len(data) == 1:
+        markers, rigid_bodies = _unpack_data(data)
+    else:
+         markers, rigid_bodies = data
 
     if len(markers) == 0 or len(rigid_bodies) == 0:
         raise Exception("No data received from Motive!")
@@ -325,6 +325,6 @@ def getWheelsCoords(mocap_data):
         wheels_bf = _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, wheels_global)
 
         # Plot a robot 
-        # _displayRobot(markers, all_frames, wheels_global, wheels_bf)
+        _displayRobot(markers, all_frames, wheels_global, wheels_bf)
 
     return wheels_bf

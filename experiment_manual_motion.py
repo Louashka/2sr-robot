@@ -23,7 +23,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
     def executeAction(self):
         try:
-            w_current = motive_client.getWheelsCoords(self.mocap_data)
+            w_current = motive_client.getWheelsCoords([self.mocap_data])
 
             if w_current is not None:
                 omega = robot_controller.getOmega(
@@ -33,17 +33,6 @@ class ManualController(robot_keyboard.ActionsHandler):
             print(f"Error occurred: {e}. The robot is stopped")
             robot_controller.moveRobot(
                 np.array([0, 0, 0, 0]), self.s, AGENT_ID)
-
-            # w1_0 = 2 * np.array([[-0.005], [-0.0325], [globals_.BETA[0]]])
-            # w2_0 = 2 * np.array([[0.0325], [0.0045], [globals_.BETA[1]]])
-
-            # w3_0 = 2 * np.array([[-0.027], [0.01], [globals_.BETA[2]]])
-            # w4_0 = 2 * np.array([[0.0105], [-0.027], [globals_.BETA[3]]])
-
-            # w_current = [w1_0.T[0], w2_0.T[0], w3_0.T[0], w4_0.T[0]]
-            # omega = robot_controller.getOmega(
-            #     w_current, self.v, self.s)
-            # robot_controller.moveRobot(omega, self.s, AGENT_ID)
 
     def onPress(self, key) -> None:
         super().onPress(key)

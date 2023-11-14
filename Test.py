@@ -5,7 +5,7 @@ if __name__ == "__main__":
     markers_df = pd.read_csv('Data/markers.csv')
     rigid_bodies_df = pd.read_csv('Data/rigid_bodies.csv')
 
-    for pose in range(1, 9):
+    for pose in range(1, 2):
         markers_df_ = markers_df[markers_df["pose"]
                                  == pose].drop('pose', axis=1)
         rigid_bodies_df_ = rigid_bodies_df[rigid_bodies_df["pose"] == pose].drop(
@@ -22,4 +22,4 @@ if __name__ == "__main__":
             rigid_body = row.to_dict()
             rigid_bodies[rigid_body['id']] = rigid_body
 
-        motive_client.getWheelsCoords(markers, rigid_bodies)
+        motive_client.getWheelsCoords([markers, rigid_bodies])
