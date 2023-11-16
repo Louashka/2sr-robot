@@ -177,7 +177,7 @@ def getRobotConfig(data):
 
     # Retreive markers and rigid_bodies data
     if len(data) == 1:
-        markers, rigid_bodies = _unpack_data(data)
+        markers, rigid_bodies = _unpack_data(data[0])
     else:
          markers, rigid_bodies = data
 

@@ -1420,7 +1420,6 @@ class NatNetClient:
         # Get NatNet and server versions
         self.send_request(self.command_socket, self.NAT_CONNECT, "",  (self.server_ip_address, self.command_port) )
 
-
         ##Example Commands
         ## Get NatNet and server versions
         #self.send_request(self.command_socket, self.NAT_CONNECT, "", (self.server_ip_address, self.command_port) )
