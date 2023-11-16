@@ -25,6 +25,7 @@ r = a * math.sqrt(2) / 2
 alpha = math.radians(-135)
 
 manual_controller = None
+mocap_data = None
 fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))  # Initialize a plot
 
 class ManualController(robot_keyboard.ActionsHandler):
@@ -32,12 +33,11 @@ class ManualController(robot_keyboard.ActionsHandler):
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
         super().__init__(omni_speed, rotation_speed, lu_speed)
 
-        self.mocap_data = None
         self.robot_config = None
 
     def executeAction(self):
         try:
-            self.robot_config = motive_client.getRobotConfig([self.mocap_data])
+            self.robot_config = motive_client.getRobotConfig([mocap_data])
 
             if self.robot_config is not None:
                 omega = robot_controller.getOmega(
@@ -124,7 +124,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
 
 def receiveMocapDataFrame(data):
-    manual_controller.mocap_data = data
+    mocap_data = data
 
 
 def parseArgs(arg_list, args_dict):

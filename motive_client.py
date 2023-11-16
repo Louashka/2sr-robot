@@ -1,6 +1,7 @@
 from nat_net_client import NatNetClient
 import numpy as np
 import math
+import copy
 import globals_
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
@@ -179,7 +180,7 @@ def getRobotConfig(data):
     if len(data) == 1:
         markers, rigid_bodies = _unpack_data(data[0])
     else:
-         markers, rigid_bodies = data
+        markers, rigid_bodies = copy.deepcopy(data)
 
     if len(markers) == 0 or len(rigid_bodies) == 0:
         raise Exception("No data received from Motive!")
