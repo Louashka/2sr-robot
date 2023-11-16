@@ -1,17 +1,13 @@
 import robot_controller
 import robot_keyboard
 import motive_client
-from pynput import keyboard
 import numpy as np
 import math
 from nat_net_client import NatNetClient
 import sys
-from random import randint
 from threading import Thread
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import pyqtgraph as pg
-from PyQt5 import QtCore, QtWidgets
 from tkinter import *
 
 # Constants
@@ -127,48 +123,6 @@ class ManualController(robot_keyboard.ActionsHandler):
         robot_controller.moveRobot(np.array([0, 0, 0, 0]), self.s, AGENT_ID)
 
 
-class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self):
-        super().__init__()
-
-        # Temperature vs time dynamic plot
-        self.plot_graph = pg.PlotWidget()
-        self.setCentralWidget(self.plot_graph)
-        self.plot_graph.setBackground("w")
-        pen = pg.mkPen(color=(255, 0, 0))
-        self.plot_graph.setTitle("Temperature vs Time", color="b", size="20pt")
-        styles = {"color": "red", "font-size": "18px"}
-        self.plot_graph.setLabel("left", "Temperature (°C)", **styles)
-        self.plot_graph.setLabel("bottom", "Time (min)", **styles)
-        self.plot_graph.addLegend()
-        self.plot_graph.showGrid(x=True, y=True)
-        self.plot_graph.setYRange(20, 40)
-        self.time = list(range(10))
-        self.temperature = [randint(20, 40) for _ in range(10)]
-        # Get a line reference
-        self.line = self.plot_graph.plot(
-            self.time,
-            self.temperature,
-            name="Temperature Sensor",
-            pen=pen,
-            symbol="+",
-            symbolSize=15,
-            symbolBrush="b",
-        )
-        # Add a timer to simulate new temperature measurements
-        self.timer = QtCore.QTimer()
-        self.timer.setInterval(300)
-        self.timer.timeout.connect(self.update_plot)
-        self.timer.start()
-
-    def update_plot(self):
-        self.time = self.time[1:]
-        self.time.append(self.time[-1] + 1)
-        self.temperature = self.temperature[1:]
-        self.temperature.append(randint(20, 40))
-        self.line.setData(self.time, self.temperature)
-        
-
 def receiveMocapDataFrame(data):
     manual_controller.mocap_data = data
 
@@ -205,30 +159,25 @@ def key_released(e):
 if __name__ == "__main__":
     manual_controller = ManualController(OMNI_SPEED, ROTATION_SPEED, LU_SPEED)
 
-    options_dict = {}
-    options_dict["clientAddress"] = "127.0.0.1"
-    options_dict["serverAddress"] = "127.0.0.1"
-    options_dict["use_multicast"] = True
+    # options_dict = {}
+    # options_dict["clientAddress"] = "127.0.0.1"
+    # options_dict["serverAddress"] = "127.0.0.1"
+    # options_dict["use_multicast"] = True
 
-    # This will create a new NatNet client
-    options_dict = parseArgs(sys.argv, options_dict)
+    # # This will create a new NatNet client
+    # options_dict = parseArgs(sys.argv, options_dict)
 
-    streaming_client = NatNetClient()
-    streaming_client.set_client_address(options_dict["clientAddress"])
-    streaming_client.set_server_address(options_dict["serverAddress"])
-    streaming_client.set_use_multicast(options_dict["use_multicast"])
+    # streaming_client = NatNetClient()
+    # streaming_client.set_client_address(options_dict["clientAddress"])
+    # streaming_client.set_server_address(options_dict["serverAddress"])
+    # streaming_client.set_use_multicast(options_dict["use_multicast"])
 
-    streaming_client.mocap_data_listener = receiveMocapDataFrame
+    # streaming_client.mocap_data_listener = receiveMocapDataFrame
 
-    is_running = streaming_client.run()
+    # is_running = streaming_client.run()
     
     # with keyboard.Listener(on_press=manual_controller.onPress, on_release=manual_controller.onRelease, suppress=True) as listener:
     #     listener.join()
-        
-    # app = QtWidgets.QApplication([])
-    # main = MainWindow()
-    # main.show()
-    # app.exec()
     
     # Bind the Mouse button event
     win.bind('<KeyPress>', manual_controller.onPress)

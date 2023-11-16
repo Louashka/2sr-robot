@@ -1,6 +1,3 @@
-from pynput import keyboard
-
-
 class ActionsHandler:
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
@@ -17,24 +14,24 @@ class ActionsHandler:
 
         # Key combinations
         self.__keyboard_combinations = {
-            'FORWARD': {keyboard.Key.up},
-            'BACKWARD': {keyboard.Key.down},
-            'RIGHT': {keyboard.Key.right},
-            'LEFT': {keyboard.Key.left},
-            'ROTATION_LEFT': {keyboard.KeyCode.from_char('w'), keyboard.Key.left},
-            'ROTATION_RIGHT': {keyboard.KeyCode.from_char('w'), keyboard.Key.right},
-            'HEAD_FORWARD': {keyboard.KeyCode.from_char('a'), keyboard.Key.up},
-            'HEAD_BACKWARD': {keyboard.KeyCode.from_char('a'), keyboard.Key.down},
-            'TAIL_FORWARD': {keyboard.KeyCode.from_char('d'), keyboard.Key.up},
-            'TAIL_BACKWARD': {keyboard.KeyCode.from_char('d'), keyboard.Key.down},
-            'HT_FORWARD': {keyboard.KeyCode.from_char('a'), keyboard.KeyCode.from_char('d'), keyboard.Key.up},
-            'HT_BACKWARD': {keyboard.KeyCode.from_char('a'), keyboard.KeyCode.from_char('d'), keyboard.Key.down},
-            'S1_SOFT': {keyboard.KeyCode.from_char('a'), keyboard.KeyCode.from_char('s'), keyboard.Key.up},
-            'S1_RIGID': {keyboard.KeyCode.from_char('a'), keyboard.KeyCode.from_char('s'), keyboard.Key.down},
-            'S2_SOFT': {keyboard.KeyCode.from_char('d'), keyboard.KeyCode.from_char('s'), keyboard.Key.up},
-            'S2_RIGID': {keyboard.KeyCode.from_char('d'), keyboard.KeyCode.from_char('s'), keyboard.Key.down},
-            'BOTH_SOFT': {keyboard.KeyCode.from_char('s'), keyboard.Key.up},
-            'BOTH_RIGID': {keyboard.KeyCode.from_char('s'), keyboard.Key.down}
+            'FORWARD': {'Up'},
+            'BACKWARD': {'Down'},
+            'RIGHT': {'Right'},
+            'LEFT': {'Left'},
+            'ROTATION_LEFT': {'w', 'Left'},
+            'ROTATION_RIGHT': {'w', 'Right'},
+            'HEAD_FORWARD': {'a', 'Up'},
+            'HEAD_BACKWARD': {'a', 'Down'},
+            'TAIL_FORWARD': {'d', 'Up'},
+            'TAIL_BACKWARD': {'d', 'Down'},
+            'HT_FORWARD': {'a', 'd', 'Up'},
+            'HT_BACKWARD': {'a', 'd', 'Down'},
+            'S1_SOFT': {'a', 's', 'Up'},
+            'S1_RIGID': {'a', 's', 'Down'},
+            'S2_SOFT': {'d', 's', 'Up'},
+            'S2_RIGID': {'d', 's', 'Down'},
+            'BOTH_SOFT': {'s', 'Up'},
+            'BOTH_RIGID': {'s', 'Down'}
         }
 
         self.__keyboard_actions = {
@@ -125,13 +122,12 @@ class ActionsHandler:
                 self.__v = [0] * 5
 
     def onPress(self, key):
-        self.__current_keys.add(key)
-
+        self.__current_keys.add(key.keysym)
         self.__handleKeyCombination()
 
     def onRelease(self, key):
         try:
-            self.__current_keys.remove(key)
+            self.__current_keys.remove(key.keysym)
         except KeyError:
             self.__current_keys.clear()
 
