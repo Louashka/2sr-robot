@@ -2,6 +2,7 @@ import robot_controller
 import robot_keyboard
 import motive_client
 import numpy as np
+import pandas as pd
 import math
 from nat_net_client import NatNetClient
 import sys
@@ -26,6 +27,8 @@ alpha = math.radians(-135)
 
 manual_controller = None
 mocap_data = None
+
+manip_contour = []
 
 root = tk.Tk()
 frame = tk.Frame(root)
@@ -101,6 +104,12 @@ class ManualController(robot_keyboard.ActionsHandler):
 
         vsf_end = (LU_tail_frame[0] + r*np.cos(LU_tail_frame[2] + alpha - np.pi/2), LU_tail_frame[1] + r*np.sin(LU_tail_frame[2] + alpha - np.pi/2))
         axs[0].plot([vsf_end[0], vsf_markers_x[-1]], [vsf_end[1], vsf_markers_y[-1]], color='orange')
+        
+        # Plot manipulandum
+        for manip_point in manip_contour:
+            mp_x = manipulandum_frame[0] + manip_point['r'] * np.cos(manipulandum_frame[2] + manip_point['theta'])
+            mp_y = manipulandum_frame[1] + manip_point['r'] * np.sin(manipulandum_frame[2] + manip_point['theta'])
+            axs[0].plot(mp_x, mp_y, 'bo', markersize=2)
 
         axs[0].axis('equal')
 
@@ -149,6 +158,12 @@ def parseArgs(arg_list, args_dict):
 
 
 if __name__ == "__main__":
+    # Extract manipulandum's contour
+    manip_contour_df = pd.read_csv('Data/manip_contour.csv')
+    for index, row in manip_contour_df.iterrows():
+        polar_point = {'theta': row['phase_angle'], 'r': row['distance']}
+        manip_contour.append(polar_point)
+    
     manual_controller = ManualController(OMNI_SPEED, ROTATION_SPEED, LU_SPEED)
 
     options_dict = {}
