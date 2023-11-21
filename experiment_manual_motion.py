@@ -5,10 +5,10 @@ import numpy as np
 import math
 from nat_net_client import NatNetClient
 import sys
-from threading import Thread
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from tkinter import *
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import tkinter as tk
 
 # Constants
 OMNI_SPEED = 0.12
@@ -26,7 +26,11 @@ alpha = math.radians(-135)
 
 manual_controller = None
 mocap_data = None
-fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))  # Initialize a plot
+
+root = tk.Tk()
+frame = tk.Frame(root)
+fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))
+canvas = FigureCanvasTkAgg(fig, master = frame)
 
 class ManualController(robot_keyboard.ActionsHandler):
 
@@ -40,6 +44,7 @@ class ManualController(robot_keyboard.ActionsHandler):
             self.robot_config = motive_client.getRobotConfig([mocap_data])
 
             if self.robot_config is not None:
+                self.plotMotion()
                 omega = robot_controller.getOmega(
                     self.robot_config[3], self.v, self.s)
                 robot_controller.moveRobot(omega, self.s, AGENT_ID)
@@ -49,12 +54,11 @@ class ManualController(robot_keyboard.ActionsHandler):
                 np.array([0, 0, 0, 0]), self.s, AGENT_ID)
             
     def plotMotion(self):
-        print("Plot!")
         # Retrieve motion data 
         markers, all_frames, wheels_global, wheels_bf = self.robot_config 
 
         # Unpack frames
-        LU_head_frame, LU_tail_frame, body_frame = all_frames
+        LU_head_frame, LU_tail_frame, body_frame, manipulandum_frame = all_frames
 
         # Update the plot with new motion data 
         axs[0].clear()
@@ -80,7 +84,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
         # Plot wheels
         for wheel in wheels_global:
-            axs[0].plot(wheel[0], wheel[1], 'mo', markersize=15)
+            axs[0].plot(wheel[0], wheel[1], 'mo', markersize=7)
 
         # Plot the bridge curve
         vsf_markers = [marker for marker in markers.values() if marker['model_id'] == 0 and marker['rank'] != 6]
@@ -100,19 +104,21 @@ class ManualController(robot_keyboard.ActionsHandler):
 
         axs[0].axis('equal')
 
-
         # PRINT THE ROBOT IN A BODY FRAME
 
         axs[1].plot(0, 0, 'r*')
         axs[1].plot([0, 0.05 * np.cos(0)], [0, 0.05 * np.sin(0)], 'r')
 
         for wheel in wheels_bf:
-            axs[1].plot(wheel[0], wheel[1], 'mo', markersize=15)
+            axs[1].plot(wheel[0], wheel[1], 'mo', markersize=7)
             axs[1].plot([wheel[0], wheel[0] + 0.03 * np.cos(wheel[2])], [wheel[1], wheel[1] + 0.03 * np.sin(wheel[2])], 'r')
         
         axs[1].axis('equal')
 
-        plt.pause(0.1)  
+        plt.rcParams.update({'font.size': 5})
+        plt.tight_layout()
+
+        canvas.draw()  
 
     def onPress(self, key) -> None:
         super().onPress(key)
@@ -124,6 +130,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
 
 def receiveMocapDataFrame(data):
+    global mocap_data
     mocap_data = data
 
 
@@ -140,49 +147,40 @@ def parseArgs(arg_list, args_dict):
                     args_dict["use_multicast"] = False
     return args_dict
 
-# Create an instance of tkinter frame or window
-win= Tk()
-
-# Set the size of the window
-win.geometry("700x350")
-
-# Create a label widget to add some text
-label= Label(win, text= "", font= ('Helvetica 17 bold'))
-label.pack(pady= 50)
-
-def key_press(e):
-   label.config(text="Key pressed:" + e.char)
-
-def key_released(e):
-   label.config(text="Press any Key...")
 
 if __name__ == "__main__":
     manual_controller = ManualController(OMNI_SPEED, ROTATION_SPEED, LU_SPEED)
 
-    # options_dict = {}
-    # options_dict["clientAddress"] = "127.0.0.1"
-    # options_dict["serverAddress"] = "127.0.0.1"
-    # options_dict["use_multicast"] = True
+    options_dict = {}
+    options_dict["clientAddress"] = "127.0.0.1"
+    options_dict["serverAddress"] = "127.0.0.1"
+    options_dict["use_multicast"] = True
 
-    # # This will create a new NatNet client
-    # options_dict = parseArgs(sys.argv, options_dict)
+    # This will create a new NatNet client
+    options_dict = parseArgs(sys.argv, options_dict)
 
-    # streaming_client = NatNetClient()
-    # streaming_client.set_client_address(options_dict["clientAddress"])
-    # streaming_client.set_server_address(options_dict["serverAddress"])
-    # streaming_client.set_use_multicast(options_dict["use_multicast"])
+    streaming_client = NatNetClient()
+    streaming_client.set_client_address(options_dict["clientAddress"])
+    streaming_client.set_server_address(options_dict["serverAddress"])
+    streaming_client.set_use_multicast(options_dict["use_multicast"])
 
-    # streaming_client.mocap_data_listener = receiveMocapDataFrame
+    streaming_client.mocap_data_listener = receiveMocapDataFrame
 
-    # is_running = streaming_client.run()
+    is_running = streaming_client.run()
     
-    # with keyboard.Listener(on_press=manual_controller.onPress, on_release=manual_controller.onRelease, suppress=True) as listener:
-    #     listener.join()
-    
-    # Bind the Mouse button event
-    win.bind('<KeyPress>', manual_controller.onPress)
-    win.bind('<KeyRelease>', manual_controller.onRelease )
-    win.mainloop()
+    root.title('Robot motion')
+    root.config(background='#fafafa')
+
+    canvas.get_tk_widget().pack()
+    frame.pack()
+
+    # toolbar = NavigationToolbar2Tk(canvas, root, pack_toolbar = False)
+    # toolbar.update()
+    # toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    root.bind('<KeyPress>', manual_controller.onPress)
+    root.bind('<KeyRelease>', manual_controller.onRelease )
+    root.mainloop()
         
         
     

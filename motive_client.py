@@ -22,7 +22,7 @@ def _unpack_data(mocap_data):
     rigid_body_data = mocap_data.rigid_body_data
     labeled_marker_data = mocap_data.labeled_marker_data
 
-    if labeled_marker_data.get_labeled_marker_count() == 9:
+    if labeled_marker_data.get_labeled_marker_count() == 12:
         labeled_marker_list = labeled_marker_data.labeled_marker_list
         rigid_body_list = rigid_body_data.rigid_body_list
 
@@ -33,12 +33,12 @@ def _unpack_data(mocap_data):
             model_id, marker_id = marker.get_id()
             marker = {'model_id': model_id, 'marker_id': marker_id,
                       'marker_x': marker.pos[0], 'marker_y': marker.pos[1], 'marker_z': marker.pos[2]}
-            markers[marker_id] = marker
+            markers[str(model_id) + '.' + str(marker_id)] = marker
 
         for rigid_body in rigid_body_list:
             rigid_body = {'id': rigid_body.id_num, 'x': rigid_body.pos[0], 'y': rigid_body.pos[1], 'z': rigid_body.pos[2], 'a': rigid_body.rot[0],
                           'b': rigid_body.rot[1], 'c': rigid_body.rot[2], 'd': rigid_body.rot[3]}
-            rigid_bodies[rigid_body['id']] = rigid_body
+            rigid_bodies[rigid_body['id']] = rigid_body    
 
     return markers, rigid_bodies
 
@@ -90,7 +90,7 @@ def _rankPoints(markers, head_LU):
     # Find the rank of the rest of the points
     while remaining_points:
         current_point = remaining_points.pop(current_index)
-        markers.get(current_point['marker_id'])['rank'] = rank
+        markers.get(str(current_point['model_id']) + '.' + str(current_point['marker_id']))['rank'] = rank
 
         rank += 1  # Update rank
 
@@ -117,7 +117,24 @@ def _calcLUHeadOrientation(LU_head_markers):
     i_next = i + 1 if i < 2 else 0
 
     delta = points[i, :] - points[i_next, :]
-    theta = np.arctan2(delta[1], delta[0]) + math.pi
+    theta = np.arctan2(delta[1], delta[0])
+
+    return theta
+
+def _calcManipOrientation(manipulandum_marker):
+    points = []
+
+    for marker in manipulandum_marker:
+        points.append([marker['marker_x'], marker['marker_y']])
+
+    points = np.array(points)
+    triangle_sides = np.linalg.norm(points - np.roll(points, -1, 0), axis=1)
+
+    i = triangle_sides.argsort()[0]
+    i_next = i + 1 if i < 2 else 0
+
+    delta = points[i, :] - points[i_next, :]
+    theta = np.arctan2(delta[1], delta[0])
 
     return theta
 
@@ -197,23 +214,20 @@ def getRobotConfig(data):
             for i in range(3):
                 rigid_body[rb_pos[i]] = new_pos[i]
 
-            new_params = _quatTransform(
-                [rigid_body.get(param) for param in rb_params])
+            new_params = _quatTransform([rigid_body.get(param) for param in rb_params])
             for i in range(4):
                 rigid_body[rb_params[i]] = new_params[i]
 
             # Convert quaternions to Euler angles
-            euler_angles = _quaternionToEuler(
-                [rigid_body.get(param) for param in rb_params])
+            euler_angles = _quaternionToEuler([rigid_body.get(param) for param in rb_params])
             for i in range(3):
                 rigid_body[rb_angles[i]] = euler_angles[i]
-
-        
+                        
         # Get position of the head LU
         LU_head_rb = rigid_bodies[1]
         # Rank markers along the bridge
         _rankPoints(markers, LU_head_rb)
-
+        
         # Define the frame of the head LU
         LU_head_theta = _calcLUHeadOrientation([marker for marker in markers.values() if marker['model_id'] == 1])
         LU_head_x = LU_head_rb['x'] + LU_head_center_r*np.cos(LU_head_theta + LU_head_center_angle)
@@ -243,9 +257,14 @@ def getRobotConfig(data):
         body_frame_theta = _getAngle(LU_head_frame[:2],LU_tail_frame[:2])
 
         body_frame.append(body_frame_theta)
+        
+        # Define the frame of a manipulandum
+        manipulandum_rb = rigid_bodies[2]
+        manipulandum_theta = _calcManipOrientation([marker for marker in markers.values() if marker['model_id'] == 2])
+        manipulandum_frame = [manipulandum_rb['x'], manipulandum_rb['y'], manipulandum_theta]
 
         # Combine all frames
-        all_frames = [LU_head_frame, LU_tail_frame, body_frame]
+        all_frames = [LU_head_frame, LU_tail_frame, body_frame, manipulandum_frame]
 
         # Calculate the wheels' coordinates from LU's coordinates
         wheels_global = __calcWheelsCoords(LU_head_frame, LU_tail_frame)
