@@ -44,7 +44,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
     def executeAction(self):
         try:
-            self.robot_config = motive_client.getRobotConfig([mocap_data])
+            self.robot_config = motive_client.getCurrentConfig([mocap_data])
 
             if self.robot_config is not None:
                 self.plotMotion()

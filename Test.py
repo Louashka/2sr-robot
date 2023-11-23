@@ -29,7 +29,6 @@ frame = tk.Frame(root)
 fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (6, 3))
 canvas = FigureCanvasTkAgg(fig, master = frame)
 
-
 class ManualController(robot_keyboard.ActionsHandler):
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
@@ -39,7 +38,7 @@ class ManualController(robot_keyboard.ActionsHandler):
 
     def executeAction(self):
         try:
-            self.robot_config = motive_client.getRobotConfig([pose_markers, pose_rigid_bodies])
+            self.robot_config = motive_client.getCurrentConfig([pose_markers, pose_rigid_bodies])
 
             if self.robot_config is not None:
                 self.plotMotion()
@@ -51,7 +50,7 @@ class ManualController(robot_keyboard.ActionsHandler):
         markers, all_frames, wheels_global, wheels_bf = self.robot_config 
 
         # Unpack frames
-        LU_head_frame, LU_tail_frame, body_frame = all_frames
+        LU_head_frame, LU_tail_frame, body_frame, manipulandum_frame = all_frames
 
         # Update the plot with new motion data 
         axs[0].clear()
@@ -135,11 +134,11 @@ def readData(pose):
 
     for index, row in markers_df_.iterrows():
         marker = row.to_dict()
-        markers[marker['marker_id']] = marker
+        markers[str(marker['model_id']) + '.' + str(marker['marker_id'])] = marker
 
     for index, row in rigid_bodies_df_.iterrows():
         rigid_body = row.to_dict()
-        rigid_bodies[rigid_body['id']] = rigid_body
+        rigid_bodies[int(rigid_body['id'])] = rigid_body        
 
     return markers, rigid_bodies
 
