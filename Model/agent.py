@@ -1,8 +1,8 @@
 class Frame:
     def __init__(self, pose) -> None:
-        self.__x = pose[0]
-        self.__y = pose[1]
-        self.__theta = pose[2]
+        self.x = pose[0]
+        self.y = pose[1]
+        self.theta = pose[2]
     
     @property
     def x(self) -> float:
@@ -82,7 +82,7 @@ class LU(Frame):
 class VSF:
     def __init__(self, agent_id, k) -> None:
         self.__agent_id = agent_id
-        self.__k = k
+        self.k = k
 
     def __str__(self) -> str:
         return '[' + ', '.join(map(str, self.k)) + ']'

@@ -1,5 +1,5 @@
 import sys
-from nat_net_client import NatNetClient
+from Motive.nat_net_client import NatNetClient
 import math
 import numpy as np
 import scipy.optimize as so

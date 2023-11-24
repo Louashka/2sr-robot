@@ -1,6 +1,6 @@
 import numpy as np
 import sympy as sym
-import globals_
+import Model.global_var as global_var
 
 
 # FORWARD KINEMATICS
@@ -48,14 +48,14 @@ def hybrid_jacobian(q_start, q, sigma):
     # SOFT STATE
 
     # Central angles of VSS arcs
-    alpha = np.array(q[3:]) * globals_.L_VSS
+    alpha = np.array(q[3:]) * global_var.L_VSS
     # Angles of 3 types of logarithmic spirals
     theta = np.divide(np.tile(np.reshape(alpha, (2, 1)), 3),
-                      globals_.M) - np.pi
+                      global_var.M) - np.pi
 
     # Spiral constants
-    a = globals_.SPIRAL_COEF[0]
-    b = np.tile(globals_.SPIRAL_COEF[1], (2, 1))
+    a = global_var.SPIRAL_COEF[0]
+    b = np.tile(global_var.SPIRAL_COEF[1], (2, 1))
     for i in range(2):
         if q[i + 3] > 0:
             b[i] = -b[i]
@@ -64,9 +64,9 @@ def hybrid_jacobian(q_start, q, sigma):
     rho = a * np.exp(b * theta)  # spiral radii
 
     # Proportionality coefficient of the rate of VSS curvature change
-    Kappa = np.divide(globals_.M, globals_.L_VSS * rho)
+    Kappa = np.divide(global_var.M, global_var.L_VSS * rho)
     # Proportionality coefficient of the rate of 2SRR orientation change
-    Phi = np.divide(globals_.M, rho)
+    Phi = np.divide(global_var.M, rho)
 
     flag_soft1 = int(not sigma[1] and sigma[0])  # checks if VSS1 is soft
     flag_soft2 = int(not sigma[0] and sigma[1])  # checks if VSS2 is soft
@@ -123,7 +123,7 @@ def body_frame_position(flag):
     r = sym.Symbol('r')  # log spiral radius
 
     # Angle of the 1st log spiral
-    th = k * globals_.L_VSS / globals_.M[0]
+    th = k * global_var.L_VSS / global_var.M[0]
 
     # Coordinates of the VSS G point w.r.t. the log spiral cenre {c}
     c_G = np.array([[-flag * r * sym.cos(th)],
@@ -131,12 +131,12 @@ def body_frame_position(flag):
                     [1]])
 
     # Coordinates of the F point (middle point of the middle link) w.r.t. the G
-    G_F = np.array([[-flag * globals_.L_LINK / 2],
+    G_F = np.array([[-flag * global_var.L_LINK / 2],
                     [0],
                     [1]])
 
     # Linear transformation from the G point to the {c} frame
-    cGth = - flag * k * globals_.L_VSS
+    cGth = - flag * k * global_var.L_VSS
     c_T_G = np.array([[sym.cos(cGth), -sym.sin(cGth), c_G[0].item()],
                       [sym.sin(cGth), sym.cos(cGth), c_G[1].item()],
                       [0, 0, 1]])
@@ -145,8 +145,8 @@ def body_frame_position(flag):
     c_F = sym.simplify(np.matmul(c_T_G, G_F))
 
     # Linear transformation from the {c} frame to the VSS end frame {b_j}
-    b_T_c = np.array([[1, 0, globals_.SPIRAL_CENTRE[0]],
-                      [0, 1, globals_.SPIRAL_CENTRE[1]],
+    b_T_c = np.array([[1, 0, global_var.SPIRAL_CENTRE[0]],
+                      [0, 1, global_var.SPIRAL_CENTRE[1]],
                       [0, 0, 1]])
 
     # Coordinates of the F point w.r.t. the {b_j} frame
@@ -158,8 +158,8 @@ def body_frame_position(flag):
                        [0, 0, 1]])
 
     # Linear transformation from the VSS end frame {b_j} to the body frame {b_0}
-    b0Bth = flag * k0 * globals_.L_VSS
-    b0_T_b = np.array([[sym.cos(b0Bth), -sym.sin(b0Bth), flag * globals_.L_LINK / 2 + sym.sin(b0Bth) / k0],
+    b0Bth = flag * k0 * global_var.L_VSS
+    b0_T_b = np.array([[sym.cos(b0Bth), -sym.sin(b0Bth), flag * global_var.L_LINK / 2 + sym.sin(b0Bth) / k0],
                        [sym.sin(b0Bth), sym.cos(b0Bth),
                         (1 - sym.cos(b0Bth)) / k0],
                        [0, 0, 1]])

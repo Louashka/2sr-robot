@@ -1,13 +1,12 @@
 import math
 import numpy as np
 import pandas as pd
-import motive_client
-import robot_keyboard
+import Motive.motive_client as motive_client
+import Controller.keyboard_controller as keyboard_controller
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import tkinter as tk
-from tkinter import ttk
 
 OMNI_SPEED = 0.12
 ROTATION_SPEED = 1
@@ -29,7 +28,7 @@ frame = tk.Frame(root)
 fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (6, 3))
 canvas = FigureCanvasTkAgg(fig, master = frame)
 
-class ManualController(robot_keyboard.ActionsHandler):
+class ManualController(keyboard_controller.ActionsHandler):
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
         super().__init__(omni_speed, rotation_speed, lu_speed)

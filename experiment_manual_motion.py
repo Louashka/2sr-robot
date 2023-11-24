@@ -1,10 +1,10 @@
-import robot_controller
-import robot_keyboard
-import motive_client
+import Controller.robot_controller as robot_controller
+import Controller.keyboard_controller as keyboard_controller
+import Motive.motive_client as motive_client
 import numpy as np
 import pandas as pd
 import math
-from nat_net_client import NatNetClient
+from Motive.nat_net_client import NatNetClient
 import sys
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -35,7 +35,7 @@ frame = tk.Frame(root)
 fig, axs = plt.subplots(nrows=1, ncols=2, figsize = (10, 5))
 canvas = FigureCanvasTkAgg(fig, master = frame)
 
-class ManualController(robot_keyboard.ActionsHandler):
+class ManualController(keyboard_controller.ActionsHandler):
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
         super().__init__(omni_speed, rotation_speed, lu_speed)

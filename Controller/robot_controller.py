@@ -1,6 +1,6 @@
 import serial
 import numpy as np
-import globals_
+import Model.global_var as global_var
 
 
 port_name = "COM5"
@@ -22,7 +22,7 @@ def getOmega(w_list, v, s):
         V_[i, :] = [flag_soft * int(i == 0 or i == 1), -flag_soft * int(
             i == 2 or i == 3), flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau]
 
-    V = 1 / globals_.WHEEL_R * V_
+    V = 1 / global_var.WHEEL_R * V_
     omega = np.matmul(V, v)
 
     return omega.round(3)

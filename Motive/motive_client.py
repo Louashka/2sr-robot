@@ -1,9 +1,9 @@
-from nat_net_client import NatNetClient
+from Motive.nat_net_client import NatNetClient
 import numpy as np
 import math
 import copy
-import agent
-import globals_
+import Model.agent as agent
+import Model.global_var as global_var
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
 rb_pos = ['x', 'y', 'z']
@@ -303,10 +303,10 @@ def _wheelsToBodyFrame(body_frame, LU_head_theta, LU_tail_theta, w):
         w_b0 = [wheels_bf[i][0], wheels_bf[i][1], 1]
         wheels_bf[i] = np.matmul(T_bo, w_b0).T[:-1]
     for i in range(2):
-        wheels_bf[i] = np.append(wheels_bf[i], (LU_head_theta - body_frame[2]) % (2 * np.pi) + globals_.BETA[i])
+        wheels_bf[i] = np.append(wheels_bf[i], (LU_head_theta - body_frame[2]) % (2 * np.pi) + global_var.BETA[i])
 
     for i in range(2, 4):
-        wheels_bf[i] = np.append(wheels_bf[i], (LU_tail_theta - body_frame[2]) % (2 * np.pi) + globals_.BETA[i])
+        wheels_bf[i] = np.append(wheels_bf[i], (LU_tail_theta - body_frame[2]) % (2 * np.pi) + global_var.BETA[i])
 
     return wheels_bf
 

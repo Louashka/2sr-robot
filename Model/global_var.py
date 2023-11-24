@@ -1,22 +1,32 @@
 import math
-# Bridge parameters
 
+AGENTS_ID = [1]
+
+# Velocities
+OMNI_SPEED = 0.12
+ROTATION_SPEED = 1
+LU_SPEED = 0.12
+
+# VSF parameters
 L_VSS = 75.875 * 10**(-3)  # VSS length
 L_VSS_CNN = 30 * 10**(-3)
 D_BRIDGE = 7 * 10**(-3)  # bridge width
 L_VSF = 2 * L_VSS  # VSF length
 
-# Moving bloc parameters
+# LU parameters
+LU_SIDE = 42 * 10**(-3)  # block side length
+LU_R = LU_SIDE * math.sqrt(2) / 2 # Distance between LU center and its corner
+LU_ALPHA = math.radians(-135) # Angle between LU orientation and r
 
-BLOCK_SIDE = 42 * 10**(-3)  # block side length
+# Wheels parameters
 WHEEL_R = 10 * 10**(-3)  # wheel radius
 WHEEL_TH = 12 * 10**(-3)  # wheel thickness
 WHEEL_MARGIN = 10**(-3)
 
 BETA = [math.pi / 2, math.pi, -math.pi / 2, math.pi]
 
-H1 = L_VSS_CNN + BLOCK_SIDE - WHEEL_R
-H2 = BLOCK_SIDE + WHEEL_TH / 2 + WHEEL_MARGIN
+H1 = L_VSS_CNN + LU_SIDE - WHEEL_R
+H2 = LU_SIDE + WHEEL_TH / 2 + WHEEL_MARGIN
 H3 = L_VSS_CNN - WHEEL_TH / 2 - WHEEL_MARGIN
 H4 = WHEEL_R
 
