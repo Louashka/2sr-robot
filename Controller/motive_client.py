@@ -1,6 +1,7 @@
 import sys
 from Motive.nat_net_client import NatNetClient
 import mas_controller
+from Model import manipulandum
 
 class MocapReader:
     def __init__(self) -> None:
@@ -52,17 +53,6 @@ class MocapReader:
         streaming_client.mocap_data_listener = self.__receiveData
 
         self.isRunning = streaming_client.run()
-
-    def getConfig(self) -> list:
-        mas = None
-        manipulandums = None
-
-        markers, rigid_bodies = self.__unpackData()
-        if len(markers) == 0 or len(rigid_bodies) == 0:
-            raise Exception("No agents are found!")
-    
-
-        return mas, manipulandums
     
     def __unpackData(self) -> list:
         if self.data is None:
@@ -89,6 +79,17 @@ class MocapReader:
             rigid_bodies[int(rigid_body['id'])] = rigid_body    
 
         return markers, rigid_bodies
+    
+    def getConfig(self) -> list:
+        mas = mas_controller.Swarm()
+        manipulandums = [manipulandum.Shape(0, [0, 0, 0])]
+
+        # markers, rigid_bodies = self.__unpackData()
+        # if len(markers) == 0 or len(rigid_bodies) == 0:
+        #     raise Exception("No agents are found!")
+    
+
+        return mas, manipulandums
 
 
 

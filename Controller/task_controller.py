@@ -1,4 +1,5 @@
 from enum import Enum
+import pandas as pd
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
 from Model import global_var
@@ -77,14 +78,37 @@ class Task(keyboard_controller.ActionsHandler):
     #////////////////// COLLAB MODE METHODS ///////////////////////////////////////
 
     def __collabMode(self) -> None:
-        pass
+        # Get the current MAS and manipulandums configuration
+        self.__mas, self.__manipulandums = self.__mocap.getConfig()
 
+        if len(self.__manipulandums) != 1:
+            raise Exception('Wrong number of manipulandums!')
+        
+        # Define the cloud shape
+        cloud_manipulandum = self.__manipulandums[0]
+        cloud_contour_params = self.__extractManipShape(['./Data/manip_contour.csv'])[0]
+        cloud_manipulandum.contour_params = cloud_contour_params
+        
+
+    def __extractManipShape(self, paths) -> list:
+        manip_contour_params = []
+
+        for path in paths:
+            contour_df = pd.read_csv(path)
+            contour_r = contour_df['distance'].tolist()
+            contour_theta = contour_df['phase_angle'].tolist()
+            
+            manip_contour_params.append([contour_r, contour_theta])
+
+        return manip_contour_params
+        
     #/////////////////// COOP MODE METHODS ////////////////////////////////////////
     
     def __coopMode(self) -> None:
-        pass
+        # Create a 4 manipulandums
+        contours = self.__extractManipShape(['', '', '', ''])
     
 
 if __name__ == "__main__":
     experiment = Task()
-    experiment.run(Mode.MANUAL)
+    experiment.run(Mode.COLLAB)
