@@ -1,7 +1,5 @@
 import math
 
-AGENTS_ID = [1]
-
 # Velocities
 OMNI_SPEED = 0.12
 ROTATION_SPEED = 1
@@ -43,3 +41,13 @@ SPIRAL_COEF = [[2.3250 * L_VSS, 3.3041 * L_VSS,
 SPIRAL_CENTRE = [-0.1223 * L_VSS, 0.1782 * L_VSS]
 
 M = [3 / 2, 1, 3 / 4]
+
+# Motive tracling data
+M_POS = ['marker_x', 'marker_y', 'marker_z']
+RB_POS = ['x', 'y', 'z']
+RB_PARAMS = ['a', 'b', 'c', 'd']
+RB_ANGLES = ['roll', 'pitch', 'yaw']
+
+# Coords of the real LU center w.r.t. the rb position
+LU_HEAD_CENTER_R = 0.01074968
+LU_HEAD_CENTER_ANGLE = math.radians(-60.2551187)

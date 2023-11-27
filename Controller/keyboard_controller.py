@@ -2,17 +2,16 @@ class ActionsHandler:
 
     def __init__(self, omni_speed, rotation_speed, lu_speed) -> None:
 
-        self.__omni_speed = omni_speed  # Speed of the agent in the rigid mode
-        # Speed of the agent's rotation in the rigid mode
-        self.__rotation_speed = rotation_speed
-        self.__lu_speed = lu_speed  # Speed of the locomotion units int thxe soft mode
+        self.__omni_speed = omni_speed  # Agent velocity in the rigid mode
+        self.__rotation_speed = rotation_speed # Agent angular velocity in the rigid mode
+        self.__lu_speed = lu_speed  # LU's velocity in the soft mode
 
-        self.__current_keys = set()
+        self.__current_keys = set() # Set of pressed keys
 
-        self.__v = [0] * 5
-        self.__s = [0, 0]
+        self.__v = [0] * 5 # Array of control velocities
+        self.__s = [0, 0] # Values of VS segments stiffness 
 
-        # Key combinations
+        # Control key combinations
         self.__keyboard_combinations = {
             'FORWARD': {'Up'},
             'BACKWARD': {'Down'},
@@ -34,6 +33,7 @@ class ActionsHandler:
             'BOTH_RIGID': {'s', 'Down'}
         }
 
+        # Actions that correspond to the key combinations
         self.__keyboard_actions = {
             'FORWARD': {
                 'action': 'Agent forward',
@@ -111,14 +111,16 @@ class ActionsHandler:
 
     def __handleKeyCombination(self):
         for combination, keys in self.__keyboard_combinations.items():
+            # Define control velocities and stiffness values according to pressed key combination
             if (keys == self.__current_keys):
-                action = self.__keyboard_actions[combination]["callback"]
-                message = self.__keyboard_actions[combination]["action"]
+                action = self.__keyboard_actions[combination]['callback']
+                message = self.__keyboard_actions[combination]['action']
 
-                print(message)
+                print(message) # Print the action message
                 action()
                 break
             else:
+                # Stop the motion if necessary keys are not pressed
                 self.__v = [0] * 5
 
     def onPress(self, key):

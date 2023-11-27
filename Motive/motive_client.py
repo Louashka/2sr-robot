@@ -16,9 +16,6 @@ LU_head_center_angle = math.radians(-60.2551187)
 
 def _unpackData(mocap_data):
 
-    markers = []
-    rigid_bodies = []
-
     rigid_body_data = mocap_data.rigid_body_data
     labeled_marker_data = mocap_data.labeled_marker_data
 

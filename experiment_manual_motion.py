@@ -1,4 +1,4 @@
-import Controller.robot_controller as robot_controller
+import Controller.mas_controller as mas_controller
 import Controller.keyboard_controller as keyboard_controller
 import Motive.motive_client as motive_client
 import numpy as np
@@ -48,12 +48,12 @@ class ManualController(keyboard_controller.ActionsHandler):
 
             if self.robot_config is not None:
                 self.plotMotion()
-                omega = robot_controller.getOmega(
+                omega = mas_controller.getOmega(
                     self.robot_config[3], self.v, self.s)
-                robot_controller.moveRobot(omega, self.s, AGENT_ID)
+                mas_controller.moveRobot(omega, self.s, AGENT_ID)
         except Exception as e:
             print(f"Error occurred: {e}. The robot is stopped!")
-            robot_controller.moveRobot(
+            mas_controller.moveRobot(
                 np.array([0, 0, 0, 0]), self.s, AGENT_ID)
             
     def plotMotion(self):
@@ -135,7 +135,7 @@ class ManualController(keyboard_controller.ActionsHandler):
 
     def onRelease(self, key) -> None:
         super().onRelease(key)
-        robot_controller.moveRobot(np.array([0, 0, 0, 0]), self.s, AGENT_ID)
+        mas_controller.moveRobot(np.array([0, 0, 0, 0]), self.s, AGENT_ID)
 
 
 def receiveMocapDataFrame(data):
