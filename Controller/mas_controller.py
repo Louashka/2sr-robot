@@ -9,7 +9,7 @@ serial_port = serial.Serial(port_name, 115200)
 
 class Swarm:
     def __init__(self) -> None:
-        self.__agents = None
+        self.__agents = []
 
     @property
     def agents(self) -> list:

@@ -1,7 +1,9 @@
 import sys
 from Motive.nat_net_client import NatNetClient
 import mas_controller
-from Model import manipulandum
+from Model import manipulandum, agent
+import pandas as pd
+import Motive.motive_client as motive
 
 class MocapReader:
     def __init__(self) -> None:
@@ -81,8 +83,12 @@ class MocapReader:
         return markers, rigid_bodies
     
     def getConfig(self) -> list:
+        pose_markers, pose_rigid_bodies = self.readData(2)
+        markers, all_frames, wheels_global, wheels_bf = motive.getCurrentConfig([pose_markers, pose_rigid_bodies])
+
         mas = mas_controller.Swarm()
-        manipulandums = [manipulandum.Shape(0, [0, 0, 0])]
+        mas.agents.append(agent.Robot(1, all_frames[2], all_frames[0], all_frames[1], agent.VSF(1, [0.0, 0.0])))
+        manipulandums = []
 
         # markers, rigid_bodies = self.__unpackData()
         # if len(markers) == 0 or len(rigid_bodies) == 0:
@@ -90,6 +96,28 @@ class MocapReader:
     
 
         return mas, manipulandums
+    
+    def readData(self, pose):
+        markers_df = pd.read_csv('Data/markers.csv')
+        rigid_bodies_df = pd.read_csv('Data/rigid_bodies.csv')
+
+        markers_df_ = markers_df[markers_df["pose"]
+                                    == pose].drop('pose', axis=1)
+        rigid_bodies_df_ = rigid_bodies_df[rigid_bodies_df["pose"] == pose].drop(
+            'pose', axis=1)
+
+        markers = {}
+        rigid_bodies = {}
+
+        for index, row in markers_df_.iterrows():
+            marker = row.to_dict()
+            markers[str(marker['model_id']) + '.' + str(marker['marker_id'])] = marker
+
+        for index, row in rigid_bodies_df_.iterrows():
+            rigid_body = row.to_dict()
+            rigid_bodies[int(rigid_body['id'])] = rigid_body        
+
+        return markers, rigid_bodies
 
 
 
