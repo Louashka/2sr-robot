@@ -101,35 +101,90 @@ class Task(keyboard_controller.ActionsHandler):
         print('Generate path')
 
         self.__paths = []
-        dt = 0.25
+        dt = 0.1
 
-        x_range = [-2, 2]
-        y_range = [-2, 2]
+        x_range = [-1, 3]
+        y_range = [-1, 3]
 
         for agent in self.__saved_mas.agents:
             q_current = agent.pose
             path = []
 
             t = 0
-            velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 1)]
+            t_count = 0
+            velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 0)]
+            avoid_border = False
 
             while t < 6:
+                if t_count >= 2:
+                    velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 1)]
+                    t_count = 0
+
                 R = np.array([[np.cos(q_current[2]), -np.sin(q_current[2]), 0],
                     [np.sin(q_current[2]), np.cos(q_current[2]), 0], [0, 0, 1]])
 
                 q_dot = R.dot(velocity)
-                q_new = q_current + q_dot * dt
+                q_current += q_dot * dt
 
-                q_current = q_new
+                if self.__closeToBorder(q_current, x_range, y_range):
+                    quadrant = self.__quadrant(q_current, x_range, y_range)
+                    velocity[1] = 0.2
+
+                    if not avoid_border:
+                        if q_dot[0] > 0 and  q_dot[1] > 0 or q_dot[0] < 0 and  q_dot[1] < 0:
+                            velocity[2] = -1
+                        elif q_dot[0] < 0 and  q_dot[1] > 0 or q_dot[0] > 0 and  q_dot[1] < 0:
+                            velocity[2] = 1
+                        elif q_dot[0] == 0:
+                            if quadrant == 1 or quadrant == 3:
+                                velocity[2] = 1
+                            else:
+                                velocity[2] = -1
+                        elif q_dot[1] == 0:
+                            if quadrant == 1 or quadrant == 3:
+                                velocity[2] = -1
+                            else:
+                                velocity[2] = 1
+                    avoid_border = True
+                    t_count = 0
+                elif avoid_border:
+                    velocity[1] = rnd.uniform(0.5, 1)
+                    velocity[2] = rnd.uniform(-1, 1)
+                    avoid_border = False
+
+                path.append(q_current.tolist())
                 t += dt
+                t_count += dt
 
-                path.append(q_current)
-
-            print(path)
             self.__paths.append(path)
 
-        self.__gui.plotPaths(self.__paths)
- 
+        self.__gui.plotPaths(self.__paths, x_range, y_range)
+
+    def __closeToBorder(self, q, x_range, y_range):
+        result = True
+
+        safety_margin = 0.5
+        x_safe_range = [x_range[0] + safety_margin, x_range[1] - safety_margin]
+        y_safe_range = [y_range[0] + safety_margin, y_range[1] - safety_margin]
+
+        if x_safe_range[0] < q[0] < x_safe_range[1] and y_safe_range[0] < q[1] < y_safe_range[1]:
+            result = False
+
+        return result 
+    
+    def __quadrant(self, q, x_range, y_range):
+        x_middle = x_range[0] + (x_range[1] - x_range[0]) / 2
+        y_middle = y_range[0] + (y_range[1] - y_range[0]) / 2
+
+        if q[0] > x_middle:
+            if q[1] > y_middle:
+                return 1
+            else:
+                return 4
+        elif q[1] > y_middle:
+            return 2
+        else:
+            return 3
 
     #//////////////////////////////// COLLAB MODE METHODS ////////////////////////////////
 

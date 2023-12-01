@@ -54,7 +54,7 @@ class GUI:
         self.__canvas = FigureCanvasTkAgg(self.__fig, master = self.__masFrame)
         self.__canvas.get_tk_widget().pack()
 
-    def plotPaths(self, paths) -> None:
+    def plotPaths(self, paths, x_lim, y_lim) -> None:
         self.__ax.clear()
 
         for path in paths:
@@ -63,8 +63,11 @@ class GUI:
             path_y = path[:,1]
 
             self.__ax.plot(path_x, path_y)
+              
+        # self.__ax.axis('equal')
+        self.__ax.set_xlim(x_lim)
+        self.__ax.set_ylim(y_lim)
 
-        self.__ax.axis('equal')
         plt.tight_layout()
 
         self.__canvas.draw()
