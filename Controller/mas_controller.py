@@ -1,6 +1,7 @@
 import serial
 import numpy as np
-import Model.global_var as global_var
+from typing import List
+from Model import global_var, agent
 
 
 # port_name = "COM5"
@@ -12,20 +13,37 @@ class Swarm:
         self.__agents = []
 
     @property
-    def agents(self) -> list:
+    def agents(self) -> List[agent.Robot]:
         return self.__agents
     
     @agents.setter
-    def agents(self, value) -> None:
+    def agents(self, value: List[agent.Robot]) -> None:
+        if not isinstance(value, List[agent.Robot]):
+            raise Exception('Wrong type of agent!')
         self.__agents = value
 
-    def getAllId(self) -> list:
+    def getAllId(self) -> List[int]:
         all_id = []
         if self.agents is not None:
             for agent in self.agents:
                 all_id.append(agent.id)
 
         return all_id
+    
+    def getAgentById(self, id) -> agent.Robot:
+        for agent in self.agents:
+            if agent.id == id:
+                return agent
+            
+        return None
+    
+    def getActiveAgents(self) -> List[agent.Robot]:
+        active_agents = []
+        for agent in self.agents:
+            if agent.status:
+                active_agents.append(agent)
+
+        return active_agents
     
     def move(self, v, s) -> None:
         for agent in self.agents:

@@ -788,7 +788,7 @@ class NatNetClient:
 
     # Unpack a marker set description packet
     def __unpack_marker_set_description( self, data, major, minor):
-        ms_desc = DataDescriptions.MarkerSetDescription()
+        ms_desc = data_descriptions.MarkerSetDescription()
 
         offset = 0
 
@@ -810,7 +810,7 @@ class NatNetClient:
 
     # Unpack a rigid body description packet
     def __unpack_rigid_body_description( self, data, major, minor):
-        rb_desc=DataDescriptions.RigidBodyDescription()
+        rb_desc=data_descriptions.RigidBodyDescription()
         offset = 0
 
         # Version 2.0 or higher
@@ -868,7 +868,7 @@ class NatNetClient:
                     marker_name = marker_name.decode( 'utf-8' )
                     offset3 += len( marker_name ) + 1
 
-                rb_marker=DataDescriptions.RBMarker(marker_name,active_label,marker_offset)
+                rb_marker=data_descriptions.RBMarker(marker_name,active_label,marker_offset)
                 rb_desc.add_rb_marker(rb_marker)
                 # trace_dd( "\t%3.1d Marker Label: %s Position: [%3.2f %3.2f %3.2f] %s" % (marker,active_label,\
                    # marker_offset[0], marker_offset[1], marker_offset[2],marker_name ))
@@ -880,7 +880,7 @@ class NatNetClient:
 
     # Unpack a skeleton description packet
     def __unpack_skeleton_description( self, data, major, minor):
-        skeleton_desc = DataDescriptions.SkeletonDescription()
+        skeleton_desc = data_descriptions.SkeletonDescription()
         offset = 0
 
         #Name
@@ -912,7 +912,7 @@ class NatNetClient:
         fp_desc = None
         offset = 0
         if major >= 3:
-            fp_desc = DataDescriptions.ForcePlateDescription()
+            fp_desc = data_descriptions.ForcePlateDescription()
             # ID
             new_id = int.from_bytes( data[offset:offset+4], byteorder='little' )
             offset += 4
@@ -1024,7 +1024,7 @@ class NatNetClient:
             offset+=4
             # trace_dd("Channel Data Type : ", channel_data_type)
 
-            device_desc = DataDescriptions.DeviceDescription(new_id,name,serial_number,device_type,channel_data_type)
+            device_desc = data_descriptions.DeviceDescription(new_id,name,serial_number,device_type,channel_data_type)
 
             # Number of Channels int
             num_channels = int.from_bytes( data[offset:offset+4], byteorder='little' )
@@ -1058,13 +1058,13 @@ class NatNetClient:
         # trace_dd( "\tOrientation: [%3.2f, %3.2f, %3.2f, %3.2f]"% (orientation[0], orientation[1], orientation[2], orientation[3] ))
         # trace_dd("unpack_camera_description processed %3.1d bytes"% offset)
 
-        camera_desc=DataDescriptions.CameraDescription(name, position, orientation)
+        camera_desc=data_descriptions.CameraDescription(name, position, orientation)
         return offset, camera_desc
 
 
     # Unpack a data description packet
     def __unpack_data_descriptions( self, data : bytes, packet_size, major, minor):
-        data_descs = DataDescriptions.DataDescriptions()
+        data_descs = data_descriptions.DataDescriptions()
         offset = 0
         # # of data sets to process
         dataset_count = int.from_bytes( data[offset:offset+4], byteorder='little' )

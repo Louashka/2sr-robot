@@ -6,8 +6,8 @@ ROTATION_SPEED = 1
 LU_SPEED = 0.12
 
 # VSF parameters
-L_VSS = 75.875 * 10**(-3)  # VSS length
-L_VSS_CNN = 30 * 10**(-3)
+L_VSS = 77 * 10**(-3)  # VSS length
+L_CONN = 30 * 10**(-3)
 D_BRIDGE = 7 * 10**(-3)  # bridge width
 L_VSF = 2 * L_VSS  # VSF length
 
@@ -23,9 +23,9 @@ WHEEL_MARGIN = 10**(-3)
 
 BETA = [math.pi / 2, math.pi, -math.pi / 2, math.pi]
 
-H1 = L_VSS_CNN + LU_SIDE - WHEEL_R
+H1 = L_CONN + LU_SIDE - WHEEL_R
 H2 = LU_SIDE + WHEEL_TH / 2 + WHEEL_MARGIN
-H3 = L_VSS_CNN - WHEEL_TH / 2 - WHEEL_MARGIN
+H3 = L_CONN - WHEEL_TH / 2 - WHEEL_MARGIN
 H4 = WHEEL_R
 
 # Wheels coordinates w.r.t. to VSB end frames {b_j}
@@ -49,5 +49,5 @@ RB_PARAMS = ['a', 'b', 'c', 'd']
 RB_ANGLES = ['roll', 'pitch', 'yaw']
 
 # Coords of the real LU center w.r.t. the rb position
-LU_HEAD_CENTER_R = 0.01074968
-LU_HEAD_CENTER_ANGLE = math.radians(-60.2551187)
+HEAD_CENTER_R = 0.01074968
+HEAD_CENTER_ANGLE = math.radians(-60.2551187)

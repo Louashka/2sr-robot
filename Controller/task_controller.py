@@ -4,7 +4,7 @@ import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
 from Model import global_var
 from View import plotlib
-import motive_client, keyboard_controller, grasping_controller
+import motive_client, keyboard_controller, grasping_controller, mas_controller
 import random as rnd
 import numpy as np
 
@@ -15,18 +15,31 @@ class Mode(Enum):
     COOP = 4
 
 class Task(keyboard_controller.ActionsHandler):
-    def __init__(self) -> None:
+    def __init__(self, mode) -> None:
         super().__init__(global_var.OMNI_SPEED, global_var.ROTATION_SPEED, global_var.LU_SPEED)
-        self.__mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
-        self.__gui = plotlib.GUI(self) # Initialise the GUI window
+        self.mode = mode
 
-        self.__saved_mas = None # Stores the last successfully obtained MAS configuration
+        self.__mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
+        self.__gui = plotlib.GUI(self) # Initialise GUI
+
+        self.__mas = None
+        self.__manipulandums = None
+
+        self.__tracking_area = [[-1, 3], [-1, 3]]
+
+    @property
+    def mode(self) -> Mode:
+        return self.__mode
+    
+    @mode.setter
+    def mode(self, value) -> None:
+        if not isinstance(value, Mode):
+            raise Exception('Wrong task mode!')
+        self.__mode = value
 
     # Execute a task of a given mode
-    def run(self, mode) -> None:
+    def run(self) -> None:
         # Check if the task mode is valid
-        if not isinstance(mode, Mode):
-            raise Exception('Wrong task mode!')
 
         print('Start Motive streaming')
         self.__mocap.startDataListener() # Start listening data from Motive
@@ -34,7 +47,7 @@ class Task(keyboard_controller.ActionsHandler):
         print('Start the experiment')
         
         # Run the seleceted task mode 
-        match mode:
+        match self.mode:
             case Mode.MANUAL:
                 print('Manual mode')
                 self.__manualMode()
@@ -55,22 +68,21 @@ class Task(keyboard_controller.ActionsHandler):
     def __manualMode(self):
         # Handle key events 
         self.__gui.window.bind('<KeyPress>', self.__onPress)
-        self.__gui.window.bind('<KeyRelease>', self.__onRelease )
+        self.__gui.window.bind('<KeyRelease>', self.__onRelease)
 
     # Execute the action according to the keyboard commands
     def __executeAction(self):
         try:
             # Get the current MAS and manipulandums configuration
-            self.__mas, self.__manipulandums = self.__mocap.getConfig()
+            self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
 
             if self.__mas is not None:
-                self.__saved_mas = self.__mas # Update the saved MAS config
                 self.__mas.move(self.v, self.s) # Execute the action by MAS
                 # Update the GUI
                 plotlib.plotMotion(self.__mas, self.__manipulandums)
         except Exception as e:
             print(f"Error occurred: {e}. The robot is stopped!")
-            if self.__saved_mas is not None:
+            if self.__mas is not None:
                 self.__mas.stop()
 
     def __onPress(self, key) -> None:
@@ -83,8 +95,7 @@ class Task(keyboard_controller.ActionsHandler):
 
     #//////////////////////////////// SINGLE MODE METHODS ////////////////////////////////
     def __singleMode(self) -> None:
-        self.__mas, self.__manipulandums = self.__mocap.getConfig()
-        self.__saved_mas = self.__mas
+        markers, self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
 
         if len(self.__mas.agents) == 0:
             raise Exception('No agents are found!')
@@ -95,102 +106,18 @@ class Task(keyboard_controller.ActionsHandler):
         if len(self.__manipulandums) > 0:
             raise Warning('Please remove manipulandums!')
         
+        self.__gui.plotMarkers(markers)
+        
+        for agent in self.__mas.agents:
+            self.__gui.plotAgent(agent)
+        
         self.__gui.window.mainloop()
-
-    def generatePath(self) -> list:
-        print('Generate path')
-
-        self.__paths = []
-        dt = 0.1
-
-        x_range = [-1, 3]
-        y_range = [-1, 3]
-
-        for agent in self.__saved_mas.agents:
-            q_current = agent.pose
-            path = []
-
-            t = 0
-            t_count = 0
-            velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 0)]
-            avoid_border = False
-
-            while t < 6:
-                if t_count >= 2:
-                    velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 1)]
-                    t_count = 0
-
-                R = np.array([[np.cos(q_current[2]), -np.sin(q_current[2]), 0],
-                    [np.sin(q_current[2]), np.cos(q_current[2]), 0], [0, 0, 1]])
-
-                q_dot = R.dot(velocity)
-                q_current += q_dot * dt
-
-                if self.__closeToBorder(q_current, x_range, y_range):
-                    quadrant = self.__quadrant(q_current, x_range, y_range)
-                    velocity[1] = 0.2
-
-                    if not avoid_border:
-                        if q_dot[0] > 0 and  q_dot[1] > 0 or q_dot[0] < 0 and  q_dot[1] < 0:
-                            velocity[2] = -1
-                        elif q_dot[0] < 0 and  q_dot[1] > 0 or q_dot[0] > 0 and  q_dot[1] < 0:
-                            velocity[2] = 1
-                        elif q_dot[0] == 0:
-                            if quadrant == 1 or quadrant == 3:
-                                velocity[2] = 1
-                            else:
-                                velocity[2] = -1
-                        elif q_dot[1] == 0:
-                            if quadrant == 1 or quadrant == 3:
-                                velocity[2] = -1
-                            else:
-                                velocity[2] = 1
-                    avoid_border = True
-                    t_count = 0
-                elif avoid_border:
-                    velocity[1] = rnd.uniform(0.5, 1)
-                    velocity[2] = rnd.uniform(-1, 1)
-                    avoid_border = False
-
-                path.append(q_current.tolist())
-                t += dt
-                t_count += dt
-
-            self.__paths.append(path)
-
-        self.__gui.plotPaths(self.__paths, x_range, y_range)
-
-    def __closeToBorder(self, q, x_range, y_range):
-        result = True
-
-        safety_margin = 0.5
-        x_safe_range = [x_range[0] + safety_margin, x_range[1] - safety_margin]
-        y_safe_range = [y_range[0] + safety_margin, y_range[1] - safety_margin]
-
-        if x_safe_range[0] < q[0] < x_safe_range[1] and y_safe_range[0] < q[1] < y_safe_range[1]:
-            result = False
-
-        return result 
-    
-    def __quadrant(self, q, x_range, y_range):
-        x_middle = x_range[0] + (x_range[1] - x_range[0]) / 2
-        y_middle = y_range[0] + (y_range[1] - y_range[0]) / 2
-
-        if q[0] > x_middle:
-            if q[1] > y_middle:
-                return 1
-            else:
-                return 4
-        elif q[1] > y_middle:
-            return 2
-        else:
-            return 3
 
     #//////////////////////////////// COLLAB MODE METHODS ////////////////////////////////
 
     def __collabMode(self) -> None:
         # Get the current MAS and manipulandums configuration
-        self.__mas, self.__manipulandums = self.__mocap.getConfig()
+        self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
 
         if len(self.__manipulandums) != 1:
             raise Exception('Wrong number of manipulandums!')
@@ -224,8 +151,119 @@ class Task(keyboard_controller.ActionsHandler):
     def __coopMode(self) -> None:
         # Create a 4 manipulandums
         contours = self.__extractManipShape(['', '', '', ''])
+
+    #////////////////////////////////BUTTONS METHODS//////////////////////////////////////
+
+    def generatePaths(self) -> None:
+        self.__paths = []
+
+        if self.__mas is not None:
+            for agent in self.__mas.agents:
+                # self.__paths.append(self.__generatePath(agent))
+
+                self.__gui.plotAgent(agent)
+
+   
+    def __generatePath(self, agent) -> list:
+        print('Generate path')
+
+        path = []
+        q_current = agent.config
+
+        t = 0 
+        t_count = 0
+        dt = 0.25
+        velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 0), 0, 0]
+        avoid_border = False
+
+        while t < 6:
+            if t_count >= 2:
+                velocity = [0, rnd.uniform(0.5, 1), rnd.uniform(-1, 1), 0, 0]
+                t_count = 0
+
+            R = np.array([[np.cos(q_current[2]), -np.sin(q_current[2]), 0, 0, 0],
+                [np.sin(q_current[2]), np.cos(q_current[2]), 0, 0, 0], [0, 0, 1, 0, 0], [0]*5, [0]*5])
+
+            q_dot = R.dot(velocity)
+            q_current += q_dot * dt
+
+            if self.__closeToBorder(q_current):
+                quadrant = self.__quadrant(q_current)
+                velocity[1] = 0.2
+
+                if not avoid_border:
+                    if q_dot[0] > 0 and  q_dot[1] > 0 or q_dot[0] < 0 and  q_dot[1] < 0:
+                        velocity[2] = -1
+                    elif q_dot[0] < 0 and  q_dot[1] > 0 or q_dot[0] > 0 and  q_dot[1] < 0:
+                        velocity[2] = 1
+                    elif q_dot[0] == 0:
+                        if quadrant == 1 or quadrant == 3:
+                            velocity[2] = 1
+                        else:
+                            velocity[2] = -1
+                    elif q_dot[1] == 0:
+                        if quadrant == 1 or quadrant == 3:
+                            velocity[2] = -1
+                        else:
+                            velocity[2] = 1
+                avoid_border = True
+                t_count = 0
+            elif avoid_border:
+                velocity[1] = rnd.uniform(0.5, 1)
+                velocity[2] = rnd.uniform(-1, 1)
+                avoid_border = False
+
+            path.append(q_current.tolist())
+            self.__gui.plotPath(path, self.__tracking_area, 'target')
+            
+            t += dt
+            t_count += dt
+        
+        return path
+
+    def __closeToBorder(self, q):
+        result = True
+
+        x_range = self.__tracking_area[0]
+        y_range = self.__tracking_area[1]
+
+        safety_margin = 0.5
+        x_safe_range = [x_range[0] + safety_margin, x_range[1] - safety_margin]
+        y_safe_range = [y_range[0] + safety_margin, y_range[1] - safety_margin]
+
+        if x_safe_range[0] < q[0] < x_safe_range[1] and y_safe_range[0] < q[1] < y_safe_range[1]:
+            result = False
+
+        return result 
+    
+    def __quadrant(self, q):
+        x_range = self.__tracking_area[0]
+        y_range = self.__tracking_area[1]
+
+        x_middle = x_range[0] + (x_range[1] - x_range[0]) / 2
+        y_middle = y_range[0] + (y_range[1] - y_range[0]) / 2
+
+        if q[0] > x_middle:
+            if q[1] > y_middle:
+                return 1
+            else:
+                return 4
+        elif q[1] > y_middle:
+            return 2
+        else:
+            return 3
+        
+    def start(self) -> None:
+        if self.mode == Mode.SINGLE:
+            pass
+
+    def stop(self) -> None:
+        pass
+
+    def quit(self) -> None:
+        pass
     
 
 if __name__ == "__main__":
-    experiment = Task()
-    experiment.run(Mode.SINGLE)
+    experiment = Task(Mode.SINGLE)
+    experiment.run()
