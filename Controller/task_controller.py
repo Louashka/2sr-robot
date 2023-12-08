@@ -1,7 +1,8 @@
 from enum import Enum
 import pandas as pd
 import sys
-sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
+# sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
+sys.path.append('D:/Romi-lab/2sr-swarm-control')
 from Model import global_var
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, mas_controller
@@ -61,7 +62,7 @@ class Task(keyboard_controller.ActionsHandler):
                 print('Cooperation mode')
                 self.__coopMode()
 
-        self.__gui.mainloop() # Start the GUI application
+        self.__gui.window.mainloop() # Start the GUI application
 
     #//////////////////////////////// MANUAL MODE METHODS ////////////////////////////////
     
@@ -74,12 +75,14 @@ class Task(keyboard_controller.ActionsHandler):
     def __executeAction(self):
         try:
             # Get the current MAS and manipulandums configuration
-            self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
+            markers, self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
 
             if self.__mas is not None:
                 self.__mas.move(self.v, self.s) # Execute the action by MAS
                 # Update the GUI
-                plotlib.plotMotion(self.__mas, self.__manipulandums)
+                self.__gui.plotMarkers(markers)
+                for agent in self.__mas.agents:
+                    self.__gui.plotAgent(agent)
         except Exception as e:
             print(f"Error occurred: {e}. The robot is stopped!")
             if self.__mas is not None:
@@ -265,5 +268,5 @@ class Task(keyboard_controller.ActionsHandler):
     
 
 if __name__ == "__main__":
-    experiment = Task(Mode.SINGLE)
+    experiment = Task(Mode.MANUAL)
     experiment.run()

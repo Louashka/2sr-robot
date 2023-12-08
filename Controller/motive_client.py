@@ -89,8 +89,8 @@ class MocapReader:
         self.isRunning = streaming_client.run()
     
     def getCurrentConfig(self) -> tuple[dict, mas_controller.Swarm, manipulandum.Shape]:
-        # markers, rigid_bodies = self.__unpackData()
-        markers, rigid_bodies = self.__simulateData()
+        markers, rigid_bodies = self.__unpackData()
+        # markers, rigid_bodies = self.__simulateData()
 
         self.__convertData(markers, rigid_bodies)
 
@@ -143,7 +143,7 @@ class MocapReader:
                             tail_wheels.append(agent.Wheel(rb['id'], i+3, tail_wheels_pose[i]))
 
                         head = agent.LU(rb['id'], head_pose, head_wheels)
-                        tail = agent.LU(rb['id'], tail_pose, tail_wheels)
+                        tail = agent.LU(rb['id'], tail_pose, tail_wheels, ranked_markers[-1].marker_id)
 
                         robot = agent.Robot(rb['id'], robot_pose, head, tail, vsf)
                         self.mas.agents.append(robot)
@@ -152,15 +152,15 @@ class MocapReader:
                         robot.head.pose = head_pose
 
                         for vsf_marker in robot.vsf.markers:
-                            updated_vsf_marker = markers[rb['id'] + '.' + str(vsf_marker.marker_id)]
+                            updated_vsf_marker = markers['0.' + str(vsf_marker.marker_id)]
                             vsf_marker.x = updated_vsf_marker['marker_x']
                             vsf_marker.y = updated_vsf_marker['marker_y']
 
-                        alpha1 = self.__getAngle(robot.vsf.markers[2], robot.vsf.markers[3])
-                        alpha2 = self.__getAngle(robot.vsf.markers[3], robot.vsf.markers[4])
+                        alpha1 = self.__getAngle(robot.vsf.markers[2].position, robot.vsf.markers[3].position)
+                        alpha2 = self.__getAngle(robot.vsf.markers[3].position, robot.vsf.markers[4].position)
                         tail_theta = 2 * alpha2 - alpha1
 
-                        tail_marker = markers[rb['id'] + '.' + str(robot.tail.marker_id)]
+                        tail_marker = markers['0.' + str(robot.tail.marker_id)]
                         robot.tail.pose = [tail_marker['marker_x'], tail_marker['marker_y'], tail_theta]
 
                         robot.x = (robot.head.x + robot.tail.y) / 2
