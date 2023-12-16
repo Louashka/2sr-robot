@@ -89,8 +89,8 @@ class MocapReader:
         self.isRunning = streaming_client.run()
     
     def getCurrentConfig(self) -> tuple[dict, mas_controller.Swarm, manipulandum.Shape]:
-        markers, rigid_bodies = self.__unpackData()
-        # markers, rigid_bodies = self.__simulateData()
+        # markers, rigid_bodies = self.__unpackData()
+        markers, rigid_bodies = self.__simulateData()
 
         self.__convertData(markers, rigid_bodies)
 
@@ -212,7 +212,7 @@ class MocapReader:
         return markers, rigid_bodies
     
     def __simulateData(self):
-        pose = 3
+        pose = 2
 
         markers_df = pd.read_csv('Data/markers.csv')
         rigid_bodies_df = pd.read_csv('Data/rigid_bodies.csv')
@@ -227,11 +227,14 @@ class MocapReader:
 
         for index, row in markers_df_.iterrows():
             marker = row.to_dict()
+            marker['model_id'] = int(marker['model_id'])
+            marker['marker_id'] = int(marker['marker_id'])
             markers[str(marker['model_id']) + '.' + str(marker['marker_id'])] = marker
 
         for index, row in rigid_bodies_df_.iterrows():
             rigid_body = row.to_dict()
-            rigid_bodies[int(rigid_body['id'])] = rigid_body        
+            rigid_body['id'] = int(rigid_body['id'])
+            rigid_bodies[rigid_body['id']] = rigid_body        
 
         return markers, rigid_bodies
 
@@ -343,8 +346,8 @@ class MocapReader:
 
         for i in range(2):
             w_b0 = [wheels[i][0], wheels[i][1], 1]
-            # wheels[i] = np.matmul(T_bo, w_b0).T[:-1]
-            wheels[i] = [wheels[i][0], wheels[i][1]]
+            wheels[i] = np.matmul(T_bo, w_b0).T[:-1]
+            # wheels[i] = [wheels[i][0], wheels[i][1]]
             wheels[i] = np.append(wheels[i], (LU_theta - robot_pose[2]) % (2 * np.pi) + global_var.BETA[i+offset])
 
         return wheels

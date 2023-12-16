@@ -1,9 +1,9 @@
 from enum import Enum
 import pandas as pd
 import sys
-# sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
-sys.path.append('D:/Romi-lab/2sr-swarm-control')
-from Model import global_var
+sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
+# sys.path.append('D:/Romi-lab/2sr-swarm-control')
+from Model import global_var, agent
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, mas_controller
 import random as rnd
@@ -11,7 +11,7 @@ import numpy as np
 
 class Mode(Enum):
     MANUAL = 1
-    SINGLE = 2
+    PATH_TRACKING = 2
     COLLAB = 3
     COOP = 4
 
@@ -23,7 +23,9 @@ class Task(keyboard_controller.ActionsHandler):
         self.__mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
         self.__gui = plotlib.GUI(self) # Initialise GUI
 
-        self.__mas = None
+        self.__markers = None
+        self.__current_mas = None
+        self.__saved_mas = None
         self.__manipulandums = None
 
         self.__tracking_area = [[-1, 3], [-1, 3]]
@@ -46,14 +48,18 @@ class Task(keyboard_controller.ActionsHandler):
         self.__mocap.startDataListener() # Start listening data from Motive
         
         print('Start the experiment')
+        self.__updateConfig()
+        self.__gui.plotMarkers(self.__markers)
+        for agent in self.__current_mas.agents:
+            self.__gui.plotAgent(agent)
         
         # Run the seleceted task mode 
         match self.mode:
             case Mode.MANUAL:
                 print('Manual mode')
                 self.__manualMode()
-            case Mode.SINGLE:
-                print('Single mode')
+            case Mode.PATH_TRACKING:
+                print('Path tracking mode')
                 self.__singleMode()
             case Mode.COLLAB:
                 print('Collaboration mode')
@@ -64,29 +70,40 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.__gui.window.mainloop() # Start the GUI application
 
+    def __updateConfig(self):
+        try:
+            # Get the current MAS and manipulandums configuration
+            self.__markers, self.__current_mas, self.__manipulandums = self.__mocap.getCurrentConfig()
+        except Exception as e:
+            print(f"Error occurred: {e}. The robot is stopped!")
+            if self.__saved_mas is not None:
+                self.__saved_mas.stop()
+
+
     #//////////////////////////////// MANUAL MODE METHODS ////////////////////////////////
     
     def __manualMode(self):
+        if len(self.__current_mas.agents) == 0:
+            raise Exception('No agents are found!')
+        
+        if len(self.__current_mas.agents) != 1:
+            raise Exception('Wrong number of agents!')
+        
+        if self.__saved_mas is None:
+            self.__saved_mas = self.__current_mas
+        
         # Handle key events 
         self.__gui.window.bind('<KeyPress>', self.__onPress)
         self.__gui.window.bind('<KeyRelease>', self.__onRelease)
 
     # Execute the action according to the keyboard commands
     def __executeAction(self):
-        try:
-            # Get the current MAS and manipulandums configuration
-            markers, self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
-
-            if self.__mas is not None:
-                self.__mas.move(self.v, self.s) # Execute the action by MAS
+        self.__updateConfig()
+        if self.__current_mas is not None:
+                self.__current_mas.move(self.v, self.s) # Execute the action by MAS
                 # Update the GUI
-                self.__gui.plotMarkers(markers)
-                for agent in self.__mas.agents:
+                for agent in self.__current_mas.agents:
                     self.__gui.plotAgent(agent)
-        except Exception as e:
-            print(f"Error occurred: {e}. The robot is stopped!")
-            if self.__mas is not None:
-                self.__mas.stop()
 
     def __onPress(self, key) -> None:
         super().onPress(key)
@@ -96,31 +113,25 @@ class Task(keyboard_controller.ActionsHandler):
         super().onRelease(key)
         self.__executeAction()
 
-    #//////////////////////////////// SINGLE MODE METHODS ////////////////////////////////
+    #//////////////////////////////// PATH_TRACKING MODE METHODS ////////////////////////////////
     def __singleMode(self) -> None:
-        markers, self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
-
-        if len(self.__mas.agents) == 0:
+        if len(self.__current_mas.agents) == 0:
             raise Exception('No agents are found!')
         
-        if len(self.__mas.agents) != 1:
+        if len(self.__current_mas.agents) != 1:
             raise Exception('Wrong number of agents!')
         
         if len(self.__manipulandums) > 0:
             raise Warning('Please remove manipulandums!')
         
-        self.__gui.plotMarkers(markers)
-        
-        for agent in self.__mas.agents:
-            self.__gui.plotAgent(agent)
-        
-        self.__gui.window.mainloop()
+        if self.__saved_mas is None:
+            self.__saved_mas = self.__current_mas
 
     #//////////////////////////////// COLLAB MODE METHODS ////////////////////////////////
 
     def __collabMode(self) -> None:
         # Get the current MAS and manipulandums configuration
-        self.__mas, self.__manipulandums = self.__mocap.getCurrentConfig()
+        self.__current_mas, self.__manipulandums = self.__mocap.getCurrentConfig()
 
         if len(self.__manipulandums) != 1:
             raise Exception('Wrong number of manipulandums!')
@@ -134,7 +145,7 @@ class Task(keyboard_controller.ActionsHandler):
         manip_path = self.__generatePath([0, 0, 0])
 
         # Initialise an optimised grasping model
-        grasp = grasping_controller(self.__mas, cloud_manipulandum, manip_path)
+        grasp = grasping_controller(self.__current_mas, cloud_manipulandum, manip_path)
         
 
     def __extractManipShape(self, paths) -> list:
@@ -157,21 +168,26 @@ class Task(keyboard_controller.ActionsHandler):
 
     #////////////////////////////////BUTTONS METHODS//////////////////////////////////////
 
+    def __updatePlots(self) -> None:
+        self.__gui.clear() # Clear the subplots
+        self.__gui.plotPaths(self.__paths, self.__tracking_area, 'target')
+        self.__gui.plotMAS()# Plot simplified mas
+
     def generatePaths(self) -> None:
-        self.__paths = []
+        self.__paths = {}
 
-        if self.__mas is not None:
-            for agent in self.__mas.agents:
-                # self.__paths.append(self.__generatePath(agent))
+        if self.__current_mas is not None:
+            for agent in self.__current_mas.agents:
+                path = self.__generatePath(agent)
+                self.__paths[agent.id] = path
 
-                self.__gui.plotAgent(agent)
-
+        self.__updatePlots()
    
-    def __generatePath(self, agent) -> list:
+    def __generatePath(self, robot: agent.Robot) -> list:
         print('Generate path')
 
         path = []
-        q_current = agent.config
+        q_current = robot.config
 
         t = 0 
         t_count = 0
@@ -217,7 +233,6 @@ class Task(keyboard_controller.ActionsHandler):
                 avoid_border = False
 
             path.append(q_current.tolist())
-            self.__gui.plotPath(path, self.__tracking_area, 'target')
             
             t += dt
             t_count += dt
@@ -256,17 +271,41 @@ class Task(keyboard_controller.ActionsHandler):
         else:
             return 3
         
+    def __closestPoint(self, path: list, current_config: list) -> list:
+        dist_array = np.linalg.norm(np.array(path)[:,:2] - current_config[:2], axis = 1)
+        min_index = np.argmin(dist_array)
+        return path.pop(min_index)
+        
     def start(self) -> None:
+        path = self.__paths[1]
+
         if self.mode == Mode.SINGLE:
-            pass
+            total_error = 0 #  Total tracking error
+            s = [0, 0] # Initial VSF stiffness
+            self.__updateConfig()
+            q_d = self.__closestPoint(path, self.__current_mas.agents[0].config)
+
+            while True:
+                self.__updateConfig()
+                robot = self.__current_mas.agents[0]
+
+                v, s, error = self.__current_mas.ik(robot.id, s, q_d, total_error)
+                total_error += error
+                self.__current_mas.move(v, s) 
+
+                if error <= 10**(-2):
+                    if len(path) == 0:
+                        break   
+                    else:
+                        q_d = self.__closestPoint(path, robot.config)
+
 
     def stop(self) -> None:
-        pass
+        self.__current_mas.stop()
 
     def quit(self) -> None:
         pass
     
-
 if __name__ == "__main__":
-    experiment = Task(Mode.MANUAL)
+    experiment = Task(Mode.PATH_TRACKING)
     experiment.run()
