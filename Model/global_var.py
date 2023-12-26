@@ -7,7 +7,7 @@ LU_SPEED = 0.12
 
 # VSF parameters
 L_VSS = 77 * 10**(-3)  # VSS length
-L_CONN = 30 * 10**(-3)
+L_CONN = 34 * 10**(-3)
 D_BRIDGE = 7 * 10**(-3)  # bridge width
 L_VSF = 2 * L_VSS  # VSF length
 
