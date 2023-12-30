@@ -2,7 +2,7 @@ from Motive.nat_net_client import NatNetClient
 import numpy as np
 import math
 import copy
-import Model.agent as agent
+import Model.agent_old as agent_old
 import Model.global_var as global_var
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
@@ -111,32 +111,32 @@ def _quaternionToEuler(coeffs):
 
     for agent_id in current_agents_id:
         if agent_id in agents:
-            agent = agents[agent_id]
+            agent_old = agents[agent_id]
         else:
-            agent = agent.Agent(agent_id) 
+            agent_old = agent_old.Agent(agent_id) 
 
         agent_head = rigid_bodies[agent_id]
 
         # Define the frame of the head LU
-        agent.head.theta = _calcLUOrientation([marker for marker in markers.values() if marker['model_id'] == agent_id])
-        agent.head.x = agent_head['x'] + LU_head_center_r*np.cos(agent.head.theta + LU_head_center_angle)
-        agent.head.y = agent_head['y'] + LU_head_center_r*np.sin(agent.head.theta + LU_head_center_angle)
+        agent_old.head.theta = _calcLUOrientation([marker for marker in markers.values() if marker['model_id'] == agent_id])
+        agent_old.head.x = agent_head['x'] + LU_head_center_r*np.cos(agent_old.head.theta + LU_head_center_angle)
+        agent_old.head.y = agent_head['y'] + LU_head_center_r*np.sin(agent_old.head.theta + LU_head_center_angle)
 
-        agent.vsf.points, tail_marker = _rankPoints(markers, agent.head)
+        agent_old.vsf.points, tail_marker = _rankPoints(markers, agent_old.head)
 
-        last_vsf_points = [point.position for point in agent.vsf.points[3:]]
+        last_vsf_points = [point.position for point in agent_old.vsf.points[3:]]
         alpha1 = _getAngle(last_vsf_points[0], last_vsf_points[1])
         alpha2 = _getAngle(last_vsf_points[1], tail_marker['pos'][:-1])
 
         # Define the frame of the tail LU
-        agent.tail.position2d = [tail_marker['marker_x'], tail_marker['marker_y']]
-        agent.tail.theta = 2 * alpha2 - alpha1
+        agent_old.tail.position2d = [tail_marker['marker_x'], tail_marker['marker_y']]
+        agent_old.tail.theta = 2 * alpha2 - alpha1
 
         # Define the body frame
-        agent.position = [(agent.head.x + agent.tail.x) / 2, (agent.head.y + agent.tail.y) / 2]
-        agent.theta = _getAngle(agent.head.position2d, agent.tail.position2d)
+        agent_old.position = [(agent_old.head.x + agent_old.tail.x) / 2, (agent_old.head.y + agent_old.tail.y) / 2]
+        agent_old.theta = _getAngle(agent_old.head.position2d, agent_old.tail.position2d)
 
-        agents[agent_id] = agent
+        agents[agent_id] = agent_old
     
     for key in agents:
         print(str(key) + ': ' + str(agents[key]))

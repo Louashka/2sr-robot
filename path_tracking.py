@@ -8,7 +8,7 @@ from typing import List
 import math
 
 GOAL_RADIUS = 0.05
-dt = 0.1
+dt = 0.05
 
 def distance(p1, p2):
     """
@@ -123,9 +123,10 @@ class Robot:
         self.k[1] = value[4]
     
     def update(self, vel: np.ndarray) -> None:
-        q_dot = np.dot(self.jacobain(), vel)
+        q_dot = np.dot(self.jacobain, vel)
         self.config += q_dot * dt
 
+    @property
     def jacobain(self) -> np.ndarray:
         # RIGID STATE
 
@@ -248,7 +249,7 @@ class Trajectory:
         return config
     
 class PI:
-    def __init__(self, kp=0, ki=0):
+    def __init__(self, kp=10.0, ki=0.0):
         """
         Define a PID controller class
         :param kp: float, kp coeff
@@ -295,34 +296,56 @@ if __name__ == "__main__":
     VEL_COEF = 2
     vel = [0] * 5
 
+    sim_time = 10
+    timer = 0
+    time = 0
+    times = []
+
+    target_config = traj.targetConfig(robot.position)
+    vel = [0] * 5
+    amplitude = []
+
 
     # plt.figure(figsize=(12, 8))
 
     while distance(robot.position, goal) > GOAL_RADIUS:
-        target_config = traj.targetConfig(robot.position)
+
+        if timer > sim_time:
+            target_config = traj.targetConfig(robot.position)
+            timer = 0
+
         q_tilda = (target_config - robot.config) * VEL_COEF
-        target_vel = np.matmul(np.linalg.pinv(robot.jacobain()), q_tilda)
+        target_vel = np.matmul(np.linalg.pinv(robot.jacobain), q_tilda)
+
+        times.append(time)
+        time += 1
+        amplitude.append(vel[2] / target_vel[2])
 
         vel_err = target_vel - vel
         acc = PI_acc.feeback(vel_err)
         vel = target_vel + acc * dt
 
         robot.update(vel)
+        timer += 1
+
+        print(timer)
+        print(target_vel[2])
 
         # store the trajectory
-        traj_robot_x.append(robot.x)
-        traj_robot_y.append(robot.y)
+        # traj_robot_x.append(robot.x)
+        # traj_robot_y.append(robot.y)
 
         # plots
         plt.cla()
-        plt.plot(traj_x, traj_y, "-k", linewidth=3, label="course")
-        plt.plot(traj_robot_x, traj_robot_y, "-r", linewidth=2, label="trajectory")
-        plt.plot(target_config[0], target_config[1], "og", ms=5, label="target point")
-        plotRobot(robot.config)
-        plt.xlabel("x[m]")
-        plt.ylabel("y[m]")
+        # plt.plot(traj_x, traj_y, "-k", linewidth=3, label="course")
+        # plt.plot(traj_robot_x, traj_robot_y, "-r", linewidth=2, label="trajectory")
+        # plt.plot(target_config[0], target_config[1], "og", ms=5, label="target point")
+        # plotRobot(robot.config)
+        # plt.xlabel("x[m]")
+        # plt.ylabel("y[m]")
+        plt.plot(times, amplitude, '-k')
         plt.axis("equal")
-        plt.legend()
+        # plt.legend()
         plt.grid(True)
-        plt.pause(0.1)
+        plt.pause(0.5)
 

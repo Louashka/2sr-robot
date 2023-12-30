@@ -1,7 +1,7 @@
 import sys
 from Motive import nat_net_client as nnc, mo_cap_data
 import mas_controller
-from Model import global_var, manipulandum, agent
+from Model import agent_old, global_var, manipulandum
 import numpy as np
 import pandas as pd
 import Motive.motive_client as motive
@@ -119,7 +119,7 @@ class MocapReader:
                         if len(ranked_markers) != 6:
                             continue
 
-                        vsf = agent.VSF(rb['id'], ranked_markers[:-1])
+                        vsf = agent_old.VSF(rb['id'], ranked_markers[:-1])
 
                         alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
                         alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
@@ -139,13 +139,13 @@ class MocapReader:
                         tail_wheels = []
 
                         for i in range(2):
-                            head_wheels.append(agent.Wheel(rb['id'], i+1, head_wheels_pose[i]))
-                            tail_wheels.append(agent.Wheel(rb['id'], i+3, tail_wheels_pose[i]))
+                            head_wheels.append(agent_old.Wheel(rb['id'], i+1, head_wheels_pose[i]))
+                            tail_wheels.append(agent_old.Wheel(rb['id'], i+3, tail_wheels_pose[i]))
 
-                        head = agent.LU(rb['id'], head_pose, head_wheels)
-                        tail = agent.LU(rb['id'], tail_pose, tail_wheels, ranked_markers[-1].marker_id)
+                        head = agent_old.LU(rb['id'], head_pose, head_wheels)
+                        tail = agent_old.LU(rb['id'], tail_pose, tail_wheels, ranked_markers[-1].marker_id)
 
-                        robot = agent.Robot(rb['id'], robot_pose, head, tail, vsf)
+                        robot = agent_old.Robot(rb['id'], robot_pose, head, tail, vsf)
                         self.mas.agents.append(robot)
                     else:
                         # Update existing agent
@@ -352,7 +352,7 @@ class MocapReader:
 
         return wheels
     
-    def __rankPoints(self, markers, head_position) -> List[agent.Marker]:
+    def __rankPoints(self, markers, head_position) -> List[agent_old.Marker]:
         head_position = np.array(head_position)
 
         # Define remaining points and their id's that correspond to thei original indicies
@@ -371,7 +371,7 @@ class MocapReader:
         # Find the rank of the rest of the points
         while len(ranked_markers) < 6:
             current_point = remaining_points.pop(current_index)
-            vsf_marker = agent.Marker(current_point['marker_id'], current_point['marker_x'], current_point['marker_y'])
+            vsf_marker = agent_old.Marker(current_point['marker_id'], current_point['marker_x'], current_point['marker_y'])
             ranked_markers.append(vsf_marker)
 
             if(remaining_points):

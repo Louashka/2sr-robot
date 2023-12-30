@@ -1,10 +1,10 @@
 from typing import List
 
 class Frame:
-    def __init__(self, pose: List[float]) -> None:
-        self.x = pose[0]
-        self.y = pose[1]
-        self.theta = pose[2]
+    def __init__(self, x: float, y: float, theta: float) -> None:
+        self.x = x
+        self.y = y
+        self.theta = theta
     
     @property
     def x(self) -> float:

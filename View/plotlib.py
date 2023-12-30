@@ -4,7 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 import tkinter.font as font
 import numpy as np
-from Model import global_var, agent
+from Model import agent_old, global_var
 from Controller import task_controller
 
 styles = {'original': {'line_type': '-', 'alpha': 1}, 'target': {'line_type': '.', 'alpha': 0.3}}
@@ -87,7 +87,7 @@ class GUI:
 
         self.__show()    
 
-    def plotAgent(self, robot: agent.Robot, display='original'):        
+    def plotAgent(self, robot: agent_old.Robot, display='original'):        
 
         self.__plotLU(robot.pose, robot.head)
         self.__plotLU(robot.pose, robot.tail)
@@ -96,7 +96,7 @@ class GUI:
 
         self.__show()
 
-    def __plotLU(self, robot_pose: list, lu: agent.LU, display='original'):
+    def __plotLU(self, robot_pose: list, lu: agent_old.LU, display='original'):
         style = styles[display]
 
         lu_block_rect = (lu.x + global_var.LU_R * np.cos(lu.theta + global_var.LU_ALPHA), lu.y + global_var.LU_R * np.sin(lu.theta + global_var.LU_ALPHA))
@@ -109,7 +109,7 @@ class GUI:
             self.__axs[0, 1].plot(w_x, w_y, 'o', color='orange', markersize=7)
             self.__axs[0, 1].plot([w_x, w_x + 0.015 * np.cos(wheel.theta+robot_pose[2])], [w_y, w_y + 0.015 * np.sin(wheel.theta+robot_pose[2])], 'r')
 
-    def __plotVSF(self, vsf: agent.VSF, display='original'):
+    def __plotVSF(self, vsf: agent_old.VSF, display='original'):
         style = styles[display]
 
         # self.__axs[0, 1].plot(vsf.markers_line[0], vsf.markers_line[1])

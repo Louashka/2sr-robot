@@ -3,7 +3,7 @@ import pandas as pd
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
 # sys.path.append('D:/Romi-lab/2sr-swarm-control')
-from Model import global_var, agent
+from Model import agent_old, global_var
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, mas_controller
 import random as rnd
@@ -183,7 +183,7 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.__updatePlots()
    
-    def __generatePath(self, robot: agent.Robot) -> list:
+    def __generatePath(self, robot: agent_old.Robot) -> list:
         print('Generate path')
 
         path = []
