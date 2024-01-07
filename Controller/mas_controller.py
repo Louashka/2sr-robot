@@ -1,7 +1,7 @@
 import serial
 import numpy as np
 from typing import List
-from Model import agent_old, global_var
+from Model import agent, global_var
 from typing import List
 
 
@@ -14,12 +14,12 @@ class Swarm:
         self.__agents = []
 
     @property
-    def agents(self) -> List[agent_old.Robot]:
+    def agents(self) -> List[agent.Robot]:
         return self.__agents
     
     @agents.setter
-    def agents(self, value: List[agent_old.Robot]) -> None:
-        if not isinstance(value, List[agent_old.Robot]):
+    def agents(self, value: List[agent.Robot]) -> None:
+        if not isinstance(value, List[agent.Robot]):
             raise Exception('Wrong type of agent!')
         self.__agents = value
 
@@ -31,14 +31,14 @@ class Swarm:
 
         return all_id
     
-    def getAgentById(self, id) -> agent_old.Robot:
+    def getAgentById(self, id) -> agent.Robot:
         for agent in self.agents:
             if agent.id == id:
                 return agent
             
         return None
     
-    def getActiveAgents(self) -> List[agent_old.Robot]:
+    def getActiveAgents(self) -> List[agent.Robot]:
         active_agents = []
         for agent in self.agents:
             if agent.status:
@@ -48,15 +48,16 @@ class Swarm:
     
     def move(self, v, s) -> None:
         for agent in self.agents:
-            omega = self.__getAgentOmega(agent.allWheels, v, s)
-            self.__moveAgent(agent.id, omega, s)
+            # omega = self.__getAgentOmega(agent.allWheels, v, s)
+            # self.__moveAgent(agent.id, omega, s)
+            pass
 
     def stop(self) -> None:
         for agent in self.agents:
             self.__moveAgent(agent.id, np.array([0, 0, 0, 0]), [0, 0])    
 
 
-    def __getAgentOmega(self, wheels: List[agent_old.Wheel], v, s):
+    def __getAgentOmega(self, wheels, v, s):
 
         flag_soft = int(s[0] or s[1])
         flag_rigid = int(not (s[0] or s[1]))

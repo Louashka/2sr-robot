@@ -1,0 +1,19 @@
+1. Extrapolate the constant-curvature (CC) arcs that correspond to VS segments:
+    - Open Controler/motive-client.py
+    - Insert CC arc calculations instead of the line 100 (robot['k'] = [0.0, 0.0])
+    - Segment arc length must be maintained constant (Model/global_var.py -> L_VSS)
+
+2. Add location of the markers to each robot in the method Controler/motive-client.py -> getCurrentConfig(). 
+I guess this information can be stored as additional element of the 'robot' dictionary. 
+You can consider other options as well.
+
+3. Update the View/plotlib.py in the following way:
+    - number of subplots depends on the number of agents (bottom half of the window)
+    - each agent must have 3 subplots
+        -- one subplot that shows zoomed-in robot (similar to the plotAgent() method); plot markers in the same method and 
+           add the display of wheels with their corresponding frames
+        -- one subplot that shows the target path, actual path and schematic representation of the agent (no wheels
+           markers and frames)
+        -- one suplot with error graphs (you can improvise here)
+    - add the diplay of the camera view (top half of the window)
+        -- add plots of targets and paths on top of the video

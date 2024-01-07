@@ -89,5 +89,7 @@ class Shape(Frame):
         R = np.array([[np.cos(self.theta), -np.sin(self.theta)], 
                       [np.sin(self.theta), np.cos(self.theta)]])
         point = R.dot(np.array([point_normalised]).T) + np.array([self.position]).T
+        point = point.T
 
-        return point.tolist()
+        return point[0].tolist()
+    

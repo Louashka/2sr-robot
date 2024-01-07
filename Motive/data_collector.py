@@ -160,7 +160,7 @@ def receive_mocap_data_frame(mocap_data):
             origin = labeled_markers[1]
             LU2 = labeled_markers[0]
 
-        agent1_config[0] = origin[0]
+        agent1_robot.x = origin[0]
         agent1_config[1] = origin[1]
 
         print(f"Origin pos x: {origin[0]}")

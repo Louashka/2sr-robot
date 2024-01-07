@@ -18,8 +18,6 @@ class MocapReader:
     def __init__(self) -> None:
         self.__isRunning = False
         self.__data = None
-        self.__mas = mas_controller.Swarm()
-        self.__manipulandums = []
 
     @property
     def isRunning(self) -> bool:
@@ -28,27 +26,6 @@ class MocapReader:
     @isRunning.setter
     def isRunning(self, value: bool) -> None:
         self.__isRunning = value
-
-    @property
-    def mas(self) -> mas_controller.Swarm:
-        return self.__mas
-    
-    @mas.setter
-    def mas(self, value: mas_controller.Swarm) -> None:
-        if not isinstance(value, mas_controller.Swarm):
-            self.__mas = value
-
-    @property
-    def manipulandums(self) -> List[manipulandum.Shape]:
-        return self.__manipulandums
-    
-    @manipulandums.setter
-    def manipulandums(self, value: List[manipulandum.Shape]) -> None:
-        for val in value:
-            if not isinstance(val, manipulandum.Shape):
-                raise ValueError('Wrong type of manipulandums!')
-            
-        self.__manipulandums = value
 
     @property
     def data(self) -> mo_cap_data.MoCapData:
@@ -88,102 +65,63 @@ class MocapReader:
 
         self.isRunning = streaming_client.run()
     
-    def getCurrentConfig(self) -> tuple[dict, mas_controller.Swarm, manipulandum.Shape]:
+    def getCurrentConfig(self) -> tuple[List[dict], List[dict]]:
+        agents = []
+        manipulandums = []
+
         # markers, rigid_bodies = self.__unpackData()
         markers, rigid_bodies = self.__simulateData()
 
         self.__convertData(markers, rigid_bodies)
 
-        if len(rigid_bodies) == 0:
-            for robot in self.mas.agents:
-                robot.status = False
-
-            self.manipulandums = {}
-
-        else:
+        if len(rigid_bodies) != 0:
             id_array = []
             for rb in rigid_bodies.values():
 
                 id_array.append(rb['id'])
 
+                # Agent 'head' locomotion units have id's < 10, manipulandums have id's > 10 
                 if rb['id'] < 10:
 
+                    robot = {} # Create a dict that stores robot's data
+                    robot['id'] = rb['id']
+
+                    # Calculate the pose of the head LU
                     head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
                     head_pose = self.__calcHeadPose(rb, head_markers)
 
-                    robot = self.mas.getAgentById(rb['id'])
+                    # Sort markers to within the VSF
+                    ranked_markers = self.__rankPoints(markers, head_pose[:-1])
+                    # If some markers are missing we ignore the robot
+                    if len(ranked_markers) != 6:
+                        continue
 
-                    if robot is None:
-                        # Create a new agent
-                        ranked_markers = self.__rankPoints(markers, head_pose[:-1])
-                        if len(ranked_markers) != 6:
-                            continue
+                    # Calculate VSS' curvatures
+                    robot['k'] = [0.0, 0.0]
 
-                        vsf = agent_old.VSF(rb['id'], ranked_markers[:-1])
+                    # Calculate the pose of the tail LU
+                    alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
+                    alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
+                    tail_theta = 2 * alpha2 - alpha1
 
-                        alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
-                        alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
-                        tail_theta = 2 * alpha2 - alpha1
+                    tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
 
-                        tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
+                    # Calculate the robot pose
+                    robot_x = (head_pose[0] + tail_pose[0]) / 2
+                    robot_y = (head_pose[1] + tail_pose[1]) / 2
+                    robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
+                    
+                    robot['x'] = robot_x
+                    robot['y'] = robot_y
+                    robot['theta'] = robot_theta
 
-                        robot_x = (head_pose[0] + tail_pose[0]) / 2
-                        robot_y = (head_pose[1] + tail_pose[1]) / 2
-                        robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
-                        robot_pose = [robot_x, robot_y, robot_theta]
-
-                        head_wheels_pose = self.__calcWheelsCoords(robot_pose, head_pose, 'head')
-                        tail_wheels_pose = self.__calcWheelsCoords(robot_pose, tail_pose, 'tail')
-
-                        head_wheels = []
-                        tail_wheels = []
-
-                        for i in range(2):
-                            head_wheels.append(agent_old.Wheel(rb['id'], i+1, head_wheels_pose[i]))
-                            tail_wheels.append(agent_old.Wheel(rb['id'], i+3, tail_wheels_pose[i]))
-
-                        head = agent_old.LU(rb['id'], head_pose, head_wheels)
-                        tail = agent_old.LU(rb['id'], tail_pose, tail_wheels, ranked_markers[-1].marker_id)
-
-                        robot = agent_old.Robot(rb['id'], robot_pose, head, tail, vsf)
-                        self.mas.agents.append(robot)
-                    else:
-                        # Update existing agent
-                        robot.head.pose = head_pose
-
-                        for vsf_marker in robot.vsf.markers:
-                            updated_vsf_marker = markers['0.' + str(vsf_marker.marker_id)]
-                            vsf_marker.x = updated_vsf_marker['marker_x']
-                            vsf_marker.y = updated_vsf_marker['marker_y']
-
-                        alpha1 = self.__getAngle(robot.vsf.markers[2].position, robot.vsf.markers[3].position)
-                        alpha2 = self.__getAngle(robot.vsf.markers[3].position, robot.vsf.markers[4].position)
-                        tail_theta = 2 * alpha2 - alpha1
-
-                        tail_marker = markers['0.' + str(robot.tail.marker_id)]
-                        robot.tail.pose = [tail_marker['marker_x'], tail_marker['marker_y'], tail_theta]
-
-                        robot.x = (robot.head.x + robot.tail.y) / 2
-                        robot.y = (robot.head.y + robot.tail.y) / 2
-                        robot.theta = self.__getAngle(robot.head.position, robot.tail.position)
-
-                        head_wheels = self.__calcWheelsCoords(robot.pose, robot.head.pose, 'head')
-                        tail_wheels = self.__calcWheelsCoords(robot.pose, robot.tail.pose, 'tail')
-                        for i in range(2):
-                            robot.tail.wheels[i].pose = head_wheels[i]
-
-                        robot.status = True
-                        
-                    # Disable the agent if communication with it is lost
-                    for robot in self.mas.agents:
-                        if robot.id not in id_array:
-                            robot.status = False
+                    agents.append(robot)
                 else:
                     # Unpack a manipulandum
                     pass
 
 
-        return [markers, self.mas, self.manipulandums]
+        return [agents, manipulandums]
     
     def __unpackData(self) -> list:
         if self.__data is None:

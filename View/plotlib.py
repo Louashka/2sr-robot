@@ -4,8 +4,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 import tkinter.font as font
 import numpy as np
-from Model import agent_old, global_var
+from Model import agent, global_var as gv
 from Controller import task_controller
+from typing import List
 
 styles = {'original': {'line_type': '-', 'alpha': 1}, 'target': {'line_type': '.', 'alpha': 0.3}}
 
@@ -87,39 +88,74 @@ class GUI:
 
         self.__show()    
 
-    def plotAgent(self, robot: agent_old.Robot, display='original'):        
+    def plotAgent(self, robot: agent.Robot, display='original'):        
 
-        self.__plotLU(robot.pose, robot.head)
-        self.__plotLU(robot.pose, robot.tail)
-        self.__plotVSF(robot.vsf)
-        self.__plotFrame(robot.pose)
+        # Plot VS segments
+        vss1 = self.__arc(robot.theta, robot.k[0])
+        plt.plot(robot.x + vss1[0], robot.y + vss1[1], '-b', lw='5')
+
+        vss2 = self.__arc(robot.theta, robot.k[1], 2)
+        plt.plot(robot.x + vss2[0], robot.y + vss2[1], '-b', lw='5')
+
+        # Plot VSS connectores
+        vss1_conn_x = [robot.x + vss1[0][-1], robot.x + vss1[0][-1] + gv.L_CONN * np.cos(vss1[2])]
+        vss1_conn_y = [robot.y + vss1[1][-1], robot.y + vss1[1][-1] + gv.L_CONN * np.sin(vss1[2])]
+        plt.plot(vss1_conn_x, vss1_conn_y, '-k', lw='5')
+
+        vss2_conn_x = [robot.x + vss2[0][-1], robot.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
+        vss2_conn_y = [robot.y + vss2[1][-1], robot.y + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
+        plt.plot(vss2_conn_x, vss2_conn_y, '-k', lw='5')
+
+         # Plot a body frame
+        plt.plot(robot.x, robot.y, '*r')
+        # plt.arrow(robot.x, robot.y, 0.05 * np.cos(robot.theta), 0.05 * np.sin(robot.theta), width=0.005, color='red')
+        plt.plot([robot.x, robot.x + 0.05 * np.cos(robot.theta)], 
+                 [robot.y, robot.y + 0.05 * np.sin(robot.theta)], '-r', lw='2')
+
+        # Plot locomotion units
+        LU_outline = np.array(
+            [
+                [-gv.LU_SIDE/2, gv.LU_SIDE/2, gv.LU_SIDE/2, -gv.LU_SIDE/2, -gv.LU_SIDE/2],
+                [gv.LU_SIDE/2, gv.LU_SIDE/2, -gv.LU_SIDE/2, -gv.LU_SIDE/2, gv.LU_SIDE/2],
+            ]
+        )
+
+        rot1 = np.array([[np.cos(vss1[2]), np.sin(vss1[2])], [-np.sin(vss1[2]), np.cos(vss1[2])]])
+        rot2 = np.array([[np.cos(vss2[2]), np.sin(vss2[2])], [-np.sin(vss2[2]), np.cos(vss2[2])]])
+
+        LU1_outline = (LU_outline.T.dot(rot1)).T
+        LU2_outline = (LU_outline.T.dot(rot2)).T
+
+        LU1_outline[0, :] += vss1_conn_x[-1] + gv.LU_SIDE * np.cos(vss1[2]) / 2
+        LU1_outline[1, :] += vss1_conn_y[-1] + gv.LU_SIDE * np.sin(vss1[2]) / 2
+
+        LU2_outline[0, :] += vss2_conn_x[-1] + gv.LU_SIDE * np.cos(vss2[2]) / 2
+        LU2_outline[1, :] += vss2_conn_y[-1] + gv.LU_SIDE * np.sin(vss2[2]) / 2
+
+        plt.plot(np.array(LU1_outline[0, :]).flatten(), np.array(LU1_outline[1, :]).flatten(), '-k')
+        plt.plot(np.array(LU2_outline[0, :]).flatten(), np.array(LU2_outline[1, :]).flatten(), '-k')
 
         self.__show()
 
-    def __plotLU(self, robot_pose: list, lu: agent_old.LU, display='original'):
-        style = styles[display]
+    def __arc(self, theta0, k, seg=1) -> List[np.ndarray]:
+        l = np.linspace(0, gv.L_VSS, 50)
+        theta_array = theta0 + k * l
 
-        lu_block_rect = (lu.x + global_var.LU_R * np.cos(lu.theta + global_var.LU_ALPHA), lu.y + global_var.LU_R * np.sin(lu.theta + global_var.LU_ALPHA))
-        lu_block = Rectangle(lu_block_rect, global_var.LU_SIDE, global_var.LU_SIDE, angle=np.degrees(lu.theta), edgecolor='black', facecolor='none')
-        self.__axs[0, 1].add_patch(lu_block)
-        # self.__ax.plot([lu.x, lu.x + 0.03 * np.cos(lu.theta)], [lu.y, lu.y + 0.03 * np.sin(lu.theta)], 'r')
+        if k == 0:
+            x = np.array([0, gv.L_VSS * np.cos(theta0)])
+            y = np.array([0, gv.L_VSS * np.sin(theta0)])
+        else:
+            x = np.sin(theta_array) / k - np.sin(theta0) / k
+            y = -np.cos(theta_array) / k + np.cos(theta0) / k
 
-        for wheel in lu.wheels:
-            w_x, w_y = self.__wheelsToGlobal(robot_pose, wheel.position)
-            self.__axs[0, 1].plot(w_x, w_y, 'o', color='orange', markersize=7)
-            self.__axs[0, 1].plot([w_x, w_x + 0.015 * np.cos(wheel.theta+robot_pose[2])], [w_y, w_y + 0.015 * np.sin(wheel.theta+robot_pose[2])], 'r')
+        theta = theta_array[-1]
 
-    def __plotVSF(self, vsf: agent_old.VSF, display='original'):
-        style = styles[display]
-
-        # self.__axs[0, 1].plot(vsf.markers_line[0], vsf.markers_line[1])
-        pass
-
-    def __plotFrame(self, frame: list, display='original'):
-        style = styles[display]
-
-        self.__axs[0, 1].plot(frame[0], frame[1], 'r*', alpha=style['alpha'])
-        self.__axs[0, 1].plot([frame[0], frame[0] + 0.03 * np.cos(frame[2])], [frame[1], frame[1] + 0.03 * np.sin(frame[2])], 'r', alpha=style['alpha'])
+        if seg == 1:
+            x = -x
+            y = -y
+            theta += -np.pi
+            
+        return [x, y, theta % (2 * np.pi)]
 
     def __wheelsToGlobal(self, robot_pose: list, wheel: list):
         R_ob = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],
@@ -131,27 +167,6 @@ class GUI:
         wheel_global = np.matmul(T_ob, wheel_b).T[:-1]
 
         return wheel_global
-    
-    def __generateArc(self, config, seg: int):
-        s = np.linspace(0, global_var.L_VSS, 50)
-
-        flag = -1 if seg == 1 else 1
-
-        gamma_array = config[2] + flag * config[2 + seg] * s
-
-        x_0 = config[0] + flag * np.cos(config[2]) * global_var.L_CONN / 2
-        y_0 = config[1] + flag * np.sin(config[2]) * global_var.L_CONN / 2
-
-        if config[2 + seg] == 0:
-            x = x_0 + [0, flag * global_var.L_VSS * np.cos(q[2])]
-            y = y_0 + [0, flag * global_var.L_VSS * np.sin(q[2])]
-        else:
-            x = x_0 + np.sin(gamma_array) / \
-                config[2 + seg] - np.sin(config[2]) / config[2 + seg]
-            y = y_0 - np.cos(gamma_array) / \
-                config[2 + seg] + np.cos(q[2]) / config[2 + seg]
-
-        return [x, y]
     
     def clear(self) -> None:
         for row in self.__axs:
