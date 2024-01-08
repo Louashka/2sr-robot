@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
-from Model import manipulandum as mp
+from Model import manipulandum as mp, global_var as gv
 from grasping_controller import Grasp as grasp
 import path
 import numpy as np
@@ -38,7 +38,7 @@ def getDirec(obj: mp.Shape, s: float):
     cross_prod2 = (p1[0] - p2[0]) * (p3[1] - p2[1]) - (p1[1] - p2[1]) * (p3[0] - p2[0])
 
     condition = (abs(cross_prod1 * cross_prod2) - cross_prod1 * cross_prod2) / (-2 * cross_prod1 * cross_prod2)
-    theta += condition * np.pi + np.pi / 2
+    theta += condition * np.pi
 
     return theta
 
@@ -73,24 +73,39 @@ if __name__ == "__main__":
     coef = 0.02
     q_target = [heart.x + coef * np.cos(direction), heart.y + coef * np.sin(direction), heart.theta]
     print('Current q: ' + str(heart.pose))
-    print('Target q: ' + str(q_target))
-    plt.plot(q_target[0], q_target[1], 'or', markersize=16)
+    # print('Target q: ' + str(q_target))
+    # plt.plot(q_target[0], q_target[1], 'or', markersize=16)
 
-    grasp_model = grasp(heart, q_target)
-    solution_status = grasp_model.solve()
+    s_dist = (gv.L_VSS + gv.L_CONN + gv.LU_SIDE / 2) / heart.perimeter
+    print(s_dist)
+    
+    s = [0] * 3
+    s[0] = rnd.random()
+    for i in range(1, 3):
+        s[i] = s[i-1] + s_dist
+        if s[i] >= 1:
+            s[i] -= 1
 
-    if solution_status:
-        results, s, force, q_new = grasp_model.parseResults()  
-        print('New q: ' + str(q_new))
-        plt.plot(q_new[0], q_new[1], 'om', markersize=16)
+    for s_i in s:
+        cp = heart.getPoint(s_i)
+        plt.plot(cp[0], cp[1], '*r', markersize = 16)
+    
 
-        for s_i in s:
-            print('Contact point: ' + str(s_i))
-            cp = heart.getPoint(s_i)
-            direc = heart.theta + getDirec(heart, s_i)
+    # grasp_model = grasp(heart, q_target)
+    # solution_status = grasp_model.solve()
 
-            plt.plot(cp[0], cp[1], '*r', markersize = 16)
-            plt.arrow(cp[0], cp[1], 0.05 * np.cos(direc), 0.05 * np.sin(direc), width=0.005)
+    # if solution_status:
+    #     results, s, force, q_new = grasp_model.parseResults()  
+    #     print('New q: ' + str(q_new))
+    #     plt.plot(q_new[0], q_new[1], 'om', markersize=16)
+
+    #     for s_i in s:
+    #         print('Contact point: ' + str(s_i))
+    #         cp = heart.getPoint(s_i)
+    #         direc = heart.theta + getDirec(heart, s_i)
+
+    #         plt.plot(cp[0], cp[1], '*r', markersize = 16)
+    #         plt.arrow(cp[0], cp[1], 0.05 * np.cos(direc), 0.05 * np.sin(direc), width=0.005)
     
 
     # Execute grasping by the robot

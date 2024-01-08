@@ -11,7 +11,7 @@ class Shape(Frame):
         super().__init__(pose[0], pose[1], pose[2])
         self.m = 10
         self.contour_params = contour_params
-        self.default_contour = self.__paramsToCoords()
+        self.default_contour, self.perimeter = self.__paramsToCoords()
         
         self.coeffs = efd(self.default_contour.T, order = self.m)
 
@@ -42,7 +42,9 @@ class Shape(Frame):
         geom_centre = self.__geomCentre(points)
         default_contour = np.array(points).T - np.array([geom_centre]).T
 
-        return default_contour
+        perimeter = self.__calcPerimeter(points)
+
+        return default_contour, perimeter
     
     def __geomCentre(self, points) -> list:
         ctr = np.array(points).reshape((-1,1,2))
@@ -62,6 +64,12 @@ class Shape(Frame):
         self.y += r * np.sin(self.theta + phi)
 
         return [x, y]
+    
+    def __calcPerimeter(self, points) -> float:
+        ctr = np.array(points).reshape((-1,1,2))
+        ctr = (10000.0 * ctr).astype(np.int32)
+
+        return cv.arcLength(ctr,True) / 10000.0
 
     @property
     def contour(self) -> np.ndarray:
@@ -92,4 +100,6 @@ class Shape(Frame):
         point = point.T
 
         return point[0].tolist()
+    
+
     
