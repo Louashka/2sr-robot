@@ -39,7 +39,7 @@ class Grasp:
         self.model.D = pe.Param(self.model.cpn, self.model.cpn, initialize=__getNeighbours)      
         self.model.q_d = pe.Param(self.model.dof, initialize=dict(zip(self.model.dof, self.target_pose)))
         self.model.q = pe.Param(self.model.dof, initialize=dict(zip(self.model.dof, self.obj.pose)))
-        self.model.dt = pe.Param(initialize=1)
+        self.model.dt = pe.Param(initialize=0.01)
 
         # Define variables
 
@@ -69,22 +69,19 @@ class Grasp:
 
         @self.model.Constraint()
         def __constraintPoseX(m):
-            return m.q_new[1] == m.q[1] + sum(m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]) * pe.sin(m.q[3] + m.cp_theta[i]) + 
-                    m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * pe.cos(m.q[3] + m.cp_theta[i]) for i in m.cpn) * m.dt
+            return m.q_new[1] == m.q[1] + sum(m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]) * pe.cos(m.q[3] + m.cp_theta[i]) - 
+                    m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * pe.sin(m.q[3] + m.cp_theta[i]) for i in m.cpn) * m.dt
 
         @self.model.Constraint()
         def __constraintPoseY(m):
-            return m.q_new[2] == m.q[2] + sum(m.coeffs[1] * (m.force[i*2] - m.force[i*2-1]) * pe.cos(m.q[3] + m.cp_theta[i]) + 
-                    m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * pe.sin(m.q[3] + m.cp_theta[i]) for i in m.cpn) * m.dt
+            return m.q_new[2] == m.q[2] + sum(m.coeffs[1] * (m.force[i*2] - m.force[i*2-1]) * pe.sin(m.q[3] + m.cp_theta[i]) + 
+                    m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * pe.cos(m.q[3] + m.cp_theta[i]) for i in m.cpn) * m.dt
 
-        # @self.model.Constraint()
-        # def __constraintPoseTheta(m):
-        #     return m.q_new[3] == m.q[3] + sum(m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]) * (m.cp_x[i] * pe.sin(m.cp_theta[i]) - 
-        #                     m.cp_y[i] * pe.cos(m.cp_theta[i])) + m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * (m.cp_x[i] + 
-        #                     m.cp_y[i]) * pe.sin(m.cp_theta[i]) for i in m.cpn) * m.dt
         @self.model.Constraint()
         def __constraintPoseTheta(m):
-            return m.q_new[3] == m.q[3]
+            return m.q_new[3] == m.q[3] + sum(m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]) * (m.cp_x[i] * pe.sin(m.cp_theta[i]) - 
+                            m.cp_y[i] * pe.cos(m.cp_theta[i])) + m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]) * (m.cp_x[i] * 
+                            pe.cos(m.cp_theta[i]) + m.cp_y[i] * pe.sin(m.cp_theta[i])) for i in m.cpn) * m.dt
 
         @self.model.Constraint(self.model.cpn)
         def __constraintContactPointX(m, i):
@@ -140,15 +137,15 @@ class Grasp:
 
         p1 = self.__getPoint(s)
         p2 = [p1[0] + pe.cos(theta), p1[1] + pe.sin(theta)]
-        p3 = [p1[0] + pe.cos(theta - np.pi/2), p1[1] + pe.sin(theta - np.pi/2)]
+        p3 = [p1[0] + pe.cos(theta + np.pi/2), p1[1] + pe.sin(theta + np.pi/2)]
 
-        cross_prod1 = (p1[0] - p2[0]) * (self.model.q[2] - p2[1]) - (p1[1] - p2[1]) * (self.model.q[1] - p2[0])
+        cross_prod1 = (p1[0] - p2[0]) * (- p2[1]) - (p1[1] - p2[1]) * (- p2[0])
         cross_prod2 = (p1[0] - p2[0]) * (p3[1] - p2[1]) - (p1[1] - p2[1]) * (p3[0] - p2[0])
 
         condition = (abs(cross_prod1 * cross_prod2) - cross_prod1 * cross_prod2) / (-2 * cross_prod1 * cross_prod2)
-        theta += condition * np.pi + np.pi/2
+        theta += condition * np.pi
 
-        return theta 
+        return theta
     
     def solve(self):
         try:

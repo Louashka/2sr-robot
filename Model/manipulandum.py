@@ -31,7 +31,7 @@ class Shape(Frame):
     def contour_params(self, value) -> None:
         self.__contour_params = value
 
-    def __paramsToCoords(self) -> np.ndarray:
+    def __paramsToCoords(self) -> tuple[np.ndarray, float]:
         points = []
         for r, phi in zip(self.contour_params[0], self.contour_params[1]):
             x = r * np.cos(phi)

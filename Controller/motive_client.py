@@ -149,7 +149,7 @@ class MocapReader:
 
         return markers, rigid_bodies
     
-    def __simulateData(self):
+    def __simulateData(self) -> tuple[dict, dict]:
         pose = 2
 
         markers_df = pd.read_csv('Data/markers.csv')
