@@ -31,6 +31,16 @@ class Shape(Frame):
     def contour_params(self, value) -> None:
         self.__contour_params = value
 
+    @property
+    def velocity(self) -> list:
+        return [self.lin_vel, self.ang_vel]
+
+    @property
+    def rotation_matrix(self) -> np.ndarray:
+        return np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
+                         [np.sin(self.theta), np.cos(self.theta), 0],
+                         [0, 0, 1]])
+
     def __paramsToCoords(self) -> tuple[np.ndarray, float]:
         points = []
         for r, phi in zip(self.contour_params[0], self.contour_params[1]):
@@ -80,6 +90,17 @@ class Shape(Frame):
 
         return ctr
     
+    @property
+    def parametric_contour(self) -> np.ndarray:
+        ctr = []
+        for s in np.linspace(0, 1):
+            pos_target = self.getPoint(s)
+            ctr.append(pos_target)
+
+        ctr = np.array(ctr).T
+
+        return ctr
+    
     def getPoint(self, s: float) -> List[float]:
         coords = []
 
@@ -100,6 +121,12 @@ class Shape(Frame):
         point = point.T
 
         return point[0].tolist()
+    
+    def update(self, q_dot: list, dt: float):
+
+        self.x += q_dot[0] * dt
+        self.y += q_dot[1] * dt
+        self.theta += q_dot[2] * dt
     
 
     

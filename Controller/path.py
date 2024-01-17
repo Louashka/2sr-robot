@@ -31,15 +31,16 @@ def generateCurve(start_point: List[float], lim=[[-2, 2], [-2, 2]]) -> tuple[np.
     xlim = lim[0]
     ylim = lim[1]
     cp = [start_point]
-    ncp = 3 # Number of control points
+    ncp = 5 # Number of control points
     
     while len(cp) < ncp:
         x = np.random.rand() * (xlim[1] - xlim[0]) + xlim[0]
         y = np.random.rand() * (ylim[1] - ylim[0]) + ylim[0]
         cp.append([x, y])
 
-    cp = np.array(cp)
-    # cp = np.array([[0, 2], [2, 8], [6, 6], [4, 4], [2, 2], [6, 0], [8, 4], [10, 8], [8, 10], [6, 9]])
+    # cp = np.array(cp)
+    cp = np.array([start_point, [0, 6], [6, 6], [4, 4], [2, 2], [6, 0], [8, 4], [10, 8], [8, 10], [6, 9]]) / 6.0
+    cp[0, :] = start_point
     t_points = np.arange(0, 1, 0.01)
     curve = __bezierCurve(t_points, cp)
     
@@ -71,14 +72,14 @@ class Trajectory:
         self.traj_x = traj[:, 0]
         self.traj_y = traj[:, 1]
 
-    def point(self, idx) -> List[float]:
+    def point(self, idx) -> list:
         return [self.traj_x[idx], self.traj_y[idx]]
     
     @property
     def goal(self) -> List[float]:
         return [self.traj_x[-1], self.traj_y[-1]]
 
-    def targetPoint(self, pos: List[float], goal_radius) -> List[float]:
+    def targetPoint(self, pos: List[float], goal_radius) -> list:
         """
         Get the next look ahead point
         :param pos: list, robot position

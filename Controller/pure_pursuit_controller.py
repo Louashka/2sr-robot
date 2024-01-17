@@ -7,6 +7,7 @@ from grasping_controller import Grasp as grasp
 import path
 import numpy as np
 import random as rnd
+from datetime import datetime
 
 GOAL_RADIUS = 0.05
 
@@ -88,25 +89,17 @@ def getDirec(s, m, coeffs):
 
     return theta
 
-def contactKinematics():
-    s_dist = (gv.L_VSS + gv.L_CONN + gv.LU_SIDE / 2) / heart.perimeter
+def contactKinematics(obj: mp.Shape, s: list, force_coef: list) -> np.ndarray:
     
-    s = [0] * 3
-    s[0] = rnd.random()
-    for i in range(1, 3):
-        s[i] = s[i-1] + s_dist
-        if s[i] >= 1:
-            s[i] -= 1
-
     B_c_i = np.array([[1, 0], [0, 1], [0, 0]])
     G_list = []
     
     for s_i in s:
-        cp = heart.getPoint(s_i)
+        cp = obj.getPoint(s_i)
         plt.plot(cp[0], cp[1], '*r', markersize = 16)
 
-        cp_body_frame = getPoint(s_i, heart.m, heart.coeffs)
-        cp_theta = (getDirec(s_i, heart.m, heart.coeffs))
+        cp_body_frame = getPoint(s_i, obj.m, obj.coeffs)
+        cp_theta = (getDirec(s_i, obj.m, obj.coeffs))
 
         R_c_i = np.array([[np.cos(cp_theta), np.cos(cp_theta + np.pi / 2)],
                         [np.sin(cp_theta), np.sin(cp_theta + np.pi / 2)]])
@@ -135,19 +128,79 @@ def contactKinematics():
     # The matrix encoding all the unit vectors representing the boundary of the friction cones
     hat_F_c = np.kron(np.eye(len(s),dtype=int), hat_F_c_i)
 
-    force_coef = np.array([1] * 6).T
-
     F_c = hat_F_c.dot(force_coef)
 
-    R_0 = np.array([[np.cos(heart.theta), -np.sin(heart.theta), 0], 
-                    [np.sin(heart.theta), np.cos(heart.theta), 0], 
+    R_0 = np.array([[np.cos(obj.theta), -np.sin(obj.theta), 0], 
+                    [np.sin(obj.theta), np.cos(obj.theta), 0], 
                     [0, 0, 1]])
     
     q_dot = R_0.dot(G).dot(F_c)
-    print(q_dot)
 
-    pose_new = heart.pose + q_dot * 0.01
-    plt.plot(pose_new[0], pose_new[1], 'or', markersize=16)
+    return q_dot
+
+class PI:
+    def __init__(self, kp=8.0, ki=0.1):
+        """
+        Define a PID controller class
+        :param kp: float, kp coeff
+        :param ki: float, ki coeff
+        :param kd: float, kd coeff
+        """
+        self.kp = kp
+        self.ki = ki
+        self.total_error = 0.0
+
+    def control(self, error):
+        """
+        PID main function, given an input, this function will output a control unit
+        :param error: float, error term
+        :return: float, output control
+        """
+
+        self.total_error += error * dt
+        p_term = self.kp * error
+        i_term = self.ki * self.total_error * dt
+        output = p_term + i_term
+        
+        return output
+    
+class PID:
+    def __init__(self):
+        """
+        Define a PID controller class
+        :param kp: float, kp coeff
+        :param ki: float, ki coeff
+        :param kd: float, kd coeff
+        """
+        self.kp = [3, 3, 5]
+        self.ki = [0.1] * 3
+        self.kd = [0] * 3
+
+        self.I = [0] * 3
+
+        self.e_prev = [0] * 3
+        self.time_prev = datetime.now()
+
+    def control(self, e: np.ndarray) -> tuple[np.ndarray, float]:
+        """
+        PID main function, given an input, this function will output a control unit
+        :param error: float, error term
+        :return: float, output control
+        """
+
+        current_time = datetime.now()
+        dt = (current_time - self.time_prev).total_seconds() 
+        
+        P = np.diag(self.kp).dot(e)
+        self.I += np.diag(self.ki).dot(e) * dt
+        D = np.diag(self.kd).dot(e - self.e_prev) / dt
+        
+        output = P + self.I + D
+
+        self.e_prev = e
+        self.time_prev = current_time
+        
+        return output, dt
 
 
 if __name__ == "__main__":
@@ -155,74 +208,161 @@ if __name__ == "__main__":
     heart_df = pd.read_csv('./Data/heart_contour.csv')[['distance', 'phase']].dropna()
     heart_r = heart_df['distance'].tolist()
     heart_theta = heart_df['phase'].tolist()
-    heart = mp.Shape(11, [0.4, 0.32, 0.8 * np.pi], [heart_r, heart_theta])
-
-    plt.plot(heart.contour[0], heart.contour[1], '.k')
-    # plt.plot(heart.default_contour[0], heart.default_contour[1], '--b')
-    plt.plot(heart.x, heart.y, 'ok', markersize=16)
-
-    # Extrapolate manipulandums' contour
-    contour_approx = []
-    for s in np.linspace(0, 1):
-        pos_target = heart.getPoint(s)
-        contour_approx.append(pos_target)
-
-    contour_approx = np.array(contour_approx)
-    plt.plot(contour_approx[:, 0], contour_approx[:, 1], '-b')
+    heart = mp.Shape(11, [0.4, 0.32, 0.0 * np.pi], [heart_r, heart_theta])
 
     # Generate a random trajectory 
-    # trajectory = path.Trajectory(heart.position)
-    arrow_l = 0.15
-    direction  = rnd.random() * 2 * np.pi
-    # plt.arrow(heart.x, heart.y, arrow_l * np.cos(direction), arrow_l * np.sin(direction), width=0.01, color='red')
+    trajectory = path.Trajectory(heart.position)
+    target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
+    target_pos.append(heart.theta)
+
+    # real trajectory
+    traj_shape_x = []
+    traj_shape_y = []
 
     # Determine contact points
-    # x_c, y_c = f(s) 
-    coef = 0.02
-    q_target = [heart.x + coef * np.cos(direction), heart.y + coef * np.sin(direction), heart.theta]
-    # print('Current q: ' + str(heart.pose))
-    print('Target q: ' + str(q_target))
-    plt.plot(q_target[0], q_target[1], 'or', markersize=16)
-
-    # contactKinematics()
-
-
-    grasp_model = grasp(heart, q_target)
-    solution_status = grasp_model.solve()
-
     force_unit_vectors = np.array([[0.196, -0.196], [0.981, 0.981]])
+    # VEL_COEF = 3
+    dt = 0.05
+
+    # force_coef = np.array([1] * 6).T
+
+    # s_dist = (gv.L_VSS + gv.L_CONN + gv.LU_SIDE / 2) / heart.perimeter
+    
+    # s = [0] * 3
+    # s[0] = rnd.random()
+    # for i in range(1, 3):
+    #     s[i] = s[i-1] + s_dist
+    #     if s[i] >= 1:
+    #         s[i] -= 1
+
+    # t = 0
+    
+
+    # while t < 10:
+    #     heart.pose += contactKinematics(heart, s, force_coef) * dt
+    #     print(heart.theta)
+
+    #     traj_shape_x.append(heart.x)
+    #     traj_shape_y.append(heart.y)
+
+    #     t += dt
+
+    #     plt.cla()
+
+    #     i = 0
+    #     for s_i in s:
+    #         cp = heart.getPoint(s_i)
+    #         f_c_i = force_unit_vectors.dot(np.array([force_coef[i], force_coef[i+1]]).T)
+
+    #         i += 2
+
+    #         theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
+    #         T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
+    #                         [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
+    #                         [0, 0, 1]])
+            
+    #         f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
+
+    #         plt.plot(cp[0], cp[1], '*r', markersize = 12)
+    #         plt.plot([cp[0], f_wc_i[0]], [cp[1], f_wc_i[1]], '-r')
+    #     plt.plot(heart.x, heart.y, 'or', markersize = 12)
+    #     plt.plot(heart.parametric_contour[0], heart.parametric_contour[1], '-b')
+    #     plt.plot(traj_shape_x, traj_shape_y, "--k", linewidth=3)
+
+    #     plt.axis("equal")
+    #     plt.pause(dt)    
+
+    s = [0] * 3
+
+    grasp_model = grasp(heart, target_pos)
+    solution_status = grasp_model.solve()
 
     if solution_status:
         results, s, force, q_new = grasp_model.parseResults()  
-        print('New q: ' + str(q_new))
-        plt.plot(q_new[0], q_new[1], 'ob', markersize=10)
 
-        i = 0
+    gamma = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
+
+    PI_lin_acc = PI()
+    PI_ang_acc = PI()
+
+    pid = PID()
+
+    target_lin_vel = 0.15
+    VEL_COEF = 5
+    
+    while path.distance(heart.position, trajectory.goal) > GOAL_RADIUS:
+        # store the trajectory
+        theta_traj = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
+
+        target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
+        target_theta = theta_traj - gamma
+        
+        if abs(heart.theta - target_theta) > np.pi:
+            if target_theta > 0:
+                target_theta -= 2 * np.pi
+            else:
+                target_theta += 2 * np.pi 
+
+        target_pos.append(target_theta)
+        # print(target_pos[-1])
+        
+        # q_error = np.array(target_pos) - heart.pose
+        # q_tilda = VEL_COEF * q_error
+        # target_vel = np.matmul(np.linalg.pinv(heart.rotation_matrix), q_tilda)
+
+        # q_dot = q_tilda
+        # heart.x += q_dot[0] * dt
+        # heart.y += q_dot[1] * dt
+        # heart.theta += q_dot[2] * dt
+
+        # use PI to control the vehicle
+        # lin_vel_err = target_lin_vel - heart.lin_vel
+        # lin_acc = PI_lin_acc.control(lin_vel_err)
+
+        # theta_traj = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
+        # ang_vel_err = VEL_COEF * (target_theta - heart.theta) - heart.ang_vel
+        # ang_acc = PI_ang_acc.control(ang_vel_err)
+
+        # heart.update(gamma, lin_acc, ang_acc)
+
+        pos_error = np.array(target_pos) - heart.pose
+        # vel_error = np.array([target_lin_vel, VEL_COEF * (target_theta - heart.theta)]) - heart.velocity
+
+        q_dot, dt = pid.control(pos_error)
+        print('Acc: ' + np.array2string(q_dot) + ', dt = ' + str(dt))
+        heart.update(q_dot, dt)
+
+        traj_shape_x.append(heart.x)
+        traj_shape_y.append(heart.y)
+
+        # i = 0
+        plt.cla()
         for s_i in s:
             cp = heart.getPoint(s_i)
 
-            force_coeffs = np.array([force[i], force[i+1]]).T 
-            f_c_i = force_unit_vectors.dot(force_coeffs)
-            print(f_c_i)
+            # force_coeffs = np.array([force[i], force[i+1]]).T 
+            # f_c_i = force_unit_vectors.dot(force_coeffs)
 
-            i += 2
+            # i += 2
 
-            theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
-            T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
-                               [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
-                               [0, 0, 1]])
+            # theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
+            # T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
+            #                 [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
+            #                 [0, 0, 1]])
             
-            f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
+            # f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
 
-            plt.plot(cp[0], cp[1], '*r', markersize = 16)
-            plt.plot([cp[0], f_wc_i[0]], [cp[1], f_wc_i[1]], '-r')
-            # plt.arrow(cp[0], cp[1], 0.05 * np.cos(direc), 0.05 * np.sin(direc), width=0.005)
-    
+            plt.plot(cp[0], cp[1], '*r', markersize = 12)
+            # plt.plot([cp[0], f_wc_i[0]], [cp[1], f_wc_i[1]], '-r')
+
+        plt.plot(heart.x, heart.y, 'or', markersize = 12)
+        plt.plot(heart.parametric_contour[0], heart.parametric_contour[1], '-b')
+        plt.plot(trajectory.traj_x, trajectory.traj_y, "--k", linewidth=3, label="course")
+        plt.plot(traj_shape_x, traj_shape_y, "-r", linewidth=3, label="trajectory")
+
+        plt.axis("equal")
+        plt.pause(0.05)    
 
     # Execute grasping by the robot
-    
 
-    # plt.plot(trajectory.traj_x, trajectory.traj_y, '--k')
-    plt.axis('equal')
-    plt.show()
 

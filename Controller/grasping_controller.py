@@ -1,4 +1,4 @@
-from Model import manipulandum
+from Model import manipulandum, global_var as gv
 import pyomo.environ as pe
 import pyomo.opt as po
 import numpy as np
@@ -34,12 +34,16 @@ class Grasp:
             else:
                 return 0
             
-        self.model.weights = pe.Param(self.model.coef_n, initialize={1: 0.5,  2: 0.5})
+        force_weight = 0.001
+        weights = [1.0-force_weight, force_weight]
+            
+        self.model.weights = pe.Param(self.model.coef_n, initialize={1: weights[0],  2: weights[1]})
         self.model.coeffs = pe.Param(self.model.coef_n, initialize={1: 0.196, 2: 0.981})
         self.model.D = pe.Param(self.model.cpn, self.model.cpn, initialize=__getNeighbours)      
         self.model.q_d = pe.Param(self.model.dof, initialize=dict(zip(self.model.dof, self.target_pose)))
         self.model.q = pe.Param(self.model.dof, initialize=dict(zip(self.model.dof, self.obj.pose)))
-        self.model.dt = pe.Param(initialize=0.01)
+        self.model.dt = pe.Param(initialize=0.05)
+        self.model.l_vss = pe.Param(initialize=(gv.L_VSS + gv.L_CONN + gv.LU_SIDE / 2) / self.obj.perimeter)
 
         # Define variables
 
@@ -60,10 +64,10 @@ class Grasp:
         def __objRule(m):
 
             tracking_error = sum((m.q_d[i] - m.q_new[i])**2 for i in m.dof)
-            # contact_forces = sum(m.force[i]**2 for i in m.fn)
+            contact_forces = sum(m.force[i]**2 for i in m.fn)
 
-            # return m.weights[1] * tracking_error + m.weights[2] * contact_forces
-            return tracking_error
+            return m.weights[1] * tracking_error + m.weights[2] * contact_forces
+            # return tracking_error
 
         # Define constraints
 
@@ -98,7 +102,22 @@ class Grasp:
         @self.model.Constraint(self.model.links)
         def __constraintLinks(m, i):
             lhs = sum(m.D[i, j] * m.s[j] for j in m.cpn)
-            rhs = 0.077 # To be calculated!
+            rhs = m.l_vss
+            return lhs == rhs
+        
+        @self.model.Constraint(self.model.cpn)
+        def __constraintMinForce(m, i):
+            lhs = (m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]))**2 + (m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]))**2            
+            return lhs >= 0.03
+        
+        @self.model.Constraint(self.model.cpn)
+        def __constraintForces(m, i):
+            lhs = (m.coeffs[1] * (m.force[i*2-1] - m.force[i*2]))**2 + (m.coeffs[2] * (m.force[i*2-1] + m.force[i*2]))**2
+            
+            i_next = (i % self.cpn) + 1
+
+            rhs = (m.coeffs[1] * (m.force[i_next*2-1] - m.force[i_next*2]))**2 + (m.coeffs[2] * (m.force[i_next*2-1] + m.force[i_next*2]))**2
+            
             return lhs == rhs
 
     def __getPoint(self, s):

@@ -97,7 +97,9 @@ class MocapReader:
                         continue
 
                     # Calculate VSS' curvatures
-                    robot['k'] = [0.0, 0.0]
+                    k1 = self._calculate_curvature(ranked_markers[:3], global_var.L_VSS)
+                    k2 = self._calculate_curvature(ranked_markers[2:], global_var.L_VSS)
+                    robot['k'] = [k1, k2]
 
                     # Calculate the pose of the tail LU
                     alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
@@ -114,6 +116,8 @@ class MocapReader:
                     robot['x'] = robot_x
                     robot['y'] = robot_y
                     robot['theta'] = robot_theta
+
+                    print(robot)
 
                     agents.append(robot)
                 else:
@@ -150,7 +154,7 @@ class MocapReader:
         return markers, rigid_bodies
     
     def __simulateData(self) -> tuple[dict, dict]:
-        pose = 2
+        pose = 3
 
         markers_df = pd.read_csv('Data/markers.csv')
         rigid_bodies_df = pd.read_csv('Data/rigid_bodies.csv')
@@ -318,6 +322,48 @@ class MocapReader:
                 current_index = distances.argmin()
 
         return ranked_markers
+    
+    def _calculate_curvature(self, segment_points: List[agent_old.Marker], segment_length):
+        # for the segment_points, the input should be in the following format:
+        # [end1, center, end2]
+        # point A, point B, point C
+
+        # segment_length is in meter, and the value is 0.077m
+
+        # Calculate the distances between the points
+        print(segment_points[0])
+        c = np.sqrt(
+            (segment_points[0].x - segment_points[1].x) ** 2 + (segment_points[0].y - segment_points[1].y) ** 2)
+        a = np.sqrt(
+            (segment_points[2].x - segment_points[1].x) ** 2 + (segment_points[2].y - segment_points[1].y) ** 2)
+        b = np.sqrt(
+            (segment_points[0].x - segment_points[2].x) ** 2 + (segment_points[0].y - segment_points[2].y) ** 2)
+
+        # Calculate the radius
+        alpha = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
+        # print("alpha", alpha)
+        r = a / (2 * np.sin(alpha))
+        # print("radius", r)
+
+        # Calculate the central angle
+        theta = segment_length / r
+        # print("central angle", theta)
+
+        # Calculate the curvature, should be positive value all time (need to be comfirn)
+        curvature = theta / segment_length
+
+        # Determine the sign by slope
+        # Normalize the segment and compute the reletive angle to the end1
+        theta1 = np.arctan2(segment_points[1].x - segment_points[0].x, segment_points[1].y - segment_points[0].y)
+        theta2 = np.arctan2(segment_points[2].x - segment_points[0].x, segment_points[2].y - segment_points[0].y)
+
+        # print("theta1: ", theta1)
+        # print("theta2: ", theta2)
+
+        if theta1 < theta2:
+            curvature = - curvature
+
+        return curvature
 
 
 

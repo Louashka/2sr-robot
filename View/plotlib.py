@@ -98,8 +98,8 @@ class GUI:
         plt.plot(robot.x + vss2[0], robot.y + vss2[1], '-b', lw='5')
 
         # Plot VSS connectores
-        vss1_conn_x = [robot.x + vss1[0][-1], robot.x + vss1[0][-1] + gv.L_CONN * np.cos(vss1[2])]
-        vss1_conn_y = [robot.y + vss1[1][-1], robot.y + vss1[1][-1] + gv.L_CONN * np.sin(vss1[2])]
+        vss1_conn_x = [robot.x + vss1[0][-1], robot.x + vss1[0][-1] + gv.L_CONN * np.cos(vss1[2] - np.pi)]
+        vss1_conn_y = [robot.y + vss1[1][-1], robot.y + vss1[1][-1] + gv.L_CONN * np.sin(vss1[2] - np.pi)]
         plt.plot(vss1_conn_x, vss1_conn_y, '-k', lw='5')
 
         vss2_conn_x = [robot.x + vss2[0][-1], robot.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
@@ -126,8 +126,8 @@ class GUI:
         LU1_outline = (LU_outline.T.dot(rot1)).T
         LU2_outline = (LU_outline.T.dot(rot2)).T
 
-        LU1_outline[0, :] += vss1_conn_x[-1] + gv.LU_SIDE * np.cos(vss1[2]) / 2
-        LU1_outline[1, :] += vss1_conn_y[-1] + gv.LU_SIDE * np.sin(vss1[2]) / 2
+        LU1_outline[0, :] += vss1_conn_x[-1] - gv.LU_SIDE * np.cos(vss1[2]) / 2
+        LU1_outline[1, :] += vss1_conn_y[-1] - gv.LU_SIDE * np.sin(vss1[2]) / 2
 
         LU2_outline[0, :] += vss2_conn_x[-1] + gv.LU_SIDE * np.cos(vss2[2]) / 2
         LU2_outline[1, :] += vss2_conn_y[-1] + gv.LU_SIDE * np.sin(vss2[2]) / 2
@@ -139,7 +139,9 @@ class GUI:
 
     def __arc(self, theta0, k, seg=1) -> List[np.ndarray]:
         l = np.linspace(0, gv.L_VSS, 50)
-        theta_array = theta0 + k * l
+        
+        flag = -1 if seg == 1 else 1
+        theta_array = theta0 + flag * k * l
 
         if k == 0:
             x = np.array([0, gv.L_VSS * np.cos(theta0)])
@@ -150,10 +152,10 @@ class GUI:
 
         theta = theta_array[-1]
 
-        if seg == 1:
-            x = -x
-            y = -y
-            theta += -np.pi
+        # if seg == 1:
+        #     x = -x
+        #     y = -y
+        #     theta += -np.pi
             
         return [x, y, theta % (2 * np.pi)]
 
