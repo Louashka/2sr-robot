@@ -2,14 +2,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
-from Model import manipulandum as mp, global_var as gv
-from grasping_controller import Grasp as grasp
+from Model import manipulandum as mp, global_var as gv, agent
+from grasping_controller import Grasp as grasp, Force
 import path
 import numpy as np
 import random as rnd
 from datetime import datetime
+from typing import List
+import math
+from scipy.optimize import fsolve
 
 GOAL_RADIUS = 0.05
+lw = 2
+alpha = 0.364748
+c = 58.87274 * 10**(-3)
 
 def getTangent(obj: mp.Shape, s: float):
     dx = 0
@@ -130,13 +136,15 @@ def contactKinematics(obj: mp.Shape, s: list, force_coef: list) -> np.ndarray:
 
     F_c = hat_F_c.dot(force_coef)
 
-    R_0 = np.array([[np.cos(obj.theta), -np.sin(obj.theta), 0], 
-                    [np.sin(obj.theta), np.cos(obj.theta), 0], 
-                    [0, 0, 1]])
+    # R_0 = np.array([[np.cos(obj.theta), -np.sin(obj.theta), 0], 
+    #                 [np.sin(obj.theta), np.cos(obj.theta), 0], 
+    #                 [0, 0, 1]])
     
-    q_dot = R_0.dot(G).dot(F_c)
+    # q_dot = R_0.dot(G).dot(F_c)
 
-    return q_dot
+    F_o = G.dot(F_c)
+
+    return F_o
 
 class PI:
     def __init__(self, kp=8.0, ki=0.1):
@@ -201,7 +209,122 @@ class PID:
         self.time_prev = current_time
         
         return output, dt
+    
+class PD:
+    def __init__(self):
+        """
+        Define a PID controller class
+        :param kp: float, kp coeff
+        :param ki: float, ki coeff
+        :param kd: float, kd coeff
+        """
+        self.kp = [3.0, 3.0, 5.0]
+        self.kd = [5.0] * 3
 
+    def control(self, e_pos: np.ndarray, e_vel: np.ndarray) -> np.ndarray:
+        
+        P = np.diag(self.kp).dot(e_pos)
+        D = np.diag(self.kd).dot(e_vel)
+        
+        output = P + D
+        
+        return output
+    
+def arc(theta0, k, seg=1) -> List[np.ndarray]:
+    l = np.linspace(0, gv.L_VSS, 50)
+    flag = -1 if seg == 1 else 1
+    theta_array = theta0 + flag * k * l
+
+    if k == 0:
+        x = np.array([0, flag * gv.L_VSS * np.cos(theta0)])
+        y = np.array([0, flag * gv.L_VSS * np.sin(theta0)])
+    else:
+        x = np.sin(theta_array) / k - np.sin(theta0) / k
+        y = -np.cos(theta_array) / k + np.cos(theta0) / k
+
+    theta = theta_array[-1]
+        
+    return [x, y, theta % (2 * np.pi)]
+
+    
+def plotRobot(config) -> None:
+
+    # Plot the reference point
+    plt.plot(config[0], config[1], 'b.', markersize=14)
+
+    # Plot VS segments
+    vss1 = arc(config[2], config[3])
+    plt.plot(config[0] + vss1[0], config[1] + vss1[1], 'b-', lw=lw)
+
+    vss2 = arc(config[2], config[4], 2)
+    plt.plot(config[0] + vss2[0], config[1] + vss2[1], 'b-', lw=lw)
+
+    # Plot VSS connectores
+    vss1_conn_x = [config[0] + vss1[0][-1] - gv.L_CONN * np.cos(vss1[2]), config[0] + vss1[0][-1]]
+    vss1_conn_y = [config[1] + vss1[1][-1] - gv.L_CONN * np.sin(vss1[2]), config[1] + vss1[1][-1]]
+    plt.plot(vss1_conn_x, vss1_conn_y, 'k-', lw=lw)
+
+    vss2_conn_x = [config[0] + vss2[0][-1], config[0] + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
+    vss2_conn_y = [config[1] + vss2[1][-1], config[1] + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
+    plt.plot(vss2_conn_x, vss2_conn_y, 'k-', lw=lw)
+
+    # Plot the origins of locomotion units
+    lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * gv.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+    lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * gv.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+    plt.plot(lu_head_x, lu_head_y, 'r*', markersize=10)
+
+    lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * gv.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+    lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * gv.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+    plt.plot(lu_tail_x, lu_tail_y, 'r*', markersize=10)
+
+    plt.plot([lu_head_x, lu_tail_x], [lu_head_y, lu_tail_y], 'k--')
+
+    # Plot a body frame
+    robot_x = (lu_head_x + lu_tail_x) / 2
+    robot_y = (lu_head_y + lu_tail_y) / 2
+
+    dy = lu_tail_y - lu_head_y
+    dx = lu_tail_x - lu_head_x
+
+    robot_theta = np.arctan(dy/dx)
+    if dx < 0:
+        robot_theta -= np.pi
+    
+    plt.plot(robot_x, robot_y, '*r', markersize=14)
+    plt.plot([robot_x, robot_x + 0.05 * np.cos(robot_theta)], [robot_y, robot_y + 0.05 * np.sin(robot_theta)], '-r', lw='2')
+
+    # Plot locomotion units
+    LU_outline = np.array(
+        [
+            [-gv.LU_SIDE/2, gv.LU_SIDE/2, gv.LU_SIDE/2, -gv.LU_SIDE/2, -gv.LU_SIDE/2],
+            [gv.LU_SIDE, gv.LU_SIDE, 0, 0, gv.LU_SIDE],
+        ]
+    )
+
+    rot1 = np.array([[math.cos(vss1[2]), math.sin(vss1[2])], [-math.sin(vss1[2]), math.cos(vss1[2])]])
+    rot2 = np.array([[math.cos(vss2[2]), math.sin(vss2[2])], [-math.sin(vss2[2]), math.cos(vss2[2])]])
+
+    LU1_outline = (LU_outline.T.dot(rot1)).T
+    LU2_outline = (LU_outline.T.dot(rot2)).T
+
+    LU1_outline[0, :] += vss1_conn_x[0] + gv.LU_SIDE * (np.sin(vss1[2]) - np.cos(vss1[2]) / 2)
+    LU1_outline[1, :] += vss1_conn_y[0] - gv.LU_SIDE * (np.cos(vss1[2]) + np.sin(vss1[2]) / 2)
+
+    LU2_outline[0, :] += vss2_conn_x[-1] + gv.LU_SIDE * (np.sin(vss2[2]) + np.cos(vss2[2]) / 2)
+    LU2_outline[1, :] += vss2_conn_y[-1] - gv.LU_SIDE * (np.cos(vss2[2]) - np.sin(vss2[2]) / 2)
+
+    plt.plot(np.array(LU1_outline[0, :]).flatten(), np.array(LU1_outline[1, :]).flatten(), '-k', lw=lw)
+    plt.plot(np.array(LU2_outline[0, :]).flatten(), np.array(LU2_outline[1, :]).flatten(), '-k', lw=lw)
+
+def func(var, *args):
+    k = var[0]
+    c, l = args
+
+    theta = k * l
+
+    eq = c * theta - 2 * l * np.sin(theta / 2)
+
+    return eq
 
 if __name__ == "__main__":
     # Define the manipulandum shape
@@ -215,63 +338,14 @@ if __name__ == "__main__":
     target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
     target_pos.append(heart.theta)
 
-    # real trajectory
+    # Initial orientation of the manipulandum
+    gamma = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
+
+    # Real trajectory
     traj_shape_x = []
     traj_shape_y = []
 
     # Determine contact points
-    force_unit_vectors = np.array([[0.196, -0.196], [0.981, 0.981]])
-    # VEL_COEF = 3
-    dt = 0.05
-
-    # force_coef = np.array([1] * 6).T
-
-    # s_dist = (gv.L_VSS + gv.L_CONN + gv.LU_SIDE / 2) / heart.perimeter
-    
-    # s = [0] * 3
-    # s[0] = rnd.random()
-    # for i in range(1, 3):
-    #     s[i] = s[i-1] + s_dist
-    #     if s[i] >= 1:
-    #         s[i] -= 1
-
-    # t = 0
-    
-
-    # while t < 10:
-    #     heart.pose += contactKinematics(heart, s, force_coef) * dt
-    #     print(heart.theta)
-
-    #     traj_shape_x.append(heart.x)
-    #     traj_shape_y.append(heart.y)
-
-    #     t += dt
-
-    #     plt.cla()
-
-    #     i = 0
-    #     for s_i in s:
-    #         cp = heart.getPoint(s_i)
-    #         f_c_i = force_unit_vectors.dot(np.array([force_coef[i], force_coef[i+1]]).T)
-
-    #         i += 2
-
-    #         theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
-    #         T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
-    #                         [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
-    #                         [0, 0, 1]])
-            
-    #         f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
-
-    #         plt.plot(cp[0], cp[1], '*r', markersize = 12)
-    #         plt.plot([cp[0], f_wc_i[0]], [cp[1], f_wc_i[1]], '-r')
-    #     plt.plot(heart.x, heart.y, 'or', markersize = 12)
-    #     plt.plot(heart.parametric_contour[0], heart.parametric_contour[1], '-b')
-    #     plt.plot(traj_shape_x, traj_shape_y, "--k", linewidth=3)
-
-    #     plt.axis("equal")
-    #     plt.pause(dt)    
-
     s = [0] * 3
 
     grasp_model = grasp(heart, target_pos)
@@ -280,85 +354,135 @@ if __name__ == "__main__":
     if solution_status:
         results, s, force, q_new = grasp_model.parseResults()  
 
-    gamma = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
-
-    PI_lin_acc = PI()
-    PI_ang_acc = PI()
-
-    pid = PID()
-
-    target_lin_vel = 0.15
+    # Constants
+    force_unit_vectors = np.array([[0.196, -0.196], [0.981, 0.981]])
     VEL_COEF = 5
+    mass = 0.2
+    dt = 0.05
+    
+    # Target linear veloicites
+    target_lin_vel = 0.15
+    target_vel_x = target_lin_vel * np.cos(gamma)
+    target_vel_y = target_lin_vel * np.sin(gamma)
+
+    # Define a PD controller and a force optimization solver
+    pd_controller = PD()
+    force_model = Force(heart, s)
+
+    # Initialise a robot
+    robot2sr = agent.Robot(1, [0.75, 0, 0])
+
+    # Execute the object's manipulation
     
     while path.distance(heart.position, trajectory.goal) > GOAL_RADIUS:
-        # store the trajectory
-        theta_traj = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
-
-        target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
-        target_theta = theta_traj - gamma
         
-        if abs(heart.theta - target_theta) > np.pi:
-            if target_theta > 0:
-                target_theta -= 2 * np.pi
-            else:
-                target_theta += 2 * np.pi 
+        cp = []
+        for s_i in s:
+            cp.append(heart.getPoint(s_i))
 
-        target_pos.append(target_theta)
-        # print(target_pos[-1])
+        robot_target_theta = heart.getTangent(s[1]) + heart.theta
+
+        c1 = path.distance(cp[1], cp[2])
+        data1 = (c1, gv.L_VSS)
+        k1_solution = fsolve(func, 15, args=data1)
+        robot_target_k1 = k1_solution[0]
+        print(robot_target_k1)
+
+        c2 = path.distance(cp[0], cp[1])
+        data2 = (c2, gv.L_VSS)
+        k2_solution = fsolve(func, 0, args=data2)
+        robot_target_k2 = k2_solution[0]
+        print(robot_target_k1)
+
+        robot2sr.k = [robot_target_k1, robot_target_k2]
+
+        robot_target = [cp[1][0], cp[1][1], robot_target_theta, 0, 0]
+
+        robot_dist = path.distance(cp[1], robot2sr.position)
+        # print(robot_dist)
+        if robot_dist > 0.01:
+            q_tilda = (np.array(robot_target) - robot2sr.config) * dt
+            v_robot = 40 * np.matmul(np.linalg.pinv(robot2sr.jacobain), q_tilda)
+            robot2sr.update(v_robot, dt)
+        else:
+            # Find next target pose
+            target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
+            theta_traj = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
+            target_theta = theta_traj - gamma
+            
+            if abs(heart.theta - target_theta) > np.pi:
+                if target_theta > 0:
+                    target_theta -= 2 * np.pi
+                else:
+                    target_theta += 2 * np.pi 
+
+            target_pos.append(target_theta)
+
+            # Calculate position and velocity errors
+            pos_error = np.array(target_pos) - heart.pose
+            vel_error = np.array([target_vel_x, target_vel_y, VEL_COEF * (target_theta - heart.theta)]) - heart.velocity
+
+            # Target acceleration
+            acc = pd_controller.control(pos_error, vel_error)
+            heart.update(acc) # !!Comment and replace with real-time tracking
+
+            # Target net force acting on the manipulandum 
+            tau = mass * acc
+            print('Target force: ' + np.array2string(tau))
+
+            force_model.update(tau.tolist())
+            solution_status = force_model.solve()
+
+            if solution_status:
+                results, force, F_o = force_model.parseResults()  
+
+            print('Supposed force: [' + ','.join(map(str, F_o)) + ']')
+            # print('Force coeffs: [' + ','.join(map(str, force)) + ']')
+
+            traj_shape_x.append(heart.x)
+            traj_shape_y.append(heart.y)
+
+        # result_F_o = contactKinematics(heart, s, force)
+        # print('Result force: ' + np.array2string(result_F_o))
+        # print('')
+
+        # Determine the robot's velocities
+        # q_robot_dot = ...
         
-        # q_error = np.array(target_pos) - heart.pose
-        # q_tilda = VEL_COEF * q_error
-        # target_vel = np.matmul(np.linalg.pinv(heart.rotation_matrix), q_tilda)
+        # robot2sr.update(q_robot_dot + [0, 0])
+        # print(robot2sr.config)
 
-        # q_dot = q_tilda
-        # heart.x += q_dot[0] * dt
-        # heart.y += q_dot[1] * dt
-        # heart.theta += q_dot[2] * dt
-
-        # use PI to control the vehicle
-        # lin_vel_err = target_lin_vel - heart.lin_vel
-        # lin_acc = PI_lin_acc.control(lin_vel_err)
-
-        # theta_traj = np.arctan2(target_pos[1] - heart.y, target_pos[0] - heart.x)
-        # ang_vel_err = VEL_COEF * (target_theta - heart.theta) - heart.ang_vel
-        # ang_acc = PI_ang_acc.control(ang_vel_err)
-
-        # heart.update(gamma, lin_acc, ang_acc)
-
-        pos_error = np.array(target_pos) - heart.pose
-        # vel_error = np.array([target_lin_vel, VEL_COEF * (target_theta - heart.theta)]) - heart.velocity
-
-        q_dot, dt = pid.control(pos_error)
-        print('Acc: ' + np.array2string(q_dot) + ', dt = ' + str(dt))
-        heart.update(q_dot, dt)
-
-        traj_shape_x.append(heart.x)
-        traj_shape_y.append(heart.y)
-
-        # i = 0
+        i = 0
         plt.cla()
         for s_i in s:
             cp = heart.getPoint(s_i)
 
-            # force_coeffs = np.array([force[i], force[i+1]]).T 
-            # f_c_i = force_unit_vectors.dot(force_coeffs)
+            force_coeffs = 10 * np.array([force[i], force[i+1]]).T 
+            f_c_i = force_unit_vectors.dot(force_coeffs)
 
-            # i += 2
-
-            # theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
-            # T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
-            #                 [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
-            #                 [0, 0, 1]])
+            theta_wc_i = heart.theta + getDirec(s_i, heart.m, heart.coeffs)
+            T_wc_i = np.array([[np.cos(theta_wc_i), -np.sin(theta_wc_i), cp[0]],
+                            [np.sin(theta_wc_i), np.cos(theta_wc_i), cp[1]],
+                            [0, 0, 1]])
             
-            # f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
+            f_wc_i = T_wc_i.dot(np.append(f_c_i, 1))
 
             plt.plot(cp[0], cp[1], '*r', markersize = 12)
             # plt.plot([cp[0], f_wc_i[0]], [cp[1], f_wc_i[1]], '-r')
+
+            # cp_theta_bf = getDirec(s_i, heart.m, heart.coeffs)
+            # F_o_list[0] += 0.196 * (force[i] - force[i+1]) * np.cos(cp_theta_bf) - 0.981 * (force[i] + force[i+1]) * np.sin(cp_theta_bf)
+                                                                                    
+            i += 2
+
+        # print('Calc force: [' + ','.join(map(str, F_o_list)) + ']')
+        # print('')
 
         plt.plot(heart.x, heart.y, 'or', markersize = 12)
         plt.plot(heart.parametric_contour[0], heart.parametric_contour[1], '-b')
         plt.plot(trajectory.traj_x, trajectory.traj_y, "--k", linewidth=3, label="course")
         plt.plot(traj_shape_x, traj_shape_y, "-r", linewidth=3, label="trajectory")
+        plotRobot(robot2sr.config)
 
         plt.axis("equal")
         plt.pause(0.05)    

@@ -15,6 +15,10 @@ class Shape(Frame):
         
         self.coeffs = efd(self.default_contour.T, order = self.m)
 
+        self.lin_vel_x = 0
+        self.lin_vel_y = 0
+        self.ang_vel = 0      
+
     def __str__(self) -> str:
         response = 'id: ' + str(self.id) + ', pose: (' + ', '.join(map(str, self.pose)) + ')' 
         return response
@@ -33,7 +37,7 @@ class Shape(Frame):
 
     @property
     def velocity(self) -> list:
-        return [self.lin_vel, self.ang_vel]
+        return [self.lin_vel_x, self.lin_vel_y, self.ang_vel]
 
     @property
     def rotation_matrix(self) -> np.ndarray:
@@ -122,11 +126,41 @@ class Shape(Frame):
 
         return point[0].tolist()
     
-    def update(self, q_dot: list, dt: float):
+    def getTangent(self, s: float) -> float:
+        dx = 0
+        dy = 0
+
+        for h in range(self.m):
+            c = 2 * (h + 1) * np.pi
+            arg = c * s
+            exp = [-c * np.sin(arg),  c * np.cos(arg)]
+
+            coef = self.coeffs[h,:]
+            dx += coef[0] * exp[0] + coef[1] * exp[1]
+            dy += coef[2] * exp[0] + coef[3] * exp[1]
+
+        theta = np.arctan(dy/dx)
+
+        return theta
+    
+    # def update(self, q_dot: list, dt: float):
+
+    #     self.x += q_dot[0] * dt
+    #     self.y += q_dot[1] * dt
+    #     self.theta += q_dot[2] * dt
+
+    def update(self, acc: list):
+        dt = 0.05
+
+        q_dot = self.rotation_matrix.dot(np.array(self.velocity).T)
 
         self.x += q_dot[0] * dt
         self.y += q_dot[1] * dt
         self.theta += q_dot[2] * dt
+
+        self.lin_vel_x += acc[0] * dt
+        self.lin_vel_y += acc[1] * dt
+        self.ang_vel += acc[2] * dt
     
 
     

@@ -4,7 +4,7 @@ from typing import List
 import numpy as np
 
 class Robot(Frame):
-    def __init__(self, id: int, x: float, y: float, theta: float, k: List[float]=[0.0, 0.0], stiff: List[int]=[0, 0]):
+    def __init__(self, id: int, pose: List[float], k: List[float]=[0.0, 0.0], stiff: List[int]=[0, 0]):
         """
         Define a robot class
         :param x: float, x position
@@ -14,7 +14,8 @@ class Robot(Frame):
         :param s: list, list of VSF stiffness values
         """
         self.__id = id
-        super().__init__(x, y, theta)
+        super().__init__(*pose)
+
         self.k = k
         self.stiff = stiff
 
@@ -33,19 +34,75 @@ class Robot(Frame):
         self.theta = value[2]
         self.k[0] = value[3]
         self.k[1] = value[4]
+
+    def arc(this, theta0, k, seg=1) -> List[np.ndarray]:
+        l = np.linspace(0, gv.L_VSS, 50)
+        flag = -1 if seg == 1 else 1
+        theta_array = theta0 + flag * k * l
+
+        if k == 0:
+            x = np.array([0, flag * gv.L_VSS * np.cos(theta0)])
+            y = np.array([0, flag * gv.L_VSS * np.sin(theta0)])
+        else:
+            x = np.sin(theta_array) / k - np.sin(theta0) / k
+            y = -np.cos(theta_array) / k + np.cos(theta0) / k
+
+        theta = theta_array[-1]
+            
+        return [x, y, theta % (2 * np.pi)]
+
+    def __calcRotFrame(self):
+        vss1 = self.arc(self.theta, self.k[0])
+        vss2 = self.arc(self.theta, self.k[1], 2)
+
+        vss1_conn_x = [self.x + vss1[0][-1] - gv.L_CONN * np.cos(vss1[2]), self.x + vss1[0][-1]]
+        vss1_conn_y = [self.y + vss1[1][-1] - gv.L_CONN * np.sin(vss1[2]), self.y + vss1[1][-1]]
+
+        vss2_conn_x = [self.x + vss2[0][-1], self.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
+        vss2_conn_y = [self.y + vss2[1][-1], self.y + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
+
+        lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * gv.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+        lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * gv.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+
+        lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * gv.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+        lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * gv.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+
+        x = (lu_head_x + lu_tail_x) / 2
+        y = (lu_head_y + lu_tail_y) / 2
+
+        dy = lu_tail_y - lu_head_y
+        dx = lu_tail_x - lu_head_x
+
+        theta = np.arctan(dy/dx)
+        if dx < 0:
+            theta -= np.pi
+
+        dy = y - self.y
+        dx = x - self.x
+
+        r = np.hypot(dx, dy)
+        phi = np.arctan(dy/dx)
+
+        if dx < 0:
+            phi -= np.pi
+
+        return r, theta, phi
     
-    def update(self, vel: np.ndarray, time_step: float=0.1) -> None:
-        q_dot = np.dot(self.jacobain, vel)
+    def update(self, v: np.ndarray, time_step: float=0.1) -> None:
+        q_dot = self.jacobain.dot(v)
         self.config += q_dot * time_step
 
     @property
     def jacobain(self) -> np.ndarray:
+        # Determine the axis of rotation
+        rot_frame = self.__calcRotFrame()
+
         # RIGID STATE
 
         # Checks if both segments are rigid
         flag_rigid = int(not (self.stiff[0] or self.stiff[1])) 
-        J_rigid = flag_rigid * np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
-                                        [np.sin(self.theta), np.cos(self.theta), 0],
+        J_rigid = flag_rigid * np.array([[np.cos(rot_frame[1]), -np.sin(rot_frame[1]), rot_frame[0] * np.cos(rot_frame[2] - np.pi / 2)],
+                                        [np.sin(rot_frame[1]), np.cos(rot_frame[1]), rot_frame[0] * np.sin(rot_frame[2] - np.pi / 2)],
                                         [0, 0, 1],
                                         [0, 0, 0],
                                         [0, 0, 0]])
