@@ -126,187 +126,245 @@ def log_spiral_coeffs(x, y, c):
     return a_fit, b_fit, th_min, th_max
 
 colors = {'red': [0.9333, 0.25882, 0.21176], 'blue': [0.1843, 0.52157, 0.6666], 'brown': [0.337255, 0.2549, 0.2196]}
-robot_lw = 25
-spiral_lw = 10
-spiral_edge_lw = 10
-circle_marker = 35
-hollow_marker = 1000
-center_marker = 45
+robot_lw = 5
+spiral_lw = 2
+spiral_edge_lw = 2
+circle_marker = 7
+hollow_marker = 10
+center_marker = 9
 
-step_size = 4
-theta_n = 20
+step_size = 1
+theta_n = 40
 
-origin = [0, 0]
+# origin = [0, 0]
 
-vss1 = arc(0, 0)
+# vss1 = arc(0, 0)
 
-lu2_path_x = []
-lu2_path_y = []
+# lu2_path_x = []
+# lu2_path_y = []
 
-for k in range(1, 70, step_size):
-    vss2 = arc(0, k, 2)
+# for k in range(0, 81, step_size):
+#     vss2 = arc(0, k, 2)
 
-    lu2_path_x.append(vss2[0][-1])
-    lu2_path_y.append(vss2[1][-1])
+#     lu2_path_x.append(vss2[0][-1])
+#     lu2_path_y.append(vss2[1][-1])
 
-x_array = np.array(lu2_path_x)
-y_array = np.array(lu2_path_y)
+# x_array = np.array(lu2_path_x)
+# y_array = np.array(lu2_path_y)
 
-spiral_center = log_spiral_ctr(x_array, y_array)
-a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
+# spiral_center = log_spiral_ctr(x_array, y_array)
+# a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
 
-print(f'I  spiral: a/l = {a_fit/gv.L_VSS:.4f}')
-print(f'I  spiral: b = {b_fit:.4f}')
-print("")
+# th_min -= 0.18
+# th_max += 0.6
 
-# popt, pcov = curve_fit(logarithmic_spiral, lu2_path_x, lu2_path_y)
-# ro_fit, x0_fit, y0_fit = popt
+# print(f'I  spiral: a = {a_fit:.4f}')
+# print(f'I  spiral: b = {b_fit:.4f}')
+# print(f'I  spiral: theta_min = {th_min:.4f}')
+# print(f'I  spiral: theta_max = {th_max:.4f}')
+# print(f'I  spiral: center x = {spiral_center[0]:.4f}')
+# print(f'I  spiral: center y = {spiral_center[1]:.4f}')
+# print("")
 
-theta_array = np.linspace(th_min-0.2, th_max+0.7, theta_n)
+# # popt, pcov = curve_fit(logarithmic_spiral, lu2_path_x, lu2_path_y)
+# # ro_fit, x0_fit, y0_fit = popt
 
-ro_fit = a_fit * np.exp(b_fit * theta_array)
-log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
-log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
+# theta_array = np.linspace(th_min, th_max, theta_n)
 
-f, axs = plt.subplots(3, 1, figsize=(15, 37))
+# ro_fit = a_fit * np.exp(b_fit * theta_array)
+# log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
+# log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
 
-for x, y in zip(log_spiral_x, log_spiral_y):
-    axs[0].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['red'], lw=spiral_lw, alpha=0.5)
+# f, axs = plt.subplots(3, 1, figsize=(5, 8))
 
-axs[0].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
+# for x, y in zip(log_spiral_x, log_spiral_y):
+#     axs[0].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['red'], lw=spiral_lw, alpha=0.5)
 
-axs[0].plot(vss1[0], vss1[1], color=colors['blue'], lw=robot_lw)
-axs[0].plot(vss1[0][-1], vss1[1][-1], 'o', color=colors['blue'], markersize=circle_marker)
+# axs[0].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
 
-axs[0].plot(vss2[0], vss2[1], color=colors['red'], lw=robot_lw)
-axs[0].plot(vss2[0][-1], vss2[1][-1], 'o', color=colors['red'], markersize=circle_marker)
+# axs[0].plot(vss1[0], vss1[1], color=colors['blue'], lw=robot_lw)
+# axs[0].plot(vss1[0][-1], vss1[1][-1], 'o', color=colors['blue'], markersize=circle_marker)
 
-axs[0].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['red'], s=hollow_marker, lw=spiral_edge_lw)
+# axs[0].plot(vss2[0], vss2[1], color=colors['red'], lw=robot_lw)
+# axs[0].plot(vss2[0][-1], vss2[1][-1], 'o', color=colors['red'], markersize=circle_marker)
 
-axs[0].plot(0, 0, '*', color=colors['brown'], markersize=center_marker)
+# axs[0].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['red'], s=hollow_marker, lw=spiral_edge_lw)
 
-axs[0].axis('equal')
-axs[0].tick_params(axis='x', labelsize=50)
-axs[0].tick_params(axis='y', labelsize=50)
-# /////////////////////////////////////////////////////
+# axs[0].plot(0, 0, '*', color=colors['brown'], markersize=center_marker)
 
-vss2 = arc(0, 38)
+# axs[0].axis('equal')
+# axs[0].tick_params(axis='x', labelsize=20)
+# axs[0].tick_params(axis='y', labelsize=20)
+# # /////////////////////////////////////////////////////
 
-origin = [vss2[0][-1], vss2[1][-1], vss2[2]]
+# vss1 = arc(0, 41, 2)
 
-vss1 = arc(origin[2], 0)
-vss1[0] += origin[0]
-vss1[1] += origin[1]
+# origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
 
-lu2_path_x = []
-lu2_path_y = []
+# vss2 = arc(origin[2], 0, 2)
+# vss2[0] += origin[0]
+# vss2[1] += origin[1]
 
-for k in range(1, 70, step_size):
-    vss2_ = arc(0, k)
+# lu2_path_x = []
+# lu2_path_y = []
 
-    origin_ = [vss2_[0][-1], vss2_[1][-1], vss2_[2]]
+# for k in range(0, 81, step_size):
+#     vss1_ = arc(0, k, 2)
 
-    vss1_ = arc(origin_[2], 0)
-    vss1_[0] += origin_[0]
-    vss1_[1] += origin_[1]
+#     origin_ = [vss1_[0][-1], vss1_[1][-1], vss1_[2]]
 
-    lu2_path_x.append(vss1_[0][-1])
-    lu2_path_y.append(vss1_[1][-1])
+#     vss2_ = arc(origin_[2], 0, 2)
+#     vss2_[0] += origin_[0]
+#     vss2_[1] += origin_[1]
 
-x_array = np.array(lu2_path_x)
-y_array = np.array(lu2_path_y)
+#     lu2_path_x.append(vss2_[0][-1])
+#     lu2_path_y.append(vss2_[1][-1])
 
-spiral_center = log_spiral_ctr(x_array, y_array)
-a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
+# x_array = np.array(lu2_path_x)
+# y_array = np.array(lu2_path_y)
 
-print(f'II  spiral: a/l = {a_fit/gv.L_VSS:.4f}')
-print(f'II  spiral: b = {b_fit:.4f}')
-print("")
+# spiral_center = log_spiral_ctr(x_array, y_array)
+# a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
 
-theta_array = np.linspace(th_min+0.4, th_max+0.12, theta_n)
+# th_min -= 0.1
+# th_max -= 0.25
 
-ro_fit = a_fit * np.exp(b_fit * theta_array)
-log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
-log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
+# print(f'II  spiral: a = {a_fit:.4f}')
+# print(f'II  spiral: b = {b_fit:.4f}')
+# print(f'II  spiral: theta_min = {th_min:.4f}')
+# print(f'II  spiral: theta_max = {th_max:.4f}')
+# print(f'II  spiral: center x = {spiral_center[0]:.4f}')
+# print(f'II  spiral: center y = {spiral_center[1]:.4f}')
+# print("")
 
-for x, y in zip(log_spiral_x, log_spiral_y):
-    axs[1].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['blue'], lw=spiral_lw, alpha=0.5)
+# theta_array = np.linspace(th_min, th_max, theta_n)
 
-axs[1].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
+# ro_fit = a_fit * np.exp(b_fit * theta_array)
+# log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
+# log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
 
-axs[1].plot(vss1[0], vss1[1], color=colors['blue'], lw=robot_lw)
-axs[1].plot(vss1[0][-1], vss1[1][-1], 'o', color=colors['blue'], markersize=circle_marker)
+# for x, y in zip(log_spiral_x, log_spiral_y):
+#     axs[1].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['blue'], lw=spiral_lw, alpha=0.5)
 
-axs[1].plot(vss2[0], vss2[1], color=colors['red'], lw=robot_lw)
-axs[1].plot(vss2[0][0], vss2[1][0], 'o', color=colors['red'], markersize=circle_marker)
+# axs[1].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
 
-axs[1].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['blue'], s=hollow_marker, lw=spiral_edge_lw)
+# axs[1].plot(vss1[0], vss1[1], color=colors['red'], lw=robot_lw)
+# axs[1].plot(vss1[0][0], vss1[1][0], 'o', color=colors['red'], markersize=circle_marker)
 
-axs[1].plot(origin[0], origin[1], '*k', markersize=center_marker)
-axs[1].axis('equal')
-axs[1].tick_params(axis='x', labelsize=50)
-axs[1].tick_params(axis='y', labelsize=50)
-# /////////////////////////////////////////////////////
+# axs[1].plot(vss2[0], vss2[1], color=colors['blue'], lw=robot_lw)
+# axs[1].plot(vss2[0][-1], vss2[1][-1], 'o', color=colors['blue'], markersize=circle_marker)
 
-vss1 = arc(0, 34, step_size)
+# axs[1].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['blue'], s=hollow_marker, lw=spiral_edge_lw)
 
-origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+# axs[1].plot(origin[0], origin[1], '*k', markersize=center_marker)
+# axs[1].axis('equal')
+# axs[1].tick_params(axis='x', labelsize=20)
+# axs[1].tick_params(axis='y', labelsize=20)
+# # /////////////////////////////////////////////////////
 
-vss2 = arc(origin[2], 34, 2)
-vss2[0] += origin[0]
-vss2[1] += origin[1]
+# vss1 = arc(0, 41, 2)
 
-lu2_path_x = []
-lu2_path_y = []
+# origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
 
-for k in range(1, 34, 2):
-    vss1_ = arc(0, k, 2)
+# vss2 = arc(origin[2], 41, 2)
+# vss2[0] += origin[0]
+# vss2[1] += origin[1]
 
-    origin_ = [vss1_[0][-1], vss1_[1][-1], vss1_[2]]
+# lu2_path_x = []
+# lu2_path_y = []
 
-    vss2_ = arc(origin_[2], k, 2)
-    vss2_[0] += origin_[0]
-    vss2_[1] += origin_[1]
+# for k in range(0, 41, 1):
+#     vss1_ = arc(0, k, 2)
 
-    lu2_path_x.append(vss2_[0][-1])
-    lu2_path_y.append(vss2_[1][-1])
+#     origin_ = [vss1_[0][-1], vss1_[1][-1], vss1_[2]]
 
-x_array = np.array(lu2_path_x)
-y_array = np.array(lu2_path_y)
+#     vss2_ = arc(origin_[2], k, 2)
+#     vss2_[0] += origin_[0]
+#     vss2_[1] += origin_[1]
 
-spiral_center = log_spiral_ctr(x_array, y_array)
-a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
+#     lu2_path_x.append(vss2_[0][-1])
+#     lu2_path_y.append(vss2_[1][-1])
 
-print(f'III  spiral: a/l = {a_fit/gv.L_VSS:.4f}')
-print(f'III  spiral: b = {b_fit:.4f}')
+# x_array = np.array(lu2_path_x)
+# y_array = np.array(lu2_path_y)
 
-theta_array = np.linspace(th_min-0.15, th_max+0.7, theta_n)
+# spiral_center = log_spiral_ctr(x_array, y_array)
+# a_fit, b_fit, th_min, th_max = log_spiral_coeffs(x_array, y_array, spiral_center)
 
-ro_fit = a_fit * np.exp(b_fit * theta_array)
-log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
-log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
+# th_min -= 0.19
+# th_max += 0.61
 
-for x, y in zip(log_spiral_x, log_spiral_y):
-    axs[2].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['red'], lw=spiral_lw, alpha=0.5)
+# print(f'III  spiral: a = {a_fit:.4f}')
+# print(f'III  spiral: b = {b_fit:.4f}')
+# print(f'III  spiral: theta_min = {th_min:.4f}')
+# print(f'III  spiral: theta_max = {th_max:.4f}')
+# print(f'III  spiral: center x = {spiral_center[0]:.4f}')
+# print(f'III  spiral: center y = {spiral_center[1]:.4f}')
 
-axs[2].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
+# theta_array = np.linspace(th_min, th_max, theta_n)
 
-axs[2].plot(vss1[0], vss1[1], color=colors['red'], lw=robot_lw)
-axs[2].plot(vss1[0][0], vss1[1][0], 'o', color=colors['red'], markersize=circle_marker)
+# ro_fit = a_fit * np.exp(b_fit * theta_array)
+# log_spiral_x = spiral_center[0] + ro_fit * np.cos(theta_array)
+# log_spiral_y = spiral_center[1] + ro_fit * np.sin(theta_array)
 
-axs[2].plot(vss2[0], vss2[1], color=colors['red'], lw=robot_lw)
-axs[2].plot(vss2[0][-1], vss2[1][-1], 'o', color=colors['red'], markersize=circle_marker)
+# for x, y in zip(log_spiral_x, log_spiral_y):
+#     axs[2].plot([spiral_center[0], x], [spiral_center[1], y], color=colors['red'], lw=spiral_lw, alpha=0.5)
 
-axs[2].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['red'], s=hollow_marker, lw=spiral_edge_lw)
+# axs[2].plot(spiral_center[0], spiral_center[1], 'o', color=colors['brown'], markersize=center_marker)
 
-axs[2].plot(origin[0], origin[1], '*k', markersize=center_marker)
+# axs[2].plot(vss1[0], vss1[1], color=colors['red'], lw=robot_lw)
+# axs[2].plot(vss1[0][0], vss1[1][0], 'o', color=colors['red'], markersize=circle_marker)
 
-axs[2].axis('equal')
-axs[2].tick_params(axis='x', labelsize=50)
-axs[2].tick_params(axis='y', labelsize=50)
+# axs[2].plot(vss2[0], vss2[1], color=colors['red'], lw=robot_lw)
+# axs[2].plot(vss2[0][-1], vss2[1][-1], 'o', color=colors['red'], markersize=circle_marker)
+
+# axs[2].scatter(lu2_path_x, lu2_path_y, facecolors='none', edgecolors=colors['red'], s=hollow_marker, lw=spiral_edge_lw)
+
+# axs[2].plot(origin[0], origin[1], '*k', markersize=center_marker)
+
+# axs[2].axis('equal')
+# axs[2].tick_params(axis='x', labelsize=20)
+# axs[2].tick_params(axis='y', labelsize=20)
+
+a =  0.1166
+b = -0.1764
+
+# th_min = -0.058 * np.pi
+# th_max = 0.58 * np.pi
+
+th_min = -0.19
+th_max = 1.95
+
+center_x = 0.0347
+center_y = 0.0225
+
+theta_array = np.linspace(th_min, th_max, theta_n, endpoint=True)
+
+ro = a * np.exp(b * theta_array)
+log_spiral_x = center_x + ro * np.cos(theta_array)
+log_spiral_y = center_y + ro * np.sin(theta_array)
+
+plt.scatter(log_spiral_x, log_spiral_y)
+
+
+for k in range(0, 21, 1):
+    # vss2 = arc(0, k, 2)
+
+    vss1 = arc(0, k, 2)
+    plt.plot(vss1[0], vss1[1])
+
+    origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+
+    vss2 = arc(origin[2], k, 2)
+    vss2[0] += origin[0]
+    vss2[1] += origin[1]
+    
+    plt.plot(vss2[0], vss2[1])
+
+plt.axis('equal')
 
 plt.show()
 
-# f.savefig('log_spirals.png', dpi=600, transparent=True)
+# f.savefig('log_spiral_new.png', dpi=600, transparent=True)
 
 

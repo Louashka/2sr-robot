@@ -5,14 +5,15 @@ import tkinter as tk
 import tkinter.font as font
 import numpy as np
 from Model import agent, global_var as gv
-from Controller import task_controller
+# from Controller import task_controller
 from typing import List
 
 styles = {'original': {'line_type': '-', 'alpha': 1}, 'target': {'line_type': '.', 'alpha': 0.3}}
 
 class GUI:
-    def __init__(self, task: task_controller.Task) -> None:
-        self.__task = task
+    def __init__(self) -> None:
+    # def __init__(self, task: task_controller.Task) -> None:
+        # self.__task = task
 
         self.__window = None
         self.__canvas = None
@@ -42,14 +43,14 @@ class GUI:
 
         self.__buttons = {}
         
-        self.__buttons['gen_path'] = tk.Button(self.__buttons_frame, text='Generate paths', command=self.__task.generatePaths)
-        self.__buttons['start'] = tk.Button(self.__buttons_frame, text='Start', command=self.__task.start)
-        self.__buttons['stop'] = tk.Button(self.__buttons_frame, text='Stop', command=self.__task.stop)
-        self.__buttons['exit'] = tk.Button(self.__buttons_frame, text='Exit', command=self.__task.quit)
+        # self.__buttons['gen_path'] = tk.Button(self.__buttons_frame, text='Generate paths', command=self.__task.generatePaths)
+        # self.__buttons['start'] = tk.Button(self.__buttons_frame, text='Start', command=self.__task.start)
+        # self.__buttons['stop'] = tk.Button(self.__buttons_frame, text='Stop', command=self.__task.stop)
+        # self.__buttons['exit'] = tk.Button(self.__buttons_frame, text='Exit', command=self.__task.quit)
         
-        for button in self.__buttons.values():
-            button['font'] = font.Font(size=26)
-            button.pack(fill=tk.X, padx=20, pady=8)
+        # for button in self.__buttons.values():
+        #     button['font'] = font.Font(size=26)
+        #     button.pack(fill=tk.X, padx=20, pady=8)
 
     def __defineTrackingArea(self) -> None:
         self.__masFrame = tk.Frame(self.__window)
@@ -91,15 +92,15 @@ class GUI:
     def plotAgent(self, robot: agent.Robot, display='original'):        
 
         # Plot VS segments
-        vss1 = self.__arc(robot.theta, robot.k[0])
+        vss1 = robot.arc()
         plt.plot(robot.x + vss1[0], robot.y + vss1[1], '-b', lw='5')
 
-        vss2 = self.__arc(robot.theta, robot.k[1], 2)
+        vss2 = robot.arc(2)
         plt.plot(robot.x + vss2[0], robot.y + vss2[1], '-b', lw='5')
 
         # Plot VSS connectores
-        vss1_conn_x = [robot.x + vss1[0][-1], robot.x + vss1[0][-1] + gv.L_CONN * np.cos(vss1[2] - np.pi)]
-        vss1_conn_y = [robot.y + vss1[1][-1], robot.y + vss1[1][-1] + gv.L_CONN * np.sin(vss1[2] - np.pi)]
+        vss1_conn_x = [robot.x + vss1[0][-1] - gv.L_CONN * np.cos(vss1[2]), robot.x + vss1[0][-1]]
+        vss1_conn_y = [robot.y + vss1[1][-1] - gv.L_CONN * np.sin(vss1[2]), robot.y + vss1[1][-1]]
         plt.plot(vss1_conn_x, vss1_conn_y, '-k', lw='5')
 
         vss2_conn_x = [robot.x + vss2[0][-1], robot.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
@@ -116,7 +117,7 @@ class GUI:
         LU_outline = np.array(
             [
                 [-gv.LU_SIDE/2, gv.LU_SIDE/2, gv.LU_SIDE/2, -gv.LU_SIDE/2, -gv.LU_SIDE/2],
-                [gv.LU_SIDE/2, gv.LU_SIDE/2, -gv.LU_SIDE/2, -gv.LU_SIDE/2, gv.LU_SIDE/2],
+                [gv.LU_SIDE, gv.LU_SIDE, 0, 0, gv.LU_SIDE],
             ]
         )
 
@@ -126,38 +127,25 @@ class GUI:
         LU1_outline = (LU_outline.T.dot(rot1)).T
         LU2_outline = (LU_outline.T.dot(rot2)).T
 
-        LU1_outline[0, :] += vss1_conn_x[-1] - gv.LU_SIDE * np.cos(vss1[2]) / 2
-        LU1_outline[1, :] += vss1_conn_y[-1] - gv.LU_SIDE * np.sin(vss1[2]) / 2
+        LU1_outline[0, :] += vss1_conn_x[0] + gv.LU_SIDE * (np.sin(vss1[2]) - np.cos(vss1[2]) / 2)
+        LU1_outline[1, :] += vss1_conn_y[0] - gv.LU_SIDE * (np.cos(vss1[2]) + np.sin(vss1[2]) / 2)
 
-        LU2_outline[0, :] += vss2_conn_x[-1] + gv.LU_SIDE * np.cos(vss2[2]) / 2
-        LU2_outline[1, :] += vss2_conn_y[-1] + gv.LU_SIDE * np.sin(vss2[2]) / 2
+        LU2_outline[0, :] += vss2_conn_x[-1] + gv.LU_SIDE * (np.sin(vss2[2]) + np.cos(vss2[2]) / 2)
+        LU2_outline[1, :] += vss2_conn_y[-1] - gv.LU_SIDE * (np.cos(vss2[2]) - np.sin(vss2[2]) / 2)
 
         plt.plot(np.array(LU1_outline[0, :]).flatten(), np.array(LU1_outline[1, :]).flatten(), '-k')
         plt.plot(np.array(LU2_outline[0, :]).flatten(), np.array(LU2_outline[1, :]).flatten(), '-k')
 
-        self.__show()
+        # Plot geometrical centers of the locomoton units
+        lu_head = robot.lu_position(1)
+        plt.plot(lu_head[0], lu_head[1], '*k')
 
-    def __arc(self, theta0, k, seg=1) -> List[np.ndarray]:
-        l = np.linspace(0, gv.L_VSS, 50)
+        lu_tail = robot.lu_position(2)
+        plt.plot(lu_tail[0], lu_tail[1], '*k')
+
         
-        flag = -1 if seg == 1 else 1
-        theta_array = theta0 + flag * k * l
 
-        if k == 0:
-            x = np.array([0, gv.L_VSS * np.cos(theta0)])
-            y = np.array([0, gv.L_VSS * np.sin(theta0)])
-        else:
-            x = np.sin(theta_array) / k - np.sin(theta0) / k
-            y = -np.cos(theta_array) / k + np.cos(theta0) / k
-
-        theta = theta_array[-1]
-
-        # if seg == 1:
-        #     x = -x
-        #     y = -y
-        #     theta += -np.pi
-            
-        return [x, y, theta % (2 * np.pi)]
+        self.__show()
 
     def __wheelsToGlobal(self, robot_pose: list, wheel: list):
         R_ob = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],
