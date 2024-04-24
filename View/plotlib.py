@@ -4,7 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 import tkinter.font as font
 import numpy as np
-from Model import agent, global_var as gv
+from Model import global_var as gv, robot2sr
 # from Controller import task_controller
 from typing import List
 
@@ -89,7 +89,7 @@ class GUI:
 
         self.__show()    
 
-    def plotAgent(self, robot: agent.Robot, display='original'):        
+    def plotAgent(self, robot: robot2sr.Robot, display='original'):        
 
         # Plot VS segments
         vss1 = robot.arc()

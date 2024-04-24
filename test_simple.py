@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import math
-from Model import global_var as gv, agent
+from Model import global_var as gv, robot2sr
 from typing import List
 
 lw = 2
@@ -101,7 +101,7 @@ def plotRobot(config) -> None:
 
 if __name__ == "__main__":
     ref_point = [0, 0, 0.0 * np.pi/4]
-    robot2sr = agent.Robot(1, ref_point, [10, -15])
+    robot2sr = robot2sr.Robot(1, ref_point, [10, -15])
 
     # v = np.array([0, 0, 0, 0, 0]).T
     v = np.array([0, 0, 0, 0, 1.5]).T

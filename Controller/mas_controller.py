@@ -1,7 +1,7 @@
 import serial
 import numpy as np
 from typing import List
-from Model import agent, global_var
+from Model import global_var, robot2sr
 from typing import List
 
 
@@ -14,12 +14,12 @@ class Swarm:
         self.__agents = []
 
     @property
-    def agents(self) -> List[agent.Robot]:
+    def agents(self) -> List[robot2sr.Robot]:
         return self.__agents
     
     @agents.setter
-    def agents(self, value: List[agent.Robot]) -> None:
-        if not isinstance(value, List[agent.Robot]):
+    def agents(self, value: List[robot2sr.Robot]) -> None:
+        if not isinstance(value, List[robot2sr.Robot]):
             raise Exception('Wrong type of agent!')
         self.__agents = value
 
@@ -31,14 +31,14 @@ class Swarm:
 
         return all_id
     
-    def getAgentById(self, id) -> agent.Robot:
+    def getAgentById(self, id) -> robot2sr.Robot:
         for agent in self.agents:
             if agent.id == id:
                 return agent
             
         return None
     
-    def getActiveAgents(self) -> List[agent.Robot]:
+    def getActiveAgents(self) -> List[robot2sr.Robot]:
         active_agents = []
         for agent in self.agents:
             if agent.status:

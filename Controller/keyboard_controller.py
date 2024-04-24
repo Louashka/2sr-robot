@@ -4,7 +4,7 @@ class ActionsHandler:
 
         self.__omni_speed = omni_speed  # Agent velocity in the rigid mode
         self.__rotation_speed = rotation_speed # Agent angular velocity in the rigid mode
-        self.__lu_speed = lu_speed  # LU's velocity in the soft mode
+        self.__lu_speed = lu_speed  # LU's velocity in the flexible mode
 
         self.__current_keys = set() # Set of pressed keys
 

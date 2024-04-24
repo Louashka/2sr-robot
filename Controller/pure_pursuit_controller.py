@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
-from Model import manipulandum as mp, global_var as gv, agent
+from Model import manipulandum as mp, global_var as gv, robot2sr
 from grasping_controller import Grasp as grasp, Force
 import path
 import numpy as np
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     force_model = Force(heart, s)
 
     # Initialise a robot
-    robot2sr = agent.Robot(1, [0.75, 0, 0])
+    robot2sr = robot2sr.Robot(1, [0.75, 0, 0])
 
     # Execute the object's manipulation
     

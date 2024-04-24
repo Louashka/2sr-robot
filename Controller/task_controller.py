@@ -3,7 +3,7 @@ import pandas as pd
 import sys
 sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
 # sys.path.append('D:/Romi-lab/2sr-swarm-control')
-from Model import agent, global_var
+from Model import global_var, robot2sr
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, mas_controller
 import random as rnd
@@ -12,9 +12,7 @@ import numpy as np
 # There are 4 task modes
 class Mode(Enum):
     MANUAL = 1 # Manual control of a single robot via a keyboard
-    PATH_TRACKING = 2 # Manipulation of the small object by a single robot along the pre-defined path
-    COLLAB = 3 # Collaborative manipulation of the big object by maultiple agents
-    COOP = 4 # Collection and relocation of small objects by a multi-agent system
+    GRASP = 2 # Grasp object - approach the target configuration
 
 class Task(keyboard_controller.ActionsHandler):
     def __init__(self, mode: Mode) -> None:
@@ -39,7 +37,7 @@ class Task(keyboard_controller.ActionsHandler):
             raise Exception('Wrong task mode!')
         self.__mode = value
 
-    # Execute a task of a given mode
+    # Execute the task of a given mode
     def run(self) -> None:
         print('Start Motive streaming')
         self.mocap.startDataListener() # Start listening data from Motive
@@ -56,15 +54,9 @@ class Task(keyboard_controller.ActionsHandler):
             case Mode.MANUAL:
                 print('Manual mode')
                 self.__manualMode()
-            case Mode.PATH_TRACKING:
-                print('Path tracking mode')
-                self.__pathTrackingMode()
-            case Mode.COLLAB:
-                print('Collaboration mode')
-                self.__collabMode()
-            case Mode.COOP:
-                print('Cooperation mode')
-                self.__coopMode()
+            case Mode.GRASP:
+                print('Grasp mode')
+                self.__graspMode()
 
         self.gui.window.mainloop() # Start the GUI application
 
@@ -75,7 +67,7 @@ class Task(keyboard_controller.ActionsHandler):
 
             for robot in robots:
                 if self.mas.getAgentById(robot['id']) is None:
-                    new_agent = agent.Robot(robot['id'], robot['x'], robot['y'], robot['theta'], robot['k'])
+                    new_agent = robot.Robot(robot['id'], robot['x'], robot['y'], robot['theta'], robot['k'])
                     self.mas.agents.append(new_agent)
                 else:
                     current_agent = self.mas.getAgentById(robot['id'])
@@ -119,28 +111,15 @@ class Task(keyboard_controller.ActionsHandler):
         super().onRelease(key)
         self.__executeAction()
 
-    #//////////////////////////////// PATH_TRACKING MODE METHODS ////////////////////////////////
-    def __pathTrackingMode(self) -> None:
-        # if len(self.mas.agents) == 0:
-        #     raise Exception('No agents are found!')
-        
-        # if len(self.mas.agents) != 1:
-        #     raise Exception('Wrong number of agents!')
-        
-        # if len(self.__manipulandums) > 0:
-        #     raise Warning('Please remove manipulandums!')
-        pass
-
-    #//////////////////////////////// COLLAB MODE METHODS ////////////////////////////////
-
-    def __collabMode(self) -> None:
-        pass
-        
-        
-    #//////////////////////////////// COOP MODE METHODS ////////////////////////////////
+    #///////////////////////////////// GRASP MODE METHODS ////////////////////////////////
     
-    def __coopMode(self) -> None:
-        pass
+    def __graspMode(self):
+        if len(self.mas.agents) == 0:
+            raise Exception('No agents are found!')
+        
+        if len(self.mas.agents) != 1:
+            raise Exception('Wrong number of agents!')
+
 
     #////////////////////////////////BUTTONS METHODS//////////////////////////////////////
 
@@ -158,7 +137,7 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.__updatePlots()
    
-    def __generatePath(self, robot: agent.Robot) -> list:
+    def __generatePath(self, robot: robot2sr.Robot) -> list:
         print('Generate path')
 
         path = []        

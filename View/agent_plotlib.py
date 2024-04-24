@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
-from Model import agent, global_var as gv
+from Model import global_var as gv, robot2sr
 
-def plotAgent(robot: agent.Robot) -> None:        
+def plotAgent(robot: robot2sr.Robot) -> None:        
 
     # Plot VS segments
     vss1 = robot.arc()
@@ -69,7 +69,7 @@ def plotAgent(robot: agent.Robot) -> None:
 
 def animateAgent(robot_id: int, config_array: List[np.ndarray], dt: float) -> None:
 
-    robot = agent.Robot(robot_id, 0, 0, 0, 0, 0)
+    robot = robot.Robot(robot_id, 0, 0, 0, 0, 0)
 
     plt.pause(2)
 
