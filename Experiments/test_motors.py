@@ -150,7 +150,7 @@ if __name__ == "__main__":
     # with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
     #     listener.join()
 
-    f = open('motor_log.csv', "w+")
+    f = open('Data/motor_log.csv', "w+")
     f.close()
 
     # anim = animation.FuncAnimation(fig, run, frames=1000, interval=10)

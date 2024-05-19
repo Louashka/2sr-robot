@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 # from scipy.signal import butter, filtfilt
@@ -11,8 +12,10 @@ def butter_lowpass_filter(data, cutoff, fs, order):
     y = filtfilt(b, a, data)
     return y
 
-df = pd.read_csv('motor_pi_log.csv', 
-                 names=["target", "voltage", "velocity", "angle", "time"])
+dirname = os.path.dirname(__file__)
+filename = os.path.join(dirname, 'Data/motor_pi_log.csv')
+
+df = pd.read_csv(filename, names=["target", "voltage", "velocity", "angle", "time"])
 
 df['time'] = df['time'] - df.iloc[0]['time']
 
