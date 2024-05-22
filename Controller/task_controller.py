@@ -12,7 +12,7 @@ import numpy as np
 # There are 4 task modes
 class Mode(Enum):
     MANUAL = 1 # Manual control of a single robot via a keyboard
-    GRASP = 2 # Grasp object - approach the target configuration
+    PATH_TRACKING = 2 # Path tracking
 
 class Task(keyboard_controller.ActionsHandler):
     def __init__(self, mode: Mode) -> None:
@@ -23,7 +23,6 @@ class Task(keyboard_controller.ActionsHandler):
         self.gui = plotlib.GUI(self) # Initialise GUI
 
         self.mas = mas_controller.Swarm() # Initialise a multi-agent system (MAS)
-        self.manipulandums = None # Initialise a collection of manipulandums
 
         self.tracking_area = [[-1, 3], [-1, 3]]
 
@@ -54,16 +53,16 @@ class Task(keyboard_controller.ActionsHandler):
             case Mode.MANUAL:
                 print('Manual mode')
                 self.__manualMode()
-            case Mode.GRASP:
-                print('Grasp mode')
-                self.__graspMode()
+            case Mode.PATH_TRACKING:
+                print('Path tracking mode')
+                self.__pathMode()
 
         self.gui.window.mainloop() # Start the GUI application
 
     def __updateConfig(self):
         try:
             # Get the current MAS and manipulandums configuration
-            robots, manipulandums = self.mocap.getCurrentConfig()
+            robots = self.mocap.getCurrentConfig()
 
             for robot in robots:
                 if self.mas.getAgentById(robot['id']) is None:
@@ -73,9 +72,7 @@ class Task(keyboard_controller.ActionsHandler):
                     current_agent = self.mas.getAgentById(robot['id'])
                     current_agent.pose = [robot['x'], robot['y'], robot['theta']]
                     current_agent.k = robot['k']
-            
-            for manipulandum in manipulandums:
-                pass
+
         except Exception as e:
             print(f"Error occurred: {e}. The robot is stopped!")
             if self.mas is not None:
@@ -111,9 +108,9 @@ class Task(keyboard_controller.ActionsHandler):
         super().onRelease(key)
         self.__executeAction()
 
-    #///////////////////////////////// GRASP MODE METHODS ////////////////////////////////
+    #//////////////////////////// PATH TRACKING MODE METHODS //////////////////////////////
     
-    def __graspMode(self):
+    def __pathMode(self):
         if len(self.mas.agents) == 0:
             raise Exception('No agents are found!')
         

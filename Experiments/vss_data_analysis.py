@@ -15,6 +15,28 @@ df = pd.read_csv(filename, names=["stiffness", "T", "mode", "time"])
 df['state command'] = [0 if x == 'cooling' else 1 for x in df['mode']]
 df['time'] = df['time'] - df.iloc[0]['time']
 
+df['cycle'] = (df['mode'] != df['mode'].shift()).cumsum()
+heating_rows = df[(df['mode'] == 'heating') & (df['T'] >= 38)]
+grouped_heating = heating_rows.groupby('cycle')
+
+cooling_rows = df[df['mode'] == 'cooling']
+grouped_cooling = cooling_rows.groupby('cycle')
+
+heating_time = 0
+cooling_time = 0
+
+for name, group in grouped_heating:
+    heating_time += (group.iloc[-1]['time'] - group.iloc[0]['time'])
+
+for name, group in grouped_cooling:
+    cooling_time += (group.iloc[-1]['time'] - group.iloc[0]['time'])
+
+heating_time /= 3
+cooling_time /= 3
+
+print('Heating time: ' + str(heating_time))
+print('Cooling time: ' + str(cooling_time))
+
 window = 300
 
 temp_smoothed = df['T'].rolling(window, center=False).mean()
@@ -43,7 +65,7 @@ ax2.tick_params(axis='y', labelcolor=color, labelsize=font_size)
 
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
-plt.savefig(os.path.join(dirname, 'Figures/phase_transitions_analysis.svg'), dpi=600)
+# plt.savefig(os.path.join(dirname, 'Figures/phase_transitions_analysis.svg'), dpi=600)
 plt.show()
 
 # plt.plot(df.iloc[:-window+1]['time'], temp_smoothed, label='Temperature')
