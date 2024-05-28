@@ -1,4 +1,5 @@
 import serial
+import os
 from pynput import keyboard
 import numpy as np
 import pandas as pd
@@ -11,7 +12,10 @@ from matplotlib.animation import FFMpegWriter
 portName = "/dev/tty.usbserial-0001"
 serial_port = serial.Serial(portName, 115200)
 
-target = 12.0
+dirname = os.path.dirname(__file__)
+filename = os.path.join(dirname, 'Data/motor_log.csv')
+
+target = 9
 
 data_buff = deque([])
 
@@ -27,30 +31,30 @@ ax.legend()
 
 def on_press(key):
 
-    w = [0.0, 0.0]
+    w = [0.0, 0.0, 0.0, 0.0, 0, 0, 1]
 
     if key == keyboard.Key.up:
         print("forward")
-        w = [target, 0.0]
+        w = [target, 0.0, 0.0, 0.0, 0, 0, 1]
 
     if key == keyboard.Key.down:
         print("backward")
-        w = [-target, 0.0]
+        w = [-target, 0.0, 0.0, 0.0, 0, 0, 1]
 
     if key == keyboard.Key.left:
         print("left")
-        w = [0.0, target]
+        w = [0.0, target, 0.0, 0.0, 0, 0, 1]
 
     if key == keyboard.Key.right:
         print("right")
-        w = [0.0, -target]
+        w = [0.0, -target, 0.0, 0.0, 0, 0, 1]
 
     move(w)
 
 
 def on_release(key): 
     try:
-        w = [0.0, 0.0]
+        w = [0.0, 0.0, 0.0, 0.0, 0, 0, 1]
         move(w)
     except KeyError:
         pass
@@ -90,22 +94,24 @@ def move(commands):
                 if motor_data[0] != target:
                     continue
 
+                print('Record data')
+
                 current_time = time.time() - start_time
 
                 data = {'target': [motor_data[0]], 'voltage': [motor_data[1]], 
-                        'velocity': [motor_data[2]], 'ange': [motor_data[3]],
+                        'velocity': [motor_data[2]], 'angle': [motor_data[3]],
                         'time': [current_time]}
                 
                 # print(data)
                 df = pd.DataFrame(data)
 
-                df.to_csv('motor_log.csv', mode='a', index=False, header=False)
+                df.to_csv(filename, mode='a', index=False, header=False)
 
                 data_buff.append(motor_data)
 
 def run(frame):
     target_velocity = 12.0
-    w = [0.0, target_velocity]
+    w = [0.0, target_velocity, 0.0, 0.0, 0, 0, 1]
     move(w)
 
     if len(data_buff) > 50:
@@ -150,7 +156,7 @@ if __name__ == "__main__":
     # with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
     #     listener.join()
 
-    f = open('Data/motor_log.csv', "w+")
+    f = open(filename, "w+")
     f.close()
 
     # anim = animation.FuncAnimation(fig, run, frames=1000, interval=10)
@@ -161,6 +167,5 @@ if __name__ == "__main__":
     # plt.show()
 
     while True:
-        target_velocity = 12.0
-        w = [0.0, target_velocity]
+        w = [0.0, 0.0, 0.0, target, 0, 0, 1]
         move(w)
