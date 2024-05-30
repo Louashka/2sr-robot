@@ -8,7 +8,7 @@ portName = "/dev/tty.usbserial-0001"
 serial_port = serial.Serial(portName, 115200)
 
 dirname = os.path.dirname(__file__)
-filename = os.path.join(dirname, 'Data/motor_log.csv')
+filename = os.path.join(dirname, 'Data/motor_log_01_06.csv')
 
 kp = 0.4  # Initial guess for P gain
 ki = 0.0  # Initial guess for I gain
@@ -27,6 +27,34 @@ oscillations_threshold = 20
 
 target_velocity = 5
 start_time = time.time()
+
+def set_velocity(velocity):
+    msg = 'M' + str(velocity) + '\n'
+    serial_port.write(msg.encode())
+
+def set_p(p):
+    msg = 'MVP' + str(p) + '\n'
+    serial_port.write(msg.encode())
+
+def set_i(i):
+    msg = 'MVI' + str(i) + '\n'
+    serial_port.write(msg.encode())
+
+def set_d(d):
+    msg = 'MVD' + str(d) + '\n'
+    serial_port.write(msg.encode())
+
+def set_motor_status(status):
+    if status:
+        msg = 'ME' + str(1) + '\n'
+    else:
+        msg = 'ME' + str(0) + '\n'
+
+    serial_port.write(msg.encode())
+    
+def send_value(value):
+    msg = str(value) + '\n'
+    serial_port.write(msg.encode())
 
 # Function to send data to the microcontroller
 def send_to_microcontroller(kp, ki, kd, setpoint, flag):
@@ -51,10 +79,10 @@ def read_from_microcontroller():
     
     return motor_velocity
 
-def save_data(velocity):
+def save_data(target, velocity):
     current_time = time.time() - start_time
 
-    data = {'velocity': velocity, 'time': [current_time]}
+    data = {'target': target, 'velocity': velocity, 'time': [current_time]}
     
     # print(data)
     df = pd.DataFrame(data)
@@ -190,22 +218,91 @@ def run(kp_tuned, ki_tuned, kd_tuned):
 
         last_time = time.time()
 
+def run_test():
+    counter = 1
+    trials = 20
+    duration = 5
+    vel_lim = 15
+
+    # p = 0.8
+    p = 0.2
+    i = 0.6
+    d = 0.0
+
+    # set_motor_status(False)
+    # set_motor_status(False)
+    # time.sleep(1)
+    # set_motor_status(True)
+    # set_motor_status(True)
+    # time.sleep(1)
+    
+    # set_p(p)
+    # set_p(p)
+    # time.sleep(1)
+    # set_i(i)
+    # set_i(i)
+    # time.sleep(1)
+    # set_d(d)
+    # set_d(d)
+    # time.sleep(1)
+
+    trial_start_time = time.time()
+
+    target_vel = round(random.uniform(-vel_lim, vel_lim+1),3)
+    if target_vel < 2 and target_vel > -2:
+        if target_vel < 0:
+            target_vel = -2
+        else:
+            target_vel = 2
+    print(f'Set new velocity: {target_vel}')
+
+    while True:
+        if counter > trials:
+            break
+
+        # set_velocity(target_vel)
+        send_value(target_vel)
+        # response = read_from_microcontroller()
+
+        # if not response:
+        #     continue
+
+        # print(response)
+        # if abs(target_vel - response) < 15:
+        #     save_data(target_vel, response)
+
+        time_counter = time.time() - trial_start_time
+
+        if time_counter >= duration:
+            target_vel = round(random.uniform(-vel_lim, vel_lim+1),3)
+            if target_vel < 2 and target_vel > -2:
+                if target_vel < 0:
+                    target_vel = -2
+                else:
+                    target_vel = 2
+            print(f'Set new velocity: {target_vel}')
+
+            trial_start_time = time.time()
+            counter += 1
+
+
 if __name__ == "__main__":
-    f = open(filename, "w+")
-    f.close()
+    # f = open(filename, "w+")
+    # f.close()
 
     # kp_tuned, ki_tuned, kd_tuned = ziegler_nichols()
     
     # run(kp_tuned, ki_tuned, kd_tuned)
 
+    run_test()
 
-    while True:
+    # while True:
         # send_to_microcontroller(0.3, 0, 0, 5, 0)
-        velocity = read_from_microcontroller()
-        if velocity:
-            save_data(velocity)
+        # velocity = read_from_microcontroller()
+        # if velocity:
+        #     save_data(velocity)
 
-        print(velocity)
+        # print(velocity)
     
         
 # if __name__ == "__main__":
