@@ -5,8 +5,8 @@ from Model import global_var, robot2sr
 from typing import List
 
 
-# port_name = "COM5"
-port_name = "/dev/tty.usbserial-0001"
+port_name = "COM7"
+# port_name = "/dev/tty.usbserial-0001"
 serial_port = serial.Serial(port_name, 115200)
 
 class Swarm:

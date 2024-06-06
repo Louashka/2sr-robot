@@ -1,11 +1,9 @@
 from enum import Enum
-import pandas as pd
 import sys
-sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
-# sys.path.append('D:/Romi-lab/2sr-swarm-control')
+sys.path.append('D:/University/Part-time/Romi-Lab/Soft-Rigid Agent/2SR_3/Code/Python/2sr-swarm-control')
 from Model import global_var, robot2sr
 from View import plotlib
-import motive_client, keyboard_controller, grasping_controller, mas_controller
+import motive_client, keyboard_controller, grasping_controller, robot2sr_controller
 import random as rnd
 import numpy as np
 
@@ -20,9 +18,11 @@ class Task(keyboard_controller.ActionsHandler):
         self.mode = mode
 
         self.mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
-        self.gui = plotlib.GUI(self) # Initialise GUI
+        self.gui = plotlib.GUI() # Initialise GUI
 
-        self.mas = mas_controller.Swarm() # Initialise a multi-agent system (MAS)
+        self.agent: robot2sr.Robot = None
+        self.markers = {}
+        self.agent_controller = robot2sr_controller.Controller()
 
         self.tracking_area = [[-1, 3], [-1, 3]]
 
@@ -45,10 +45,9 @@ class Task(keyboard_controller.ActionsHandler):
         self.__updateConfig() # Update MAS and manipulandums
         
         # Plot agents
-        for agent in self.mas.agents:
-            self.gui.plotAgent(agent)
+        # self.gui.plotAgent(self.agent)
         
-        # Run the seleceted task mode 
+        # Run the seleceted task mode
         match self.mode:
             case Mode.MANUAL:
                 print('Manual mode')
@@ -59,35 +58,46 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.gui.window.mainloop() # Start the GUI application
 
+    # def __updateConfig(self):
+    #     try:
+    #         # Get the current MAS and manipulandums configuration
+    #         robots = self.mocap.getCurrentConfig()
+
+    #         for robot in robots:
+    #             if self.mas.getAgentById(robot['id']) is None:
+    #                 new_agent = robot.Robot(robot['id'], robot['x'], robot['y'], robot['theta'], robot['k'])
+    #                 self.mas.agents.append(new_agent)
+    #             else:
+    #                 current_agent = self.mas.getAgentById(robot['id'])
+    #                 current_agent.pose = [robot['x'], robot['y'], robot['theta']]
+    #                 current_agent.k = robot['k']
+
+    #     except Exception as e:
+    #         print(f"Error occurred: {e}. The robot is stopped!")
+    #         if self.mas is not None:
+    #             self.mas.stop()
+
     def __updateConfig(self):
-        try:
-            # Get the current MAS and manipulandums configuration
-            robots = self.mocap.getCurrentConfig()
+        # Get the current MAS and manipulandums configuration
+        agent_config, self.markers = self.mocap.getAgentConfig()
 
-            for robot in robots:
-                if self.mas.getAgentById(robot['id']) is None:
-                    new_agent = robot.Robot(robot['id'], robot['x'], robot['y'], robot['theta'], robot['k'])
-                    self.mas.agents.append(new_agent)
-                else:
-                    current_agent = self.mas.getAgentById(robot['id'])
-                    current_agent.pose = [robot['x'], robot['y'], robot['theta']]
-                    current_agent.k = robot['k']
+        if agent_config:
+            if self.agent:
+                self.agent.pose = [agent_config['x'], agent_config['y'], agent_config['theta']]
+                self.agent.k1 = agent_config['k1']
+                self.agent.k2= agent_config['k2']
+            else:
+                self.agent = robot2sr.Robot(agent_config['id'], agent_config['x'], agent_config['y'], agent_config['theta'], agent_config['k1'], agent_config['k2'])
 
-        except Exception as e:
-            print(f"Error occurred: {e}. The robot is stopped!")
-            if self.mas is not None:
-                self.mas.stop()
+            self.agent.head.pose = agent_config['head']
+            self.agent.tail.pose = agent_config['tail']
+        else:
+            print('Agent is not detected!')
 
 
     #//////////////////////////////// MANUAL MODE METHODS ////////////////////////////////
     
     def __manualMode(self):
-        if len(self.mas.agents) == 0:
-            raise Exception('No agents are found!')
-        
-        if len(self.mas.agents) != 1:
-            raise Exception('Wrong number of agents!')
-        
         # Handle key events 
         self.gui.window.bind('<KeyPress>', self.__onPress)
         self.gui.window.bind('<KeyRelease>', self.__onRelease)
@@ -95,10 +105,11 @@ class Task(keyboard_controller.ActionsHandler):
     # Execute the action according to the keyboard commands
     def __executeAction(self):
         self.__updateConfig()
-        self.mas.move(self.v, self.s) # Execute the action by MAS
-        # Update the GUI
-        for agent in self.mas.agents:
-            self.gui.plotAgent(agent)
+        # self.mas.move(self.v, self.s) # Execute the action by MAS
+        if self.agent is not None:
+            self.agent_controller.move(self.agent, self.v, self.s)
+            # Update the GUI
+            self.gui.plotAgent(self.agent, self.markers)
 
     def __onPress(self, key) -> None:
         super().onPress(key)
@@ -183,5 +194,5 @@ class Task(keyboard_controller.ActionsHandler):
         pass
     
 if __name__ == "__main__":
-    experiment = Task(Mode.PATH_TRACKING)
+    experiment = Task(Mode.MANUAL)
     experiment.run()

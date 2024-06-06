@@ -1,11 +1,8 @@
 import sys
 from Motive import nat_net_client as nnc, mo_cap_data
-import mas_controller
-from Model import agent_old, global_var, manipulandum
+from Model import agent_old, global_var, manipulandum, robot2sr
 import numpy as np
 import pandas as pd
-import Motive.motive_client as motive
-import mas_controller
 from typing import List
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
@@ -64,72 +61,157 @@ class MocapReader:
         streaming_client.mocap_data_listener = self.__receiveData
 
         self.isRunning = streaming_client.run()
-    
-    def getCurrentConfig(self) -> tuple[List[dict], List[dict]]:
-        agents = []
-        manipulandums = []
 
-        # markers, rigid_bodies = self.__unpackData()
-        markers, rigid_bodies = self.__simulateData()
+    def getAgentConfig(self) -> tuple[dict, dict]:
+        agent = {}
+
+        markers, rigid_bodies = self.__unpackData()
+
+        if markers is None or rigid_bodies is None:
+            return {}, {}
 
         self.__convertData(markers, rigid_bodies)
 
-        if len(rigid_bodies) != 0:
-            id_array = []
-            for rb in rigid_bodies.values():
+        if len(rigid_bodies) == 1:
+            rb = list(rigid_bodies.values())[0]
 
-                id_array.append(rb['id'])
+            agent['id'] = rb['id']
 
-                # Agent 'head' locomotion units have id's < 10, manipulandums have id's > 10 
-                if rb['id'] < 10:
+            # Calculate the pose of the head LU
+            head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
+            head_pose, start_marker = self.__calcHeadPose(rb, head_markers)
+            agent['head'] = head_pose
 
-                    robot = {} # Create a dict that stores robot's data
-                    robot['id'] = rb['id']
+            # Sort markers to within the VSF
+            ranked_markers = self.__rankPoints(markers, head_pose[:-1])
+            # If some markers are missing we ignore the robot
+            if len(ranked_markers) != 6:
+                return {}, {}
+            
+            # Calculate the robot's position
+            robot_x, robot_y = self.__findMidpoint(ranked_markers[:-1])
+            midpoint = [agent_old.Marker(0, robot_x, robot_y)]
 
-                    # Calculate the pose of the head LU
-                    head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
-                    head_pose = self.__calcHeadPose(rb, head_markers)
+            # Calculate VSS' curvatures
+            k1 = self.__calculate_curvature([start_marker] + ranked_markers[:2] + midpoint, global_var.L_VSS)
+            k2 = self.__calculate_curvature(midpoint + ranked_markers[2:-1], global_var.L_VSS)
+            agent['k1'] = k1
+            agent['k2'] = k2
 
-                    # Sort markers to within the VSF
-                    ranked_markers = self.__rankPoints(markers, head_pose[:-1])
-                    # If some markers are missing we ignore the robot
-                    if len(ranked_markers) != 6:
-                        continue
+            # Calculate the pose of the tail LU
+            # alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
+            # alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
+            # tail_theta = 2 * alpha2 - alpha1
+            tail_theta = self.__getAngle(ranked_markers[4].position, ranked_markers[5].position)
 
-                    # Calculate VSS' curvatures
-                    k1 = self._calculate_curvature(ranked_markers[:3], global_var.L_VSS)
-                    k2 = self._calculate_curvature(ranked_markers[2:], global_var.L_VSS)
-                    robot['k'] = [k1, k2]
+            tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
+            agent['tail'] = tail_pose
 
-                    # Calculate the pose of the tail LU
-                    alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
-                    alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
-                    tail_theta = 2 * alpha2 - alpha1
+            # Calculate the robot's orientation
+            robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
+            
+            agent['x'] = robot_x
+            agent['y'] = robot_y
+            agent['theta'] = robot_theta
 
-                    tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
+            # print(agent)
 
-                    # Calculate the robot pose
-                    robot_x = (head_pose[0] + tail_pose[0]) / 2
-                    robot_y = (head_pose[1] + tail_pose[1]) / 2
-                    robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
-                    
-                    robot['x'] = robot_x
-                    robot['y'] = robot_y
-                    robot['theta'] = robot_theta
+        else:
+            return {}, {}
 
-                    print(robot)
-
-                    agents.append(robot)
-                else:
-                    # Unpack a manipulandum
-                    pass
-
-
-        return [agents, manipulandums]
+        return agent, markers
     
-    def __unpackData(self) -> list:
-        if self.__data is None:
-            raise Exception('No data received from Motive!')
+    def __findMidpoint(self, points:List[agent_old.Marker]):
+        total_length = 0
+        for i in range(len(points) - 1):
+            x1, y1 = points[i].position
+            x2, y2 = points[i+1].position
+            total_length += np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        
+        target_length = total_length / 2
+
+        current_length = 0
+
+        for i in range(len(points) - 1):
+            x1, y1 = points[i].position
+            x2, y2 = points[i+1].position
+            segment_length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+            current_length += segment_length
+            if current_length >= target_length:
+                t = (target_length - (current_length - segment_length)) / segment_length
+                x = x1 + t * (x2 - x1)
+                y = y1 + t * (y2 - y1)
+                return (x, y)
+    
+        # If the curve has only one point, return that point
+        return points[0]
+    
+    # def getCurrentConfig(self) -> tuple[List[dict], List[dict]]:
+    #     agents = []
+    #     manipulandums = []
+
+    #     # markers, rigid_bodies = self.__unpackData()
+    #     markers, rigid_bodies = self.__simulateData()
+
+    #     self.__convertData(markers, rigid_bodies)
+
+    #     if len(rigid_bodies) != 0:
+    #         id_array = []
+    #         for rb in rigid_bodies.values():
+
+    #             id_array.append(rb['id'])
+
+    #             # Agent 'head' locomotion units have id's < 10, manipulandums have id's > 10 
+    #             if rb['id'] < 10:
+
+    #                 robot = {} # Create a dict that stores robot's data
+    #                 robot['id'] = rb['id']
+
+    #                 # Calculate the pose of the head LU
+    #                 head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
+    #                 head_pose = self.__calcHeadPose(rb, head_markers)
+
+    #                 # Sort markers to within the VSF
+    #                 ranked_markers = self.__rankPoints(markers, head_pose[:-1])
+    #                 # If some markers are missing we ignore the robot
+    #                 if len(ranked_markers) != 6:
+    #                     continue
+
+    #                 # Calculate VSS' curvatures
+    #                 k1 = self._calculate_curvature(ranked_markers[:3], global_var.L_VSS)
+    #                 k2 = self._calculate_curvature(ranked_markers[2:], global_var.L_VSS)
+    #                 robot['k'] = [k1, k2]
+
+    #                 # Calculate the pose of the tail LU
+    #                 alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
+    #                 alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
+    #                 tail_theta = 2 * alpha2 - alpha1
+
+    #                 tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
+
+    #                 # Calculate the robot pose
+    #                 robot_x = (head_pose[0] + tail_pose[0]) / 2
+    #                 robot_y = (head_pose[1] + tail_pose[1]) / 2
+    #                 robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
+                    
+    #                 robot['x'] = robot_x
+    #                 robot['y'] = robot_y
+    #                 robot['theta'] = robot_theta
+
+    #                 print(robot)
+
+    #                 agents.append(robot)
+    #             else:
+    #                 # Unpack a manipulandum
+    #                 pass
+
+
+    #     return [agents, manipulandums]
+    
+    def __unpackData(self) -> tuple[dict, dict]:
+        if self.data is None:
+            # raise ValueError('No data received from Motive!')
+            return None, None
         
         rigid_body_data = self.data.rigid_body_data
         labeled_marker_data = self.data.labeled_marker_data
@@ -227,7 +309,7 @@ class MocapReader:
 
         return [roll_x, pitch_y, yaw_z]  # in radians
     
-    def __calcHeadPose(self, rb, markers):
+    def __calcHeadPose(self, rb, markers) -> tuple[list, agent_old.Marker]:
         points = []
 
         for marker in markers:
@@ -240,12 +322,15 @@ class MocapReader:
         i_next = i + 1 if i < 2 else 0
 
         delta = points[i, :] - points[i_next, :]
-        theta = np.arctan2(delta[1], delta[0]) + np.pi
+        # theta = np.arctan2(delta[1], delta[0]) + np.pi
+        theta = np.arctan2(delta[1], delta[0])
         
         x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
         y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
 
-        return [x, y, theta]
+        start_marker = agent_old.Marker(markers[i_next]['marker_id'], markers[i_next]['marker_x'], markers[i_next]['marker_y'])
+
+        return [x, y, theta], start_marker
     
     def __getAngle(self, p1: list, p2: list):
         a = p2[0] - p1[0]
@@ -323,7 +408,7 @@ class MocapReader:
 
         return ranked_markers
     
-    def _calculate_curvature(self, segment_points: List[agent_old.Marker], segment_length):
+    def __calculate_curvature(self, segment_points: List[agent_old.Marker], segment_length):
         # for the segment_points, the input should be in the following format:
         # [end1, center, end2]
         # point A, point B, point C
@@ -331,39 +416,76 @@ class MocapReader:
         # segment_length is in meter, and the value is 0.077m
 
         # Calculate the distances between the points
-        print(segment_points[0])
-        c = np.sqrt(
-            (segment_points[0].x - segment_points[1].x) ** 2 + (segment_points[0].y - segment_points[1].y) ** 2)
-        a = np.sqrt(
-            (segment_points[2].x - segment_points[1].x) ** 2 + (segment_points[2].y - segment_points[1].y) ** 2)
-        b = np.sqrt(
-            (segment_points[0].x - segment_points[2].x) ** 2 + (segment_points[0].y - segment_points[2].y) ** 2)
+        # print(segment_points[0])
+        # a = np.sqrt(
+        #     (segment_points[0].x - segment_points[1].x) ** 2 + (segment_points[0].y - segment_points[1].y) ** 2)
+        # b = np.sqrt(
+        #     (segment_points[2].x - segment_points[1].x) ** 2 + (segment_points[2].y - segment_points[1].y) ** 2)
+        # c = np.sqrt(
+        #     (segment_points[0].x - segment_points[2].x) ** 2 + (segment_points[0].y - segment_points[2].y) ** 2)
 
-        # Calculate the radius
-        alpha = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
-        # print("alpha", alpha)
-        r = a / (2 * np.sin(alpha))
-        # print("radius", r)
+        # # Calculate the radius
+        # alpha = np.arccos((b ** 2 + c ** 2 - a ** 2) / (2 * b * c))
+        # # print("alpha", alpha)
+        # r = a / (2 * np.sin(alpha))
+        # # print("radius", r)
 
-        # Calculate the central angle
-        theta = segment_length / r
-        # print("central angle", theta)
+        # # Calculate the central angle
+        # theta = segment_length / r
+        # # print("central angle", theta)
 
-        # Calculate the curvature, should be positive value all time (need to be comfirn)
-        curvature = theta / segment_length
+        # # Calculate the curvature, should be positive value all time (need to be comfirn)
+        # curvature = theta / segment_length
+
+        # Calculate the angle subtended by the arc
+        # v1 = (segment_points[1].x - segment_points[0].x, segment_points[1].y - segment_points[0].y)
+        # v2 = (segment_points[2].x - segment_points[1].x, segment_points[2].y - segment_points[1].y)
+        # dot_product = v1[0]*v2[0] + v1[1]*v2[1]
+        # cross_product = v1[0]*v2[1] - v1[1]*v2[0]
+        # theta = np.arctan2(cross_product, dot_product)
+        
+        # # Calculate the curvature
+        # curvature = theta / segment_length
 
         # Determine the sign by slope
         # Normalize the segment and compute the reletive angle to the end1
-        theta1 = np.arctan2(segment_points[1].x - segment_points[0].x, segment_points[1].y - segment_points[0].y)
-        theta2 = np.arctan2(segment_points[2].x - segment_points[0].x, segment_points[2].y - segment_points[0].y)
+        # theta1 = np.arctan2(segment_points[1].x - segment_points[0].x, segment_points[1].y - segment_points[0].y)
+        # theta2 = np.arctan2(segment_points[2].x - segment_points[0].x, segment_points[2].y - segment_points[0].y)
 
         # print("theta1: ", theta1)
         # print("theta2: ", theta2)
 
-        if theta1 < theta2:
-            curvature = - curvature
+        # if v1 > v2:
+        #     curvature = - curvature
 
-        return curvature
+        x1, y1 = segment_points[0].position
+        x2, y2 = segment_points[1].position
+        x3, y3 = segment_points[2].position
+        x4, y4 = segment_points[3].position
+        
+        # Calculate the distances between the points
+        d12 = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        d23 = np.sqrt((x3 - x2)**2 + (y3 - y2)**2)
+        
+        # Calculate the vectors between the points
+        v1 = (x2 - x1, y2 - y1)
+        v2 = (x3 - x2, y3 - y2)
+        v3 = (x4 - x3, y4 - y3)
+        
+        # Calculate the dot products and cross products
+        dot_product1 = v1[0]*v2[0] + v1[1]*v2[1]
+        cross_product1 = v1[0]*v2[1] - v1[1]*v2[0]
+        dot_product2 = v2[0]*v3[0] + v2[1]*v3[1]
+        cross_product2 = v2[0]*v3[1] - v2[1]*v3[0]
+        
+        # Calculate the signed curvature
+        signed_curvature = (cross_product1/d12 + cross_product2/d23) / ((dot_product1/d12 + dot_product2/d23)**2 + (cross_product1/d12 + cross_product2/d23)**2)**0.5
+        
+        # Determine the sign of the curvature
+        if cross_product1 * cross_product2 < 0:
+            signed_curvature = -signed_curvature
+
+        return signed_curvature
 
 
 

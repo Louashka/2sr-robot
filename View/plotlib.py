@@ -55,22 +55,19 @@ class GUI:
     def __defineTrackingArea(self) -> None:
         self.__masFrame = tk.Frame(self.__window)
         self.__masFrame.pack(expand=True)
-        self.__fig, self.__axs = plt.subplots(nrows=2, ncols=2)
+        self.__fig, self.__ax = plt.subplots()
         self.__canvas = FigureCanvasTkAgg(self.__fig, master = self.__masFrame)
         self.__canvas.get_tk_widget().pack()
 
     def __show(self) -> None:
-        for row in self.__axs:
-            for val in row:
-                val.axis('equal')
+        self.__ax.axis('equal')
         plt.tight_layout()
 
         self.__canvas.draw()
 
     def plotMarkers(self, markers: dict) -> None:
-        self.__axs[0, 1].clear()
         for marker in markers.values():
-            self.__axs[0, 1].plot(marker['marker_x'], marker['marker_y'], 'bo', markersize=2)
+            self.__ax.plot(marker['marker_x'], marker['marker_y'], 'bo', markersize=2)
 
         self.__show()
 
@@ -89,29 +86,32 @@ class GUI:
 
         self.__show()    
 
-    def plotAgent(self, robot: robot2sr.Robot, display='original'):        
+    def plotAgent(self, agent: robot2sr.Robot, markers: dict):        
+        self.__ax.clear()
+
+        self.plotMarkers(markers)
 
         # Plot VS segments
-        vss1 = robot.arc()
-        plt.plot(robot.x + vss1[0], robot.y + vss1[1], '-b', lw='5')
+        vss1 = agent.arc()
+        plt.plot(agent.x + vss1[0], agent.y + vss1[1], '-b', lw='5')
 
-        vss2 = robot.arc(2)
-        plt.plot(robot.x + vss2[0], robot.y + vss2[1], '-b', lw='5')
+        vss2 = agent.arc(2)
+        plt.plot(agent.x + vss2[0], agent.y + vss2[1], '-b', lw='5')
 
         # Plot VSS connectores
-        vss1_conn_x = [robot.x + vss1[0][-1] - gv.L_CONN * np.cos(vss1[2]), robot.x + vss1[0][-1]]
-        vss1_conn_y = [robot.y + vss1[1][-1] - gv.L_CONN * np.sin(vss1[2]), robot.y + vss1[1][-1]]
+        vss1_conn_x = [agent.x + vss1[0][-1] - gv.L_CONN * np.cos(vss1[2]), agent.x + vss1[0][-1]]
+        vss1_conn_y = [agent.y + vss1[1][-1] - gv.L_CONN * np.sin(vss1[2]), agent.y + vss1[1][-1]]
         plt.plot(vss1_conn_x, vss1_conn_y, '-k', lw='5')
 
-        vss2_conn_x = [robot.x + vss2[0][-1], robot.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
-        vss2_conn_y = [robot.y + vss2[1][-1], robot.y + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
+        vss2_conn_x = [agent.x + vss2[0][-1], agent.x + vss2[0][-1] + gv.L_CONN * np.cos(vss2[2])]
+        vss2_conn_y = [agent.y + vss2[1][-1], agent.y + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
         plt.plot(vss2_conn_x, vss2_conn_y, '-k', lw='5')
 
          # Plot a body frame
-        plt.plot(robot.x, robot.y, '*r')
+        plt.plot(agent.x, agent.y, '*r')
         # plt.arrow(robot.x, robot.y, 0.05 * np.cos(robot.theta), 0.05 * np.sin(robot.theta), width=0.005, color='red')
-        plt.plot([robot.x, robot.x + 0.05 * np.cos(robot.theta)], 
-                 [robot.y, robot.y + 0.05 * np.sin(robot.theta)], '-r', lw='2')
+        plt.plot([agent.x, agent.x + 0.05 * np.cos(agent.theta)], 
+                 [agent.y, agent.y + 0.05 * np.sin(agent.theta)], '-r', lw='2')
 
         # Plot locomotion units
         LU_outline = np.array(
@@ -136,14 +136,11 @@ class GUI:
         plt.plot(np.array(LU1_outline[0, :]).flatten(), np.array(LU1_outline[1, :]).flatten(), '-k')
         plt.plot(np.array(LU2_outline[0, :]).flatten(), np.array(LU2_outline[1, :]).flatten(), '-k')
 
-        # Plot geometrical centers of the locomoton units
-        lu_head = robot.lu_position(1)
-        plt.plot(lu_head[0], lu_head[1], '*k')
+        plt.plot(agent.head.x, agent.head.y, '*k')
+        plt.plot([agent.head.x, agent.head.x + 0.1 * np.cos(agent.head.theta)], [agent.head.y, agent.head.y + 0.1 * np.sin(agent.head.theta)], '-k')
 
-        lu_tail = robot.lu_position(2)
-        plt.plot(lu_tail[0], lu_tail[1], '*k')
-
-        
+        # plt.plot(agent.tail.x, agent.tail.y, '*k')
+        plt.plot([agent.tail.x, agent.tail.x + 0.1 * np.cos(agent.tail.theta)], [agent.tail.y, agent.tail.y + 0.1 * np.sin(agent.tail.theta)], '-k')
 
         self.__show()
 

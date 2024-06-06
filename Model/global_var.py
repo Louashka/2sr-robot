@@ -5,21 +5,23 @@ OMNI_SPEED = 0.12
 ROTATION_SPEED = 1
 LU_SPEED = 0.12
 
+scale = 2
+
 # VSF parameters
-L_VSS = 77 * 10**(-3)  # VSS length
-L_CONN = 34 * 10**(-3)
-D_BRIDGE = 7 * 10**(-3)  # bridge width
+L_VSS = scale * 77 * 10**(-3)  # VSS length
+L_CONN = scale * 34 * 10**(-3)
+D_BRIDGE = scale * 7 * 10**(-3)  # bridge width
 L_VSF = 2 * L_VSS  # VSF length
 
 # LU parameters
-LU_SIDE = 42 * 10**(-3)  # block side length
+LU_SIDE = scale * 42 * 10**(-3)  # block side length
 LU_R = LU_SIDE * math.sqrt(2) / 2 # Distance between LU center and its corner
 LU_ALPHA = math.radians(-135) # Angle between LU orientation and r
 
 # Wheels parameters
-WHEEL_R = 10 * 10**(-3)  # wheel radius
-WHEEL_TH = 12 * 10**(-3)  # wheel thickness
-WHEEL_MARGIN = 10**(-3)
+WHEEL_R = scale * 10 * 10**(-3)  # wheel radius
+WHEEL_TH = scale * 12 * 10**(-3)  # wheel thickness
+WHEEL_MARGIN = scale * 10**(-3)
 
 BETA = [math.pi / 2, math.pi, -math.pi / 2, math.pi]
 

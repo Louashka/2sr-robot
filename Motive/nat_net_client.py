@@ -19,7 +19,8 @@ import struct
 from threading import Thread
 import copy
 import time
-from Motive import data_descriptions, mo_cap_data
+import Motive.data_descriptions as data_descriptions
+import Motive.mo_cap_data as mo_cap_data
 
 def trace( *args ):
     # uncomment the one you want to use
