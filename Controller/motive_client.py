@@ -4,6 +4,8 @@ from Model import agent_old, global_var, manipulandum, robot2sr
 import numpy as np
 import pandas as pd
 from typing import List
+from scipy.interpolate import splprep, splev
+from circle_fit import taubinSVD
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
 pos_2d = ['marker_x', 'marker_y']
@@ -62,13 +64,16 @@ class MocapReader:
 
         self.isRunning = streaming_client.run()
 
-    def getAgentConfig(self) -> tuple[dict, dict]:
+    def getAgentConfig(self) -> tuple[dict, dict, List[agent_old.Marker]]:
         agent = {}
 
         markers, rigid_bodies = self.__unpackData()
 
         if markers is None or rigid_bodies is None:
-            return {}, {}
+            return {}, {}, None
+        
+        if not markers or not rigid_bodies:
+            return {}, {}, None
 
         self.__convertData(markers, rigid_bodies)
 
@@ -93,8 +98,10 @@ class MocapReader:
             midpoint = [agent_old.Marker(0, robot_x, robot_y)]
 
             # Calculate VSS' curvatures
-            k1 = self.__calculate_curvature([start_marker] + ranked_markers[:2] + midpoint, global_var.L_VSS)
-            k2 = self.__calculate_curvature(midpoint + ranked_markers[2:-1], global_var.L_VSS)
+            k1, theta1 = self.__calculate_curvature([start_marker] + ranked_markers[:2] + midpoint)
+            k2, theta2 = self.__calculate_curvature(midpoint + ranked_markers[2:-1], 2)
+            print(k1)
+            print(k2)
             agent['k1'] = k1
             agent['k2'] = k2
 
@@ -102,7 +109,7 @@ class MocapReader:
             # alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
             # alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
             # tail_theta = 2 * alpha2 - alpha1
-            tail_theta = self.__getAngle(ranked_markers[4].position, ranked_markers[5].position)
+            tail_theta = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
 
             tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
             agent['tail'] = tail_pose
@@ -112,14 +119,14 @@ class MocapReader:
             
             agent['x'] = robot_x
             agent['y'] = robot_y
-            agent['theta'] = robot_theta
+            agent['theta'] = (theta1 + theta2) / 2
 
             # print(agent)
 
         else:
-            return {}, {}
+            return {}, {}, None
 
-        return agent, markers
+        return agent, markers, ranked_markers
     
     def __findMidpoint(self, points:List[agent_old.Marker]):
         total_length = 0
@@ -328,7 +335,7 @@ class MocapReader:
         x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
         y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
 
-        start_marker = agent_old.Marker(markers[i_next]['marker_id'], markers[i_next]['marker_x'], markers[i_next]['marker_y'])
+        start_marker = agent_old.Marker(markers[i]['marker_id'], markers[i]['marker_x'], markers[i]['marker_y'])
 
         return [x, y, theta], start_marker
     
@@ -408,7 +415,7 @@ class MocapReader:
 
         return ranked_markers
     
-    def __calculate_curvature(self, segment_points: List[agent_old.Marker], segment_length):
+    def __calculate_curvature(self, segment_points: List[agent_old.Marker], seg=1):
         # for the segment_points, the input should be in the following format:
         # [end1, center, end2]
         # point A, point B, point C
@@ -458,34 +465,27 @@ class MocapReader:
         # if v1 > v2:
         #     curvature = - curvature
 
-        x1, y1 = segment_points[0].position
-        x2, y2 = segment_points[1].position
-        x3, y3 = segment_points[2].position
-        x4, y4 = segment_points[3].position
-        
-        # Calculate the distances between the points
-        d12 = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        d23 = np.sqrt((x3 - x2)**2 + (y3 - y2)**2)
-        
-        # Calculate the vectors between the points
-        v1 = (x2 - x1, y2 - y1)
-        v2 = (x3 - x2, y3 - y2)
-        v3 = (x4 - x3, y4 - y3)
-        
-        # Calculate the dot products and cross products
-        dot_product1 = v1[0]*v2[0] + v1[1]*v2[1]
-        cross_product1 = v1[0]*v2[1] - v1[1]*v2[0]
-        dot_product2 = v2[0]*v3[0] + v2[1]*v3[1]
-        cross_product2 = v2[0]*v3[1] - v2[1]*v3[0]
-        
-        # Calculate the signed curvature
-        signed_curvature = (cross_product1/d12 + cross_product2/d23) / ((dot_product1/d12 + dot_product2/d23)**2 + (cross_product1/d12 + cross_product2/d23)**2)**0.5
-        
-        # Determine the sign of the curvature
-        if cross_product1 * cross_product2 < 0:
-            signed_curvature = -signed_curvature
+        points = []
 
-        return signed_curvature
+        for point in segment_points:
+            points.append(point.position)
+
+        xc, yc, r, sigma = taubinSVD(points)
+        curvature = 1 / r
+
+        if seg == 1:
+            start_point = points[-1]
+        else:
+            start_point = points[0]
+
+        d = np.sqrt((start_point[0] - xc)**2 + (start_point[1] - yc)**2)
+        x = xc + (r**2 / d) * (start_point[0] - xc)
+        y = yc + (r**2 / d) * (start_point[1] - yc)
+
+        m = -(x - xc) / (y - yc)
+        theta = np.arctan(m) - np.pi
+
+        return curvature, theta
 
 
 

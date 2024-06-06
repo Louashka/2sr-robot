@@ -4,9 +4,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 import tkinter.font as font
 import numpy as np
-from Model import global_var as gv, robot2sr
+from Model import global_var as gv, robot2sr, agent_old
 # from Controller import task_controller
 from typing import List
+from scipy.interpolate import splprep, splev
+from circle_fit import taubinSVD
 
 styles = {'original': {'line_type': '-', 'alpha': 1}, 'target': {'line_type': '.', 'alpha': 0.3}}
 
@@ -86,7 +88,7 @@ class GUI:
 
         self.__show()    
 
-    def plotAgent(self, agent: robot2sr.Robot, markers: dict):        
+    def plotAgent(self, agent: robot2sr.Robot, markers: dict, rankedMarkers:List[agent_old.Marker]):        
         self.__ax.clear()
 
         self.plotMarkers(markers)
@@ -139,8 +141,26 @@ class GUI:
         plt.plot(agent.head.x, agent.head.y, '*k')
         plt.plot([agent.head.x, agent.head.x + 0.1 * np.cos(agent.head.theta)], [agent.head.y, agent.head.y + 0.1 * np.sin(agent.head.theta)], '-k')
 
-        # plt.plot(agent.tail.x, agent.tail.y, '*k')
+        plt.plot(agent.tail.x, agent.tail.y, '*k')
         plt.plot([agent.tail.x, agent.tail.x + 0.1 * np.cos(agent.tail.theta)], [agent.tail.y, agent.tail.y + 0.1 * np.sin(agent.tail.theta)], '-k')
+
+
+        segment2 = [agent_old.Marker(0, agent.x, agent.y)] + rankedMarkers[2:-1]
+
+        for marker in segment2:
+            self.__ax.plot(marker.x, marker.y, 'mo', markersize=4)
+
+        points = []
+
+        for point in segment2:
+            points.append(point.position)
+
+        xc, yc, r, sigma = taubinSVD(points)
+        theta = np.linspace(0, 2*np.pi, 100)
+        coords_x = xc + r * np.cos(theta)
+        coords_y = yc + r * np.sin(theta)
+
+        self.__ax.plot(coords_x, coords_y, '-k', markersize=2)
 
         self.__show()
 

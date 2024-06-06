@@ -22,6 +22,7 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.agent: robot2sr.Robot = None
         self.markers = {}
+        self.rankedMarkers = None
         self.agent_controller = robot2sr_controller.Controller()
 
         self.tracking_area = [[-1, 3], [-1, 3]]
@@ -79,7 +80,7 @@ class Task(keyboard_controller.ActionsHandler):
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
-        agent_config, self.markers = self.mocap.getAgentConfig()
+        agent_config, self.markers, self.rankedMarkers = self.mocap.getAgentConfig()
 
         if agent_config:
             if self.agent:
@@ -109,7 +110,7 @@ class Task(keyboard_controller.ActionsHandler):
         if self.agent is not None:
             self.agent_controller.move(self.agent, self.v, self.s)
             # Update the GUI
-            self.gui.plotAgent(self.agent, self.markers)
+            self.gui.plotAgent(self.agent, self.markers, self.rankedMarkers)
 
     def __onPress(self, key) -> None:
         super().onPress(key)
