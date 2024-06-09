@@ -22,9 +22,9 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.agent: robot2sr.Robot = None
         self.markers = {}
-        self.rankedMarkers = None
+        self.rankedMarkers = []
         self.agent_controller = robot2sr_controller.Controller()
-
+ 
         self.tracking_area = [[-1, 3], [-1, 3]]
 
     @property

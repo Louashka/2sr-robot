@@ -70,14 +70,14 @@ class MocapReader:
         markers, rigid_bodies = self.__unpackData()
 
         if markers is None or rigid_bodies is None:
-            return {}, {}, None
+            return {}, {}, []
         
         if not markers or not rigid_bodies:
-            return {}, {}, None
+            return {}, {}, []
 
         self.__convertData(markers, rigid_bodies)
 
-        if len(rigid_bodies) == 1:
+        if len(rigid_bodies) == 1 and len(markers) == 9:
             rb = list(rigid_bodies.values())[0]
 
             agent['id'] = rb['id']
@@ -91,67 +91,97 @@ class MocapReader:
             ranked_markers = self.__rankPoints(markers, head_pose[:-1])
             # If some markers are missing we ignore the robot
             if len(ranked_markers) != 6:
-                return {}, {}
+                return {}, {}, []
             
-            # Calculate the robot's position
-            robot_x, robot_y = self.__findMidpoint(ranked_markers[:-1])
-            midpoint = [agent_old.Marker(0, robot_x, robot_y)]
-
-            # Calculate VSS' curvatures
-            k1, theta1 = self.__calculate_curvature([start_marker] + ranked_markers[:2] + midpoint)
-            k2, theta2 = self.__calculate_curvature(midpoint + ranked_markers[2:-1], 2)
-            print(k1)
-            print(k2)
-            agent['k1'] = k1
-            agent['k2'] = k2
-
             # Calculate the pose of the tail LU
             # alpha1 = self.__getAngle(ranked_markers[2].position, ranked_markers[3].position)
             # alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
             # tail_theta = 2 * alpha2 - alpha1
-            tail_theta = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
+            tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
 
             tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
             agent['tail'] = tail_pose
+            
+            # Calculate the robot's position
+            robot_x, robot_y, robot_theta = self.__findMidpoint(ranked_markers[:-1])
+
+            # Calculate VSS' curvatures
+            k1 = self.__calculate_curvature(ranked_markers[0].position, [robot_x, robot_y], head_pose[-1], robot_theta)
+            k2 = self.__calculate_curvature([robot_x, robot_y], ranked_markers[4].position, robot_theta, tail_theta)
+            # k1 = (robot_theta - head_pose[-1]) / global_var.L_VSS
+            # k2 = (tail_theta - robot_theta) / global_var.L_VSS
+            agent['k1'] = k1
+            agent['k2'] = k2
 
             # Calculate the robot's orientation
-            robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
+            # robot_theta = self.__getAngle(head_pose[:-1], tail_pose[:-1])
+
+            # theta1 = head_pose[-1] + k1 * global_var.L_VSS
+            # theta2 = tail_pose[-1] - k2 * global_var.L_VSS
+
+            # theta1 = self.adjustOrientation(head_pose[:-1], tail_pose[:-1], [robot_x, robot_y], theta1)
+            # theta2 = self.adjustOrientation(head_pose[:-1], tail_pose[:-1], [robot_x, robot_y], theta2)
+
+            # robot_theta = (theta1 + theta2) / 2
             
             agent['x'] = robot_x
             agent['y'] = robot_y
-            agent['theta'] = (theta1 + theta2) / 2
+            agent['theta'] = robot_theta
 
             # print(agent)
 
         else:
-            return {}, {}, None
+            return {}, {}, []
 
         return agent, markers, ranked_markers
     
     def __findMidpoint(self, points:List[agent_old.Marker]):
-        total_length = 0
-        for i in range(len(points) - 1):
-            x1, y1 = points[i].position
-            x2, y2 = points[i+1].position
-            total_length += np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-        
-        target_length = total_length / 2
+        x = []
+        y = []
 
-        current_length = 0
+        for point in points:
+            x.append(point.x)
+            y.append(point.y)
+            
+        # Fit a spline curve to the data points
+        tck, _ = splprep([x, y], s=0)
 
-        for i in range(len(points) - 1):
-            x1, y1 = points[i].position
-            x2, y2 = points[i+1].position
-            segment_length = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-            current_length += segment_length
-            if current_length >= target_length:
-                t = (target_length - (current_length - segment_length)) / segment_length
-                x = x1 + t * (x2 - x1)
-                y = y1 + t * (y2 - y1)
-                return (x, y)
+        # Calculate the arc length of the spline curve
+        s = np.linspace(0, 1, 1000)
+        spline_x, spline_y = splev(s, tck)
+        spline_arc_length = 0
+        for i in range(1, len(s)):
+            spline_arc_length += np.sqrt((spline_x[i] - spline_x[i-1])**2 + (spline_y[i] - spline_y[i-1])**2)
+
+        # Find the midpoint of the spline curve
+        spline_arc_length_midpoint = spline_arc_length / 2
+        current_arc_length = 0
+        for i in range(1, len(s)):
+            current_arc_length += np.sqrt((spline_x[i] - spline_x[i-1])**2 + (spline_y[i] - spline_y[i-1])**2)
+            if current_arc_length >= spline_arc_length_midpoint:
+                midpoint_s = s[i-1]
+                midpoint_x, midpoint_y = splev(midpoint_s, tck)
+                break
+
+        # Calculate the tangent vector at the midpoint
+        tangent_x, tangent_y = splev(midpoint_s, tck, der=1)
+        theta = np.arctan2(tangent_y, tangent_x)
     
         # If the curve has only one point, return that point
-        return points[0]
+        return midpoint_x, midpoint_y, theta
+    
+    def adjustOrientation(self, A, B, C, theta):
+        vector_AC = (C[0] - A[0], C[1] - A[1])  # Vector from A to C
+        vector_BC = (C[0] - B[0], C[1] - B[1])  # Vector from B to C
+
+        cross_product = vector_AC[0] * vector_BC[1] - vector_AC[1] * vector_BC[0]
+
+        if cross_product < 0:
+            theta += np.pi
+
+        theta %= (2 * np.pi)
+
+        return theta
     
     # def getCurrentConfig(self) -> tuple[List[dict], List[dict]]:
     #     agents = []
@@ -328,7 +358,7 @@ class MocapReader:
         i = triangle_sides.argsort()[1]
         i_next = i + 1 if i < 2 else 0
 
-        delta = points[i, :] - points[i_next, :]
+        delta = points[i_next, :] - points[i, :]
         # theta = np.arctan2(delta[1], delta[0]) + np.pi
         theta = np.arctan2(delta[1], delta[0])
         
@@ -403,7 +433,7 @@ class MocapReader:
         current_index = distances.argmin()
 
         # Find the rank of the rest of the points
-        while len(ranked_markers) < 6:
+        while len(ranked_markers) < 6 and remaining_points:
             current_point = remaining_points.pop(current_index)
             vsf_marker = agent_old.Marker(current_point['marker_id'], current_point['marker_x'], current_point['marker_y'])
             ranked_markers.append(vsf_marker)
@@ -415,7 +445,7 @@ class MocapReader:
 
         return ranked_markers
     
-    def __calculate_curvature(self, segment_points: List[agent_old.Marker], seg=1):
+    def __calculate_curvature(self, p0, p, theta0, theta):
         # for the segment_points, the input should be in the following format:
         # [end1, center, end2]
         # point A, point B, point C
@@ -465,27 +495,51 @@ class MocapReader:
         # if v1 > v2:
         #     curvature = - curvature
 
-        points = []
+        # points = []
 
-        for point in segment_points:
-            points.append(point.position)
+        # for point in segment_points:
+        #     points.append(point.position)
 
-        xc, yc, r, sigma = taubinSVD(points)
-        curvature = 1 / r
+        # xc, yc, r, sigma = taubinSVD(points)
+        # curvature = 1 / r
 
-        if seg == 1:
-            start_point = points[-1]
-        else:
-            start_point = points[0]
+        # if seg == 1:
+        #     start_point = points[-1]
+        # else:
+        #     start_point = points[0]
 
-        d = np.sqrt((start_point[0] - xc)**2 + (start_point[1] - yc)**2)
-        x = xc + (r**2 / d) * (start_point[0] - xc)
-        y = yc + (r**2 / d) * (start_point[1] - yc)
+        # d = np.sqrt((start_point[0] - xc)**2 + (start_point[1] - yc)**2)
+        # x = xc + (r**2 / d) * (start_point[0] - xc)
+        # y = yc + (r**2 / d) * (start_point[1] - yc)
 
-        m = -(x - xc) / (y - yc)
-        theta = np.arctan(m) - np.pi
+        # theta = np.arctan2(-(x - xc),(y - yc))
 
-        return curvature, theta
+        # w = np.sqrt((segment_points[0].x - segment_points[1].x) ** 2 + (segment_points[0].y - segment_points[1].y) ** 2)
+        # mid_point = [(segment_points[-1].x - segment_points[0].x) / 2, (segment_points[-1].y - segment_points[0].y) / 2]
+        # h = np.sqrt((mid_point[0] - xc)**2 + (mid_point[1] - yc)**2)
+
+        # r = w**2 / (8*h) + h/2
+        # curvature = 1 / r
+
+        # # Calculate the tangent vector
+        # tangent_vector = np.array([points[-1][0] - points[0][0], points[-1][1] - points[0][1]])
+
+        # # Calculate the vector from the center of curvature to the current point
+        # center_vector = np.array([points[0][0] - xc, points[0][1] - yc])
+
+        # # Calculate the sign of the curvature based on the tangent direction
+        # tangent_direction = np.cross(tangent_vector, center_vector)
+        # sign = 1 if tangent_direction <= 0 else -1
+
+        # # Apply the sign to the curvature
+        # signed_curvature = sign * curvature
+
+        curvature_x = (np.sin(theta) - np.sin(theta0)) / (p[0] - p0[0])
+        curvature_y = (-np.cos(theta) + np.cos(theta0)) / (p[1] - p0[1])
+
+        curvature = (curvature_x + curvature_y) / 2
+
+        return curvature
 
 
 

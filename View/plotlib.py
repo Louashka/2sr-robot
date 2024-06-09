@@ -91,8 +91,6 @@ class GUI:
     def plotAgent(self, agent: robot2sr.Robot, markers: dict, rankedMarkers:List[agent_old.Marker]):        
         self.__ax.clear()
 
-        self.plotMarkers(markers)
-
         # Plot VS segments
         vss1 = agent.arc()
         plt.plot(agent.x + vss1[0], agent.y + vss1[1], '-b', lw='5')
@@ -144,23 +142,24 @@ class GUI:
         plt.plot(agent.tail.x, agent.tail.y, '*k')
         plt.plot([agent.tail.x, agent.tail.x + 0.1 * np.cos(agent.tail.theta)], [agent.tail.y, agent.tail.y + 0.1 * np.sin(agent.tail.theta)], '-k')
 
+        self.plotMarkers(markers)
 
-        segment2 = [agent_old.Marker(0, agent.x, agent.y)] + rankedMarkers[2:-1]
+        # segment2 = [agent_old.Marker(0, agent.x, agent.y)] + rankedMarkers[2:-1]
 
-        for marker in segment2:
-            self.__ax.plot(marker.x, marker.y, 'mo', markersize=4)
+        # for marker in segment2:
+        #     self.__ax.plot(marker.x, marker.y, 'mo', markersize=4)
 
-        points = []
+        # points = []
 
-        for point in segment2:
-            points.append(point.position)
+        # for point in segment2:
+        #     points.append(point.position)
 
-        xc, yc, r, sigma = taubinSVD(points)
-        theta = np.linspace(0, 2*np.pi, 100)
-        coords_x = xc + r * np.cos(theta)
-        coords_y = yc + r * np.sin(theta)
+        # xc, yc, r, sigma = taubinSVD(points)
+        # theta = np.linspace(0, 2*np.pi, 100)
+        # coords_x = xc + r * np.cos(theta)
+        # coords_y = yc + r * np.sin(theta)
 
-        self.__ax.plot(coords_x, coords_y, '-k', markersize=2)
+        # self.__ax.plot(coords_x, coords_y, '-k', markersize=2)
 
         self.__show()
 
