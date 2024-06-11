@@ -1,6 +1,6 @@
 from enum import Enum
 import sys
-sys.path.append('D:/University/Part-time/Romi-Lab/Soft-Rigid Agent/2SR_3/Code/Python/2sr-swarm-control')
+sys.path.append('D:/Robot 2SR/2sr-swarm-control')
 from Model import global_var, robot2sr
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, robot2sr_controller

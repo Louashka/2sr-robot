@@ -4,6 +4,7 @@ from Model import agent_old, global_var, manipulandum, robot2sr
 import numpy as np
 import pandas as pd
 from typing import List
+from scipy.optimize import minimize 
 from scipy.interpolate import splprep, splev
 from circle_fit import taubinSVD
 
@@ -98,18 +99,31 @@ class MocapReader:
             # alpha2 = self.__getAngle(ranked_markers[3].position, ranked_markers[4].position)
             # tail_theta = 2 * alpha2 - alpha1
             tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
+            tail_theta = tail_theta % (2 * np.pi)
 
             tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
             agent['tail'] = tail_pose
             
             # Calculate the robot's position
-            robot_x, robot_y, robot_theta = self.__findMidpoint(ranked_markers[:-1])
+            robot_x, robot_y, robot_theta, k1, k2 = self.__findMidpoint(ranked_markers[:-1])
 
             # Calculate VSS' curvatures
-            k1 = self.__calculate_curvature(ranked_markers[0].position, [robot_x, robot_y], head_pose[-1], robot_theta)
-            k2 = self.__calculate_curvature([robot_x, robot_y], ranked_markers[4].position, robot_theta, tail_theta)
+            # k1 = self.__calculate_curvature(ranked_markers[0].position, [robot_x, robot_y], head_pose[-1], robot_theta)
+            # k2 = self.__calculate_curvature([robot_x, robot_y], ranked_markers[4].position, robot_theta, tail_theta)
             # k1 = (robot_theta - head_pose[-1]) / global_var.L_VSS
             # k2 = (tail_theta - robot_theta) / global_var.L_VSS
+
+            # Initial guess for the parameters [k1, k2, x0, y0, theta0]
+            # initial_guess = [k1, k2, robot_x, robot_y, robot_theta]
+            # print(initial_guess)
+
+            # # Optimize to find the best-fit parameters
+            # spline_points, spline_tangents = self.__extrapolateCurve(ranked_markers[:-1])
+            # result = minimize(self.objective, initial_guess, args=(spline_points, spline_tangents), method='BFGS')
+
+            # # Extract the optimized parameters
+            # k1, k2, robot_x, robot_y, robot_theta = result.x
+
             agent['k1'] = k1
             agent['k2'] = k2
 
@@ -128,12 +142,38 @@ class MocapReader:
             agent['y'] = robot_y
             agent['theta'] = robot_theta
 
-            # print(agent)
+            print(agent)
 
         else:
             return {}, {}, []
 
         return agent, markers, ranked_markers
+    
+    def __extrapolateCurve(self, points:List[agent_old.Marker]):
+        x = []
+        y = []
+
+        for point in points:
+            x.append(point.x)
+            y.append(point.y)
+            
+        # Fit a spline curve to the data points
+        tck, _ = splprep([x, y], s=0)
+
+        s = np.linspace(0, 1, 1000)
+        spline_x, spline_y = splev(s, tck)
+
+        spline_points = list(zip(spline_x, spline_y))
+        
+        # Calculate the tangent vector at the midpoint
+        tangent_x, tangent_y = splev(s[0], tck, der=1)
+        theta_start = np.arctan2(tangent_y, tangent_x)
+
+        tangent_x, tangent_y = splev(s[-1], tck, der=1)
+        theta_end = np.arctan2(tangent_y, tangent_x)
+    
+        # If the curve has only one point, return that point
+        return spline_points, [theta_start, theta_end]
     
     def __findMidpoint(self, points:List[agent_old.Marker]):
         x = []
@@ -166,9 +206,22 @@ class MocapReader:
         # Calculate the tangent vector at the midpoint
         tangent_x, tangent_y = splev(midpoint_s, tck, der=1)
         theta = np.arctan2(tangent_y, tangent_x)
+        theta = theta % (2 * np.pi)
+
+        x_der1, y_der1 = splev(s[:500], tck, der=1)
+        x_der2, y_der2 = splev(s[:500], tck, der=2)
+
+        curvature = (x_der1 * y_der2 - y_der1 * x_der2) / np.power(x_der1** 2 + y_der1** 2, 3 / 2)
+        k1 = curvature.mean()
+        
+        x_der1, y_der1 = splev(s[500:], tck, der=1)
+        x_der2, y_der2 = splev(s[500:], tck, der=2)
+
+        curvature = (x_der1 * y_der2 - y_der1 * x_der2) / np.power(x_der1** 2 + y_der1** 2, 3 / 2)
+        k2 = curvature.mean()
     
         # If the curve has only one point, return that point
-        return midpoint_x, midpoint_y, theta
+        return midpoint_x.item(), midpoint_y.item(), theta, k1, k2
     
     def adjustOrientation(self, A, B, C, theta):
         vector_AC = (C[0] - A[0], C[1] - A[1])  # Vector from A to C
@@ -183,6 +236,52 @@ class MocapReader:
 
         return theta
     
+    def arc_points(self, x_start, y_start, theta_start, k, l):
+        if abs(k) < 1e-6:  # Avoid division by zero
+            k = 1e-6
+            
+        theta = theta_start + k * l
+        x = x_start + 1 / k * (np.sin(theta_start) - np.sin(theta))
+        y = y_start + 1 / k * (-np.cos(theta_start) + np.cos(theta))
+        return x, y
+
+    # Define the objective function
+    def objective(self, params, points, tangents):
+        k1, k2, x0, y0, theta0 = params
+        x_start, y_start = points[0]
+        x_end, y_end = points[-1]
+        theta_start = tangents[0]
+        theta_end = tangents[-1]
+        
+        # Calculate the first arc's end point and tangent angle
+        x1, y1 = self.arc_points(x_start, y_start, theta_start, k1, global_var.L_VSS)
+        theta1 = theta_start + k1 * global_var.L_VSS
+        
+        # Calculate the second arc's end point and tangent angle
+        x2, y2 = self.arc_points(x0, y0, theta0, k2, global_var.L_VSS)
+        theta2 = theta0 + k2 * global_var.L_VSS
+        
+        # Constraints
+        if not np.isclose([x1, y1], [x0, y0], atol=1e-6).all():
+            print(f"Constraint failed for first arc: {[x1, y1]} != {[x0, y0]}")
+            return np.inf
+        if not np.isclose([x2, y2], [x_end, y_end], atol=1e-6).all():
+            print(f"Constraint failed for second arc: {[x2, y2]} != {[x_end, y_end]}")
+            return np.inf
+
+        # Calculate the difference between the given points and the reconstructed arcs
+        arc1_x, arc1_y = self.arc_points(x_start, y_start, theta_start, k1, np.linspace(0, global_var.L_VSS, len(points)//2))
+        arc2_x, arc2_y = self.arc_points(x0, y0, theta0, k2, np.linspace(0, global_var.L_VSS, len(points)//2))
+
+        reconstructed_points = np.vstack((np.column_stack((arc1_x, arc1_y)), np.column_stack((arc2_x, arc2_y))))
+
+        # Minimize the sum of squared differences
+        error = np.sum((points - reconstructed_points)**2)
+        print(f"Params: {params}, Error: {error}")
+
+        return error
+    
+
     # def getCurrentConfig(self) -> tuple[List[dict], List[dict]]:
     #     agents = []
     #     manipulandums = []
@@ -358,9 +457,10 @@ class MocapReader:
         i = triangle_sides.argsort()[1]
         i_next = i + 1 if i < 2 else 0
 
-        delta = points[i_next, :] - points[i, :]
+        delta = points[i, :] - points[i_next, :]
         # theta = np.arctan2(delta[1], delta[0]) + np.pi
         theta = np.arctan2(delta[1], delta[0])
+        theta = theta  % (2 * np.pi)
         
         x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
         y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
@@ -539,7 +639,7 @@ class MocapReader:
 
         curvature = (curvature_x + curvature_y) / 2
 
-        return curvature
+        return curvature_y
 
 
 

@@ -4,8 +4,7 @@ from typing import List
 from Model import global_var, robot2sr
 import sys
 
-
-port_name = "COM7"
+port_name = "COM3"
 
 class Controller:
     def __init__(self) -> None:

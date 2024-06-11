@@ -3,7 +3,7 @@ import pyomo.opt as po
 from Model import manipulandum, global_var as gv
 
 class ShapeFit:
-    def __init__(self, delta_x1: float, delta_y1: float, delta_x2:float, delta_y2:float, theta1:float, theta2:float) -> None:
+    def __init__(self, delta_x1: float, delta_y1: float, delta_x2:float, delta_y2:float, theta1:float, theta2:float, spline: list) -> None:
         self.delta_x1 = delta_x1
         self.delta_y1 = delta_y1
 
@@ -13,12 +13,18 @@ class ShapeFit:
         self.theta1 = theta1
         self.theta2 = theta2
 
+        self.spline = spline
+        self.n = len(spline)
+
         self.__buildModel()
 
     def __buildModel(self):
 
         self.model = pe.ConcreteModel()
         self.solver = po.SolverFactory('ipopt')
+
+        self.model.point2d = pe.RangeSet(1, 2) 
+        self.model.all_points = pe.RangeSet(1, self.n)
 
         self.model.delta_x1 = pe.Param(initialize=self.delta_x1)
         self.model.delta_y1 = pe.Param(initialize=self.delta_y1)
@@ -28,6 +34,8 @@ class ShapeFit:
 
         self.model.theta1 = pe.Param(initialize=self.theta1)
         self.model.theta2 = pe.Param(initialize=self.theta2)
+
+        self.model.spline = pe.Param(self.model.all_points, self.model.point2d, initialize=self.spline, mutable=True)
 
         self.model.k1 = pe.Var(domain=pe.Reals, bounds = (-pe.pi/(2*gv.L_VSS), pe.pi/(2*gv.L_VSS)))
         self.model.k2 = pe.Var(domain=pe.Reals, bounds = (-pe.pi/(2*gv.L_VSS), pe.pi/(2*gv.L_VSS)))
@@ -53,3 +61,7 @@ class ShapeFit:
         @self.model.Constraint()
         def __k2_y(m):
             return m.k2 == (-pe.cos(m.theta2) + pe.cos(m.theta0)) / m.delta_y2
+        
+        @self.model.Constraint()
+        def __arc(m):
+            return 
