@@ -20,9 +20,8 @@ class Task(keyboard_controller.ActionsHandler):
         self.mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
         self.gui = plotlib.GUI() # Initialise GUI
 
-        self.agent: robot2sr.Robot = None
         self.markers = {}
-        self.rankedMarkers = []
+        self.agent: robot2sr.Robot = None
         self.agent_controller = robot2sr_controller.Controller()
  
         self.tracking_area = [[-1, 3], [-1, 3]]
@@ -59,28 +58,10 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.gui.window.mainloop() # Start the GUI application
 
-    # def __updateConfig(self):
-    #     try:
-    #         # Get the current MAS and manipulandums configuration
-    #         robots = self.mocap.getCurrentConfig()
-
-    #         for robot in robots:
-    #             if self.mas.getAgentById(robot['id']) is None:
-    #                 new_agent = robot.Robot(robot['id'], robot['x'], robot['y'], robot['theta'], robot['k'])
-    #                 self.mas.agents.append(new_agent)
-    #             else:
-    #                 current_agent = self.mas.getAgentById(robot['id'])
-    #                 current_agent.pose = [robot['x'], robot['y'], robot['theta']]
-    #                 current_agent.k = robot['k']
-
-    #     except Exception as e:
-    #         print(f"Error occurred: {e}. The robot is stopped!")
-    #         if self.mas is not None:
-    #             self.mas.stop()
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
-        agent_config, self.markers, self.rankedMarkers = self.mocap.getAgentConfig()
+        agent_config, self.markers = self.mocap.getAgentConfig()
 
         if agent_config:
             if self.agent:
@@ -110,7 +91,7 @@ class Task(keyboard_controller.ActionsHandler):
         if self.agent is not None:
             self.agent_controller.move(self.agent, self.v, self.s)
             # Update the GUI
-            self.gui.plotAgent(self.agent, self.markers, self.rankedMarkers)
+            self.gui.plotAgent(self.agent, self.markers)
 
     def __onPress(self, key) -> None:
         super().onPress(key)
