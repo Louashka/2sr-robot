@@ -6,6 +6,8 @@ from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, robot2sr_controller
 import random as rnd
 import numpy as np
+import pandas as pd
+from datetime import datetime
 
 # There are 4 task modes
 class Mode(Enum):
@@ -54,7 +56,7 @@ class Task(keyboard_controller.ActionsHandler):
                 self.__manualMode()
             case Mode.PATH_TRACKING:
                 print('Path tracking mode')
-                self.__pathMode()
+                self.__pathTrackingMode()
 
         self.gui.window.mainloop() # Start the GUI application
 
@@ -87,7 +89,6 @@ class Task(keyboard_controller.ActionsHandler):
     # Execute the action according to the keyboard commands
     def __executeAction(self):
         self.__updateConfig()
-        # self.mas.move(self.v, self.s) # Execute the action by MAS
         if self.agent is not None:
             self.agent_controller.move(self.agent, self.v, self.s)
             # Update the GUI
@@ -103,12 +104,45 @@ class Task(keyboard_controller.ActionsHandler):
 
     #//////////////////////////// PATH TRACKING MODE METHODS //////////////////////////////
     
-    def __pathMode(self):
-        if len(self.mas.agents) == 0:
-            raise Exception('No agents are found!')
+    def   __pathTrackingMode(self):
+        exp_data = []
+
+        # while not self.agent: 
+        #     self.__updateConfig()
+
+        self.agent = robot2sr.Robot(1, -0.4350321026162654,-0.185221286686026,5.720241850630597,-3.44,-3.327)
         
-        if len(self.mas.agents) != 1:
-            raise Exception('Wrong number of agents!')
+        target = np.array([0.42, 0.51, np.pi/4] + self.agent.curvature)
+        dist = np.linalg.norm(self.agent.pose - target[:3])
+
+        while dist > 10**(-2):
+            
+            v, s = self.agent_controller.motionPlanner(self.agent, target)
+            self.agent_controller.move(self.agent, v, s)
+
+            # self.__updateConfig()
+            # print(self.agent.config.tolist())
+
+            q_dot = np.matmul(self.agent.jacobian, v)
+            q = self.agent.config + q_dot * 0.1
+            self.agent.config = q
+
+            dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
+                           self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+
+            print(dist)
+            # error = np.linalg.norm(config[0] - target)
+            
+            timeStamp = datetime.now().strftime("%H:%M:%S")
+            exp_data.append(target.tolist() + self.agent.config.tolist() + [timeStamp]) 
+
+        column_names = ["x_target", "y_target", "angle_target", "k1_target", "k2_target", 
+                       "x", "y", "angle", "k1", "k2",
+                       "time"]
+        df = pd.DataFrame(exp_data, columns=column_names)
+        print("Save experiment data")
+        df.to_csv('Experiments/Data/reach_target.csv', index=False)
+
 
 
     #////////////////////////////////BUTTONS METHODS//////////////////////////////////////
@@ -176,5 +210,5 @@ class Task(keyboard_controller.ActionsHandler):
         pass
     
 if __name__ == "__main__":
-    experiment = Task(Mode.MANUAL)
+    experiment = Task(Mode.PATH_TRACKING)
     experiment.run()

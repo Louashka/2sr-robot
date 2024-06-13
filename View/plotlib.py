@@ -92,10 +92,10 @@ class GUI:
         self.__ax.clear()
 
         # Plot VS segments
-        vss1 = agent.arc()
+        vss1 = self.__arc(agent)
         plt.plot(agent.x + vss1[0], agent.y + vss1[1], '-b', lw='5')
 
-        vss2 = agent.arc(2)
+        vss2 = self.__arc(agent, 2)
         plt.plot(agent.x + vss2[0], agent.y + vss2[1], '-b', lw='5')
 
         # Plot VSS connectores
@@ -145,6 +145,23 @@ class GUI:
         self.plotMarkers(markers)
 
         self.__show()
+
+    def __arc(self, agent: robot2sr.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
+        k = agent.curvature[seg-1]
+        l = np.linspace(0, gv.L_VSS, 50)
+        flag = -1 if seg == 1 else 1
+        theta_array = agent.theta + flag * k * l
+
+        if k == 0:
+            x = np.array([0, flag * gv.L_VSS * np.cos(agent.theta)])
+            y = np.array([0, flag * gv.L_VSS * np.sin(agent.theta)])
+        else:
+            x = np.sin(theta_array) / k - np.sin(agent.theta) / k
+            y = -np.cos(theta_array) / k + np.cos(agent.theta) / k
+
+        theta_end = theta_array[-1]
+            
+        return x, y, theta_end % (2 * np.pi)
 
     def __wheelsToGlobal(self, robot_pose: list, wheel: list):
         R_ob = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],

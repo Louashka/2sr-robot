@@ -1,6 +1,6 @@
 import sys
 from Motive import nat_net_client as nnc, mo_cap_data
-from Model import agent_old, global_var, manipulandum, robot2sr
+from Model import global_var, manipulandum, robot2sr
 import numpy as np
 import pandas as pd
 from typing import List
@@ -13,6 +13,36 @@ pos_2d = ['marker_x', 'marker_y']
 rb_pos = ['x', 'y', 'z']
 rb_params = ['a', 'b', 'c', 'd']
 rb_angles = ['roll', 'pitch', 'yaw']
+
+class Marker():
+    def __init__(self, marker_id: int, x: float, y: float) -> None:
+        self.__marker_id = marker_id
+        self.x = x
+        self.y = y
+
+    @property
+    def marker_id(self) -> int:
+        return self.__marker_id
+
+    @property
+    def x(self) -> float:
+        return self.__x
+    
+    @x.setter
+    def x(self, value: float) -> None:
+        self.__x = value
+
+    @property
+    def y(self) -> float:
+        return self.__y
+    
+    @y.setter
+    def y(self, value: float) -> None:
+        self.__y = value
+
+    @property
+    def position(self) -> list:
+        return [self.x, self.y]
 
 class MocapReader:
     def __init__(self) -> None:
@@ -65,9 +95,15 @@ class MocapReader:
 
         self.isRunning = streaming_client.run()
 
+    """
+    Determine the current configuration of the single 2SR agent
+    :return: dict, agent's generalized coordinates; dict, markers' id and coordinates
+    """
+
     def getAgentConfig(self) -> tuple[dict, dict]:
         agent = {}
 
+        # Parse Motive data
         markers, rigid_bodies = self.__unpackData()
 
         if markers is None or rigid_bodies is None:
@@ -76,6 +112,7 @@ class MocapReader:
         if not markers or not rigid_bodies:
             return {}, {}
 
+        # Convert values from the Motive frame to the global frame
         self.__convertData(markers, rigid_bodies)
 
         if len(rigid_bodies) == 1 and len(markers) == 9:
@@ -174,7 +211,6 @@ class MocapReader:
     
 
     def __convertData(self, markers: dict, rigid_bodies: dict):
-        # Convert values from the Motive frame to the global frame
         for marker in markers.values():
             new_pos = self.__positionToGlobal([marker.get(coord) for coord in m_pos])
             for i in range(3):
@@ -242,7 +278,7 @@ class MocapReader:
 
         return [x, y, theta]
     
-    def __rankPoints(self, markers, head_position) -> List[agent_old.Marker]:
+    def __rankPoints(self, markers, head_position) -> List[Marker]:
         head_position = np.array(head_position)
 
         # Define remaining points and their id's that correspond to thei original indicies
@@ -261,7 +297,7 @@ class MocapReader:
         # Find the rank of the rest of the points
         while len(ranked_markers) < 6 and remaining_points:
             current_point = remaining_points.pop(current_index)
-            vsf_marker = agent_old.Marker(current_point['marker_id'], current_point['marker_x'], current_point['marker_y'])
+            vsf_marker = Marker(current_point['marker_id'], current_point['marker_x'], current_point['marker_y'])
             ranked_markers.append(vsf_marker)
 
             if(remaining_points):
@@ -279,46 +315,7 @@ class MocapReader:
 
         return alpha
     
-    def __calcWheelsCoords(self, robot_pose, LU_pose, LU_type):
-        if LU_type == 'head':
-            w1_0 = np.array([[-0.0275], [0]])
-            w2_0 = np.array([[0.0105], [-0.0275]])
-        elif LU_type == 'tail':
-            w1_0 = np.array([[0.0275], [0]])
-            w2_0 = np.array([[-0.0105], [-0.027]])
-
-        R = np.array([[np.cos(LU_pose[2]), -np.sin(LU_pose[2])],
-                    [np.sin(LU_pose[2]), np.cos(LU_pose[2])]])
-        w1 = np.matmul(R, w1_0).T[0] + LU_pose[:2]
-        w2 = np.matmul(R, w2_0).T[0] + LU_pose[:2]
-
-        w = self.__wheelsToBodyFrame(robot_pose, LU_pose[-1], [w1, w2], LU_type)
-
-        return w
-
-    def __wheelsToBodyFrame(self, robot_pose, LU_theta, w, LU_type):
-        wheels = w.copy()
-
-        R_ob = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],
-                        [np.sin(robot_pose[2]), np.cos(robot_pose[2])]])
-        
-        T_ob = np.block([[R_ob, np.array([robot_pose[:2]]).T], [np.zeros((1,2)), 1]])
-        T_bo = np.linalg.inv(T_ob)
-
-        if LU_type == 'head':
-            offset = 0
-        elif LU_type == 'tail':
-            offset = 2
-
-        for i in range(2):
-            w_b0 = [wheels[i][0], wheels[i][1], 1]
-            wheels[i] = np.matmul(T_bo, w_b0).T[:-1]
-            # wheels[i] = [wheels[i][0], wheels[i][1]]
-            wheels[i] = np.append(wheels[i], (LU_theta - robot_pose[2]) % (2 * np.pi) + global_var.BETA[i+offset])
-
-        return wheels
-    
-    def __extrapolateCurve(self, points:List[agent_old.Marker]) -> tuple[float, float, float, float, float]:
+    def __extrapolateCurve(self, points:List[Marker]) -> tuple[float, float, float, float, float]:
         x = []
         y = []
 

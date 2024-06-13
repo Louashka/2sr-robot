@@ -10,13 +10,34 @@ class Controller:
     def __init__(self) -> None:
         self.serial_port = serial.Serial(port_name, 115200)
 
+    def motionPlanner(self, agent: robot2sr.Robot, target: np.ndarray ) -> tuple[List[float], List[float]]:
+        v = [0] * 5
+        s = [0] * 2
+
+        t = 0.1
+        error = np.linalg.norm(agent.config - target)
+
+        # INVERSE KINEMATICS
+
+        dist = target - agent.config
+        dist_angle = self.min_angle_distance(agent.theta, target[2])
+        dist[2] = dist_angle
+
+        q_tilda = dist * t
+        v:np.ndarray = np.matmul(np.linalg.pinv(agent.jacobian), q_tilda)
+
+        v = v.tolist()
+
+        return v, s
+
     def move(self, agent: robot2sr.Robot, v, s) -> None:
         head_wheels = self.__calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels = self.__calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
 
         wheels = head_wheels + tail_wheels
 
-        omega = self.__getOmega(wheels, v, s)
+        omega = self.__calcWheelsVelocities(wheels, v, s)
+        # print(omega)
         
         commands = omega.tolist() + s + [agent.id]
         # print(commands)
@@ -27,13 +48,21 @@ class Controller:
         commands = [0, 0, 0, 0] + agent.stiffness + [agent.id]
         self.__sendCommands(commands)
 
+    def min_angle_distance(self, initial_angle, target_angle):
+        # Calculate the clockwise and counterclockwise distances
+        clockwise_distance = (target_angle - initial_angle) % (2 * np.pi)
+        counterclockwise_distance = (initial_angle - target_angle) % (2 * np.pi)
+        
+        # Return the minimum of the two distances
+        return min(clockwise_distance, counterclockwise_distance)
+
     def __calcWheelsCoords(self, agent_pose: list, lu_pose: list, lu_type='head'):
         if lu_type == 'head':
-            w1_0 = np.array([[-0.0275], [0]])
-            w2_0 = np.array([[0.0105], [-0.0275]])
+            w1_0 = 2 * np.array([[-0.0275], [0]])
+            w2_0 = 2 * np.array([[0.0105], [-0.0275]])
         elif lu_type == 'tail':
-            w1_0 = np.array([[0.0275], [0]])
-            w2_0 = np.array([[-0.0105], [-0.027]])
+            w1_0 = 2 * np.array([[0.0275], [0]])
+            w2_0 = 2 * np.array([[-0.0105], [-0.027]])
 
         R = np.array([[np.cos(lu_pose[2]), -np.sin(lu_pose[2])],
                     [np.sin(lu_pose[2]), np.cos(lu_pose[2])]])
@@ -64,8 +93,8 @@ class Controller:
         return w
 
 
-    def __getOmega(self, wheels, v, s) -> np.ndarray:
-
+    def __calcWheelsVelocities(self, wheels, v, s) -> np.ndarray:
+    
         flag_soft = int(s[0] or s[1])
         flag_rigid = int(not (s[0] or s[1]))
 
@@ -78,6 +107,15 @@ class Controller:
 
         V = 1 / global_var.WHEEL_R * V_
         omega = np.matmul(V, v).round(3)
+
+        min_velocity = 2
+        max_velocity = 15
+
+        min_mask = omega < min_velocity
+        max_mask = omega > max_velocity
+
+        omega[~min_mask] = min_velocity
+        omega[~max_mask] = max_velocity
 
         return omega
 

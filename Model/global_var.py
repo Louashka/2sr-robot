@@ -1,7 +1,7 @@
 import math
 
 # Velocities
-OMNI_SPEED = 0.12
+OMNI_SPEED = 0.2
 ROTATION_SPEED = 1
 LU_SPEED = 0.12
 
