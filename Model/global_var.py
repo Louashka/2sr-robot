@@ -1,9 +1,11 @@
 import math
 
 # Velocities
-OMNI_SPEED = 0.2
+OMNI_SPEED = 0.1
 ROTATION_SPEED = 1
 LU_SPEED = 0.12
+
+DT = 0.008
 
 scale = 2
 
@@ -51,5 +53,5 @@ RB_PARAMS = ['a', 'b', 'c', 'd']
 RB_ANGLES = ['roll', 'pitch', 'yaw']
 
 # Coords of the real LU center w.r.t. the rb position
-HEAD_CENTER_R = 0.01074968
+HEAD_CENTER_R = scale * 0.01074968
 HEAD_CENTER_ANGLE = math.radians(-60.2551187)

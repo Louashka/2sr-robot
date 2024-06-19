@@ -100,17 +100,17 @@ class MocapReader:
     :return: dict, agent's generalized coordinates; dict, markers' id and coordinates
     """
 
-    def getAgentConfig(self) -> tuple[dict, dict]:
+    def getAgentConfig(self) -> tuple[dict, dict, str]:
         agent = {}
 
         # Parse Motive data
         markers, rigid_bodies = self.__unpackData()
 
         if markers is None or rigid_bodies is None:
-            return {}, {}
+            return {}, {}, 'No data is received from Motive!'
         
         if not markers or not rigid_bodies:
-            return {}, {}
+            return {}, {}, 'No markers or rigid bodies are detected!'
 
         # Convert values from the Motive frame to the global frame
         self.__convertData(markers, rigid_bodies)
@@ -122,6 +122,9 @@ class MocapReader:
 
             # Calculate the pose of the head LU
             head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
+            if len(head_markers) != 3:
+                return {}, {}, 'Problem with the model id!'
+            
             head_pose = self.__calcHeadPose(rb, head_markers)
             agent['head'] = head_pose
 
@@ -129,7 +132,7 @@ class MocapReader:
             ranked_markers = self.__rankPoints(markers, head_pose[:-1])
             # If some markers are missing we ignore the robot
             if len(ranked_markers) != 6:
-                return {}, {}
+                return {}, {}, 'Not enough markers in VSF!'
             
             # Calculate the pose of the tail LU
             tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
@@ -150,9 +153,9 @@ class MocapReader:
             # print(agent)
 
         else:
-            return {}, {}
+            return {}, {}, 'Wrong number of the markers or rigid bodies!'
 
-        return agent, markers
+        return agent, markers, 'Configuration successfully extracted.'
     
     
     def __unpackData(self) -> tuple[dict, dict]:
@@ -268,7 +271,7 @@ class MocapReader:
         i = triangle_sides.argsort()[1]
         i_next = i + 1 if i < 2 else 0
 
-        delta = points[i, :] - points[i_next, :]
+        delta = points[i_next, :] - points[i, :]
         # theta = np.arctan2(delta[1], delta[0]) + np.pi
         theta = np.arctan2(delta[1], delta[0])
         theta = theta  % (2 * np.pi)

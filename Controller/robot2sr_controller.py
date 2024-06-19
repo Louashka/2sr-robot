@@ -9,12 +9,13 @@ port_name = "COM3"
 class Controller:
     def __init__(self) -> None:
         self.serial_port = serial.Serial(port_name, 115200)
+        self.velocity_coef = 2
+        self.t = 0
 
     def motionPlanner(self, agent: robot2sr.Robot, target: np.ndarray ) -> tuple[List[float], List[float]]:
         v = [0] * 5
         s = [0] * 2
 
-        t = 0.1
         error = np.linalg.norm(agent.config - target)
 
         # INVERSE KINEMATICS
@@ -23,26 +24,31 @@ class Controller:
         dist_angle = self.min_angle_distance(agent.theta, target[2])
         dist[2] = dist_angle
 
-        q_tilda = dist * t
+        q_tilda = self.velocity_coef * dist * global_var.DT
         v:np.ndarray = np.matmul(np.linalg.pinv(agent.jacobian), q_tilda)
 
         v = v.tolist()
 
+        self.t += global_var.DT
+
         return v, s
 
-    def move(self, agent: robot2sr.Robot, v, s) -> None:
-        head_wheels = self.__calcWheelsCoords(agent.pose, agent.head.pose)
-        tail_wheels = self.__calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
+    def move(self, agent: robot2sr.Robot, v, s) -> list:
+        head_wheels, head_wheels_original = self.__calcWheelsCoords(agent.pose, agent.head.pose)
+        tail_wheels, tail_wheels_original = self.__calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
 
         wheels = head_wheels + tail_wheels
 
         omega = self.__calcWheelsVelocities(wheels, v, s)
-        # print(omega)
+        omega = np.array([5, 0, -5, 0])
+        print(omega)
         
         commands = omega.tolist() + s + [agent.id]
         # print(commands)
 
         self.__sendCommands(commands)
+
+        return head_wheels_original + tail_wheels_original
 
     def stop(self, agent: robot2sr.Robot) -> None:   
         commands = [0, 0, 0, 0] + agent.stiffness + [agent.id]
@@ -71,7 +77,7 @@ class Controller:
 
         w = self.__wheelsToBodyFrame(agent_pose, [w1, w2], lu_pose[-1], lu_type)
 
-        return w
+        return w, [w1, w2]
 
     def __wheelsToBodyFrame(self, agent_pose: list, w: list, lu_theta: float, lu_type='head'):
         R_ob = np.array([[np.cos(agent_pose[2]), -np.sin(agent_pose[2])],
@@ -108,14 +114,7 @@ class Controller:
         V = 1 / global_var.WHEEL_R * V_
         omega = np.matmul(V, v).round(3)
 
-        min_velocity = 2
-        max_velocity = 15
-
-        min_mask = omega < min_velocity
-        max_mask = omega > max_velocity
-
-        omega[~min_mask] = min_velocity
-        omega[~max_mask] = max_velocity
+        # omega[np.abs(omega) < 2] = 0
 
         return omega
 

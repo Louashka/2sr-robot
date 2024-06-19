@@ -92,10 +92,10 @@ class GUI:
         self.__ax.clear()
 
         # Plot VS segments
-        vss1 = self.__arc(agent)
+        vss1 = self.arc(agent)
         plt.plot(agent.x + vss1[0], agent.y + vss1[1], '-b', lw='5')
 
-        vss2 = self.__arc(agent, 2)
+        vss2 = self.arc(agent, 2)
         plt.plot(agent.x + vss2[0], agent.y + vss2[1], '-b', lw='5')
 
         # Plot VSS connectores
@@ -146,7 +146,7 @@ class GUI:
 
         self.__show()
 
-    def __arc(self, agent: robot2sr.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
+    def arc(self, agent: robot2sr.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
         k = agent.curvature[seg-1]
         l = np.linspace(0, gv.L_VSS, 50)
         flag = -1 if seg == 1 else 1

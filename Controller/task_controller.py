@@ -8,6 +8,7 @@ import random as rnd
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from itertools import chain
 
 # There are 4 task modes
 class Mode(Enum):
@@ -63,7 +64,7 @@ class Task(keyboard_controller.ActionsHandler):
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
-        agent_config, self.markers = self.mocap.getAgentConfig()
+        agent_config, self.markers, msg = self.mocap.getAgentConfig()
 
         if agent_config:
             if self.agent:
@@ -76,7 +77,7 @@ class Task(keyboard_controller.ActionsHandler):
             self.agent.head.pose = agent_config['head']
             self.agent.tail.pose = agent_config['tail']
         else:
-            print('Agent is not detected!')
+            print('Agent is not detected! ' + msg)
 
 
     #//////////////////////////////// MANUAL MODE METHODS ////////////////////////////////
@@ -104,7 +105,7 @@ class Task(keyboard_controller.ActionsHandler):
 
     #//////////////////////////// PATH TRACKING MODE METHODS //////////////////////////////
     
-    def   __pathTrackingMode(self):
+    def  __pathTrackingMode(self):
         exp_data = []
 
         # while not self.agent: 
@@ -112,32 +113,117 @@ class Task(keyboard_controller.ActionsHandler):
 
         self.agent = robot2sr.Robot(1, -0.4350321026162654,-0.185221286686026,5.720241850630597,-3.44,-3.327)
         
-        target = np.array([0.42, 0.51, np.pi/4] + self.agent.curvature)
-        dist = np.linalg.norm(self.agent.pose - target[:3])
+        target = np.array([self.agent.x + 0.3, self.agent.y + 0.5, self.agent.theta + np.pi/2] + self.agent.curvature)
+        dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
+                        self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+        
+        frames = 5000
+        counter = 0
 
-        while dist > 10**(-2):
+        t = global_var.DT
+
+        # while counter < frames:
+        while dist > 10**(-1):
             
             v, s = self.agent_controller.motionPlanner(self.agent, target)
-            self.agent_controller.move(self.agent, v, s)
-
+            # wheels = self.agent_controller.move(self.agent, v, s)
+ 
             # self.__updateConfig()
             # print(self.agent.config.tolist())
 
-            q_dot = np.matmul(self.agent.jacobian, v)
-            q = self.agent.config + q_dot * 0.1
-            self.agent.config = q
+            vss1 = self.gui.arc(self.agent)
+            vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
+            vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
+
+            lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+            lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+ 
+            self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
+
+
+            vss2 = self.gui.arc(self.agent, 2)
+            vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
+            vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
+
+            lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+            lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+
+            self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
+
+            w1_0 = 2 * np.array([[-0.0275], [0]])
+            w2_0 = 2 * np.array([[0.0105], [-0.0275]])
+            w3_0 = 2 * np.array([[0.0275], [0]])
+            w4_0 = 2 * np.array([[-0.0105], [-0.027]])
+
+            R = np.array([[np.cos(self.agent.head.theta), -np.sin(self.agent.head.theta)],
+                    [np.sin(self.agent.head.theta), np.cos(self.agent.head.theta)]]) 
+            w1 = np.matmul(R, w1_0).T[0] + self.agent.head.position
+            w2 = np.matmul(R, w2_0).T[0] + self.agent.head.position
+
+            R = np.array([[np.cos(self.agent.tail.theta), -np.sin(self.agent.tail.theta)],
+                    [np.sin(self.agent.tail.theta), np.cos(self.agent.tail.theta)]])
+            w3 = np.matmul(R, w3_0).T[0] + self.agent.tail.position
+            w4 = np.matmul(R, w4_0).T[0] + self.agent.tail.position
+
+            wheels = [w1, w2, w3, w4]
 
             dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
                            self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
 
-            print(dist)
+            # print(dist)
             # error = np.linalg.norm(config[0] - target)
             
             timeStamp = datetime.now().strftime("%H:%M:%S")
-            exp_data.append(target.tolist() + self.agent.config.tolist() + [timeStamp]) 
+
+            data = (target.tolist() + self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+                    list(chain(*wheels)) + [timeStamp])
+            exp_data.append(data)  
+
+            counter += 1
+
+            flag_soft = int(s[0] or s[1])
+            flag_rigid = int(not (s[0] or s[1]))
+
+            V_ = np.zeros((4, 5))
+            for i in range(4):
+                w = wheels[i]
+                tau = w[0] * np.sin(w[-1]) - w[1] * np.cos(w[-1])
+                V_[i, :] = [flag_soft * int(i == 0 or i == 1), -flag_soft * int(i == 2 or i == 3), 
+                            flag_rigid * np.cos(w[-1]), flag_rigid * np.sin(w[-1]), flag_rigid * tau]
+
+            V = 1 / global_var.WHEEL_R * V_
+            omega = np.matmul(V, v).round(3)
+            print(omega)
+            
+            v_new = np.matmul(np.linalg.pinv(V), omega)
+            # print(v_new)
+
+            q_dot = np.matmul(self.agent.jacobian, v_new)
+            q = self.agent.config + q_dot * t
+            t += global_var.DT
+
+            q[0] += rnd.uniform(-0.0015, 0.0015)
+            q[1] += rnd.uniform(-0.0015, 0.0015)
+            q[2] += rnd.uniform(-0.01, 0.01)
+            q[3] += rnd.uniform(-0.2, 0.2)
+            q[4] += rnd.uniform(-0.2, 0.2)
+
+            self.agent.config = q
+
+        self.agent_controller.stop(self.agent)
 
         column_names = ["x_target", "y_target", "angle_target", "k1_target", "k2_target", 
-                       "x", "y", "angle", "k1", "k2",
+                       "x", "y", "angle", "k1", "k2",  
+                       'x_head', 'y_head', 'theta_head', 
+                       'x_tail', 'y_tail', 'theta_tail',
+                    #    'w1_x', 'w1_y', 'w1_theta',
+                    #    'w2_x', 'w2_y', 'w2_theta',
+                    #    'w3_x', 'w3_y', 'w3_theta',
+                    #    'w4_x', 'w4_y', 'w4_theta',
+                       'w1_x', 'w1_y',
+                       'w2_x', 'w2_y',
+                       'w3_x', 'w3_y',
+                       'w4_x', 'w4_y',
                        "time"]
         df = pd.DataFrame(exp_data, columns=column_names)
         print("Save experiment data")
