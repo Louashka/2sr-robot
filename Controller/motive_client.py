@@ -48,6 +48,7 @@ class MocapReader:
     def __init__(self) -> None:
         self.__isRunning = False
         self.__data = None
+        self.__markers_id = set()
 
     @property
     def isRunning(self) -> bool:
@@ -104,7 +105,8 @@ class MocapReader:
         agent = {}
 
         # Parse Motive data
-        markers, rigid_bodies = self.__unpackData()
+        # markers, rigid_bodies = self.__unpackData()
+        markers, rigid_bodies = self.__simulateData()
 
         if markers is None or rigid_bodies is None:
             return {}, {}, 'No data is received from Motive!'
@@ -133,6 +135,10 @@ class MocapReader:
             # If some markers are missing we ignore the robot
             if len(ranked_markers) != 6:
                 return {}, {}, 'Not enough markers in VSF!'
+            
+            if len(self.__markers_id) == 0:
+                for marker in markers.values():
+                    self.__markers_id.add(marker['marker_id'])
             
             # Calculate the pose of the tail LU
             tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
@@ -174,6 +180,8 @@ class MocapReader:
 
         for marker in labeled_marker_list:
             model_id, marker_id = [int(i) for i in marker.get_id()] 
+            if len(self.__markers_id) != 0 and marker_id not in self.__markers_id:
+                continue
             marker = {'model_id': model_id, 'marker_id': marker_id,
                         'marker_x': marker.pos[0], 'marker_y': marker.pos[1], 'marker_z': marker.pos[2]}
             markers[str(model_id) + '.' + str(marker_id)] = marker
@@ -186,7 +194,7 @@ class MocapReader:
         return markers, rigid_bodies
     
     def __simulateData(self) -> tuple[dict, dict]:
-        pose = 3
+        pose = 1
 
         markers_df = pd.read_csv('Data/markers.csv')
         rigid_bodies_df = pd.read_csv('Data/rigid_bodies.csv')
@@ -271,8 +279,10 @@ class MocapReader:
         i = triangle_sides.argsort()[1]
         i_next = i + 1 if i < 2 else 0
 
+        if triangle_sides[i-1] > triangle_sides[i_next]:
+            i, i_next = i_next, i
+
         delta = points[i_next, :] - points[i, :]
-        # theta = np.arctan2(delta[1], delta[0]) + np.pi
         theta = np.arctan2(delta[1], delta[0])
         theta = theta  % (2 * np.pi)
         

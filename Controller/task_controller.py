@@ -1,7 +1,7 @@
 from enum import Enum
 import sys
 sys.path.append('D:/Robot 2SR/2sr-swarm-control')
-from Model import global_var, robot2sr
+from Model import global_var, robot2sr, splines
 from View import plotlib
 import motive_client, keyboard_controller, grasping_controller, robot2sr_controller
 import random as rnd
@@ -9,6 +9,35 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from itertools import chain
+
+
+class PI:
+    def __init__(self, kp=1.0, ki=0.1):
+        """
+        Define a PID controller class
+        :param kp: float, kp coeff
+        :param ki: float, ki coeff
+        :param kd: float, kd coeff
+        """
+        self.kp = kp
+        self.ki = ki
+        self.Pterm = 0.0
+        self.Iterm = 0.0
+        self.last_error = 0.0
+
+    def control(self, error):
+        """
+        PID main function, given an input, this function will output a control unit
+        :param error: float, error term
+        :return: float, output control
+        """
+        self.Pterm = self.kp * error
+        self.Iterm += error * global_var.DT
+
+        self.last_error = error
+        output = self.Pterm + self.ki * self.Iterm
+        return output
+
 
 # There are 4 task modes
 class Mode(Enum):
@@ -108,25 +137,123 @@ class Task(keyboard_controller.ActionsHandler):
     def  __pathTrackingMode(self):
         exp_data = []
 
-        # while not self.agent: 
-        #     self.__updateConfig()
+        while not self.agent: 
+            self.__updateConfig()
 
-        self.agent = robot2sr.Robot(1, -0.4350321026162654,-0.185221286686026,5.720241850630597,-3.44,-3.327)
+        # self.agent = robot2sr.Robot(1, -0.4350321026162654,-0.185221286686026,5.720241850630597,-3.44,-3.327)
         
-        target = np.array([self.agent.x + 0.3, self.agent.y + 0.5, self.agent.theta + np.pi/2] + self.agent.curvature)
-        dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
-                        self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+        # target = np.array([self.agent.x + rnd.uniform(-1, 1), self.agent.y + rnd.uniform(-1, 1), self.agent.theta + rnd.uniform(-np.pi, np.pi)] + self.agent.curvature)
         
-        frames = 5000
+        # num_points = 50
+        # path_x = np.linspace(self.agent.x, target[0], num_points)
+        # path_y = np.linspace(self.agent.y, target[1], num_points)
+
+        path_x = np.arange(0, 2, 0.01)
+        path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x]) + self.agent.y
+        path_x += self.agent.x
+
+        path = splines.Trajectory(path_x, path_y)
+
+        goal = path.getPoint(len(path_x) - 1)
+        dist = splines.getDistance(self.agent.position, goal)
+
+        # # create PI controller
+        # PI_acc = PI(0, 0.0)
+        # PI_yaw = PI(1, 0.0)
+
+        # # real trajectory
+        # traj_x = []
+        # traj_y = []
+
+        # pose_prev = self.agent.pose
+
+        # frames = 2000
+        # counter = 0
+
+        # # while dist > 0.005:
+        # while counter < frames:
+        #     target_point = path.getTargetPoint(self.agent.position)
+            
+        #     position_velocity_x = (self.agent.x - pose_prev[0]) / global_var.DT
+        #     position_velocity_y = (self.agent.y - pose_prev[1]) / global_var.DT 
+            
+        #     # Calculate the linear velocity in the robot's body frame
+        #     body_velocity_y = -position_velocity_x * np.sin(self.agent.theta) + position_velocity_y * np.cos(self.agent.theta)
+        #     # print(body_velocity_y)
+
+        #     # use PID to control the vehicle
+        #     vel_err = global_var.OMNI_SPEED - body_velocity_y
+        #     linear_acc = PI_acc.control(vel_err)
+        #     linear_vel = body_velocity_y + linear_acc * global_var.DT
+
+        #     desired_direction = np.arctan2(target_point[1] - self.agent.y, target_point[0] - self.agent.x)
+        #     current_direction = (self.agent.theta + np.pi/2) % (2 * np.pi)
+
+        #     # yaw_err = self.agent_controller.min_angle_distance(desired_direction, current_direction)
+        #     yaw_err = desired_direction - current_direction
+        #     rot_vel = PI_yaw.control(yaw_err)
+        #     # rot_vel = rotation_velocity + rot_acc * global_var.DT
+
+        #     pose_prev = self.agent.pose
+
+        #     v = [0, 0, 0, linear_vel, rot_vel]
+        #     s = [0, 0]
+
+        #     wheels, q = self.agent_controller.move(self.agent, v, s)
+        #     self.agent.config = q
+
+        #     dist = getDistance(self.agent.position, goal)
+        #     # print(dist)
+
+        #     vss1 = self.gui.arc(self.agent)
+        #     vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
+        #     vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
+
+        #     lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+        #     lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+ 
+        #     self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
+
+        #     vss2 = self.gui.arc(self.agent, 2)
+        #     vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
+        #     vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
+
+        #     lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+        #     lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+
+        #     self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]
+
+        #     timeStamp = datetime.now().strftime("%H:%M:%S")
+
+        #     data = (target.tolist() + self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+        #             list(chain(*wheels)) + [timeStamp])
+        #     exp_data.append(data) 
+
+        #     counter += 1
+
+            # if np.linalg.norm(self.agent.config - q) == 0:
+            #     break
+
+
+        # dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
+        #                 self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+        
+        frames = 1000
         counter = 0
-
-        t = global_var.DT
 
         # while counter < frames:
         while dist > 10**(-1):
             
-            v, s = self.agent_controller.motionPlanner(self.agent, target)
-            # wheels = self.agent_controller.move(self.agent, v, s)
+            # target = path.getTargetPoint(self.agent.position)
+            # desired_direction = np.arctan2(target[1] - self.agent.y, target[0] - self.agent.x)
+            # desired_direction = (desired_direction - np.pi/2) % (2 * np.pi)
+            # target = np.array(target + [desired_direction, self.agent.k1, self.agent.k2])
+
+            # v, s = self.agent_controller.motionPlanner(self.agent, target)
+            v, s = self.agent_controller.motionPlanner(self.agent, path)
+            # v = [0, 0, 0, 0.1, 0]
+            # print(v)
+            wheels, q = self.agent_controller.move(self.agent, v, s)
  
             # self.__updateConfig()
             # print(self.agent.config.tolist())
@@ -140,7 +267,7 @@ class Task(keyboard_controller.ActionsHandler):
  
             self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
 
-
+     
             vss2 = self.gui.arc(self.agent, 2)
             vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
             vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
@@ -150,63 +277,67 @@ class Task(keyboard_controller.ActionsHandler):
 
             self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
 
-            w1_0 = 2 * np.array([[-0.0275], [0]])
-            w2_0 = 2 * np.array([[0.0105], [-0.0275]])
-            w3_0 = 2 * np.array([[0.0275], [0]])
-            w4_0 = 2 * np.array([[-0.0105], [-0.027]])
+            # w1_0 = 2 * np.array([[-0.0275], [0]])
+            # w2_0 = 2 * np.array([[0.0105], [-0.0275]])
+            # w3_0 = 2 * np.array([[0.0275], [0]])
+            # w4_0 = 2 * np.array([[-0.0105], [-0.027]])
 
-            R = np.array([[np.cos(self.agent.head.theta), -np.sin(self.agent.head.theta)],
-                    [np.sin(self.agent.head.theta), np.cos(self.agent.head.theta)]]) 
-            w1 = np.matmul(R, w1_0).T[0] + self.agent.head.position
-            w2 = np.matmul(R, w2_0).T[0] + self.agent.head.position
+            # R = np.array([[np.cos(self.agent.head.theta), -np.sin(self.agent.head.theta)],
+            #         [np.sin(self.agent.head.theta), np.cos(self.agent.head.theta)]]) 
+            # w1 = np.matmul(R, w1_0).T[0] + self.agent.head.position
+            # w2 = np.matmul(R, w2_0).T[0] + self.agent.head.position
 
-            R = np.array([[np.cos(self.agent.tail.theta), -np.sin(self.agent.tail.theta)],
-                    [np.sin(self.agent.tail.theta), np.cos(self.agent.tail.theta)]])
-            w3 = np.matmul(R, w3_0).T[0] + self.agent.tail.position
-            w4 = np.matmul(R, w4_0).T[0] + self.agent.tail.position
+            # R = np.array([[np.cos(self.agent.tail.theta), -np.sin(self.agent.tail.theta)],
+            #         [np.sin(self.agent.tail.theta), np.cos(self.agent.tail.theta)]])
+            # w3 = np.matmul(R, w3_0).T[0] + self.agent.tail.position
+            # w4 = np.matmul(R, w4_0).T[0] + self.agent.tail.position
 
-            wheels = [w1, w2, w3, w4]
+            # wheels = [w1, w2, w3, w4]
 
-            dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
-                           self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+            # dist = np.sqrt((self.agent.x  - target[0])**2 + (self.agent.y  - target[1])**2 + 
+            #                self.agent_controller.min_angle_distance(self.agent.theta, target[2])**2)
+            dist = splines.getDistance(self.agent.position, goal)
 
             # print(dist)
-            # error = np.linalg.norm(config[0] - target)
+            # # error = np.linalg.norm(config[0] - target)
             
             timeStamp = datetime.now().strftime("%H:%M:%S")
 
-            data = (target.tolist() + self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+            # data = (target.tolist() + self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+            #         list(chain(*wheels)) + [timeStamp])
+            data = (goal + [self.agent.theta, self.agent.k1, self.agent.k2] + self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
                     list(chain(*wheels)) + [timeStamp])
             exp_data.append(data)  
 
             counter += 1
 
-            flag_soft = int(s[0] or s[1])
-            flag_rigid = int(not (s[0] or s[1]))
+            # flag_soft = int(s[0] or s[1])
+            # flag_rigid = int(not (s[0] or s[1]))
 
-            V_ = np.zeros((4, 5))
-            for i in range(4):
-                w = wheels[i]
-                tau = w[0] * np.sin(w[-1]) - w[1] * np.cos(w[-1])
-                V_[i, :] = [flag_soft * int(i == 0 or i == 1), -flag_soft * int(i == 2 or i == 3), 
-                            flag_rigid * np.cos(w[-1]), flag_rigid * np.sin(w[-1]), flag_rigid * tau]
+            # V_ = np.zeros((4, 5))
+            # for i in range(4):
+            #     w = wheels[i]
+            #     tau = w[0] * np.sin(w[-1]) - w[1] * np.cos(w[-1])
+            #     V_[i, :] = [flag_soft * int(i == 0 or i == 1), -flag_soft * int(i == 2 or i == 3), 
+            #                 flag_rigid * np.cos(w[-1]), flag_rigid * np.sin(w[-1]), flag_rigid * tau]
 
-            V = 1 / global_var.WHEEL_R * V_
-            omega = np.matmul(V, v).round(3)
-            print(omega)
+            # V = 1 / global_var.WHEEL_R * V_
+            # omega = np.matmul(V, v).round(3)
             
-            v_new = np.matmul(np.linalg.pinv(V), omega)
-            # print(v_new)
+            # v_new = np.matmul(np.linalg.pinv(V), omega)
+            # # print(v_new)
 
-            q_dot = np.matmul(self.agent.jacobian, v_new)
-            q = self.agent.config + q_dot * t
-            t += global_var.DT
+            # q_dot = np.matmul(self.agent.jacobian, v_new)
+            # q = self.agent.config + q_dot * global_var.DT
 
-            q[0] += rnd.uniform(-0.0015, 0.0015)
-            q[1] += rnd.uniform(-0.0015, 0.0015)
-            q[2] += rnd.uniform(-0.01, 0.01)
-            q[3] += rnd.uniform(-0.2, 0.2)
-            q[4] += rnd.uniform(-0.2, 0.2)
+            # # q[0] += rnd.uniform(-0.0015, 0.0015)
+            # # q[1] += rnd.uniform(-0.0015, 0.0015)
+            # # q[2] += rnd.uniform(-0.01, 0.01)
+            # # q[3] += rnd.uniform(-0.2, 0.2)
+            # # q[4] += rnd.uniform(-0.2, 0.2)
+
+            # if np.linalg.norm(self.agent.config - q) == 0:
+            #     break
 
             self.agent.config = q
 
@@ -226,10 +357,10 @@ class Task(keyboard_controller.ActionsHandler):
                        'w4_x', 'w4_y',
                        "time"]
         df = pd.DataFrame(exp_data, columns=column_names)
+        df['path_x'] = pd.Series(path_x)
+        df['path_y'] = pd.Series(path_y)
         print("Save experiment data")
         df.to_csv('Experiments/Data/reach_target.csv', index=False)
-
-
 
     #////////////////////////////////BUTTONS METHODS//////////////////////////////////////
 
@@ -255,7 +386,7 @@ class Task(keyboard_controller.ActionsHandler):
 
     def __closeToBorder(self, q):
         result = True
-
+       
         x_range = self.tracking_area[0]
         y_range = self.tracking_area[1]
 

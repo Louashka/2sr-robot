@@ -32,6 +32,9 @@ wheel2 = []
 wheel3 = []
 wheel4 = []
 
+path_x = []
+path_y = []
+
 x_range = 0
 y_range = 0
 
@@ -62,6 +65,8 @@ agent_direction, = ax.plot([], [], lw=3, color="red")
 head_direction, = ax.plot([], [], lw=3, color="red")
 tail_direction, = ax.plot([], [], lw=3, color="red")
 
+path_line, = ax.plot([], [], lw=1, color="red", linestyle='dashed')
+
 # ax.axis('off')
 
 
@@ -88,7 +93,7 @@ def init():
 
 
 def defineRange():
-    margin = 0.5
+    margin = 1
 
     q_array = np.array(q_list)
     x_min, y_min = q_array[:, :2].min(axis=0)
@@ -127,7 +132,7 @@ def genArc(q, seg):
 def update(i):
     global arc1, arc2, centre, stiffness_text, target_arc1, target_arc2, head_block, tail_block
     global wheel1_block, wheel2_block, wheel3_block, wheel4_block, agent_direction, head_direction, tail_direction
-    global wheel1_direction, wheel2_direction, wheel3_direction, wheel4_direction
+    global wheel1_direction, wheel2_direction, wheel3_direction, wheel4_direction, path_line
     q = q_list[i]
 
     x = q[0]
@@ -273,6 +278,8 @@ def update(i):
     # stiffness_text.set_position(
     #     (x_range[0] + (x_range[1] - x_range[0]) / 25, y_range[0] + (y_range[1] - y_range[0]) / 40))
 
+    path_line.set_data(path_x, path_y)
+
     if q_target:
 
         target_seg1 = genArc(q_target, 1)
@@ -281,9 +288,9 @@ def update(i):
         target_arc1.set_data(target_seg1[0], target_seg1[1])
         target_arc2.set_data(target_seg2[0], target_seg2[1])
 
-        return arc1, arc2, centre, stiffness_text, target_arc1, target_arc2,
+        return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, target_arc1, target_arc2
 
-    return arc1, arc2, centre, stiffness_text, head_block, tail_block
+    return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line
 
 
 def plotMotion(q, s, h, t, wheels, frames, q_t=[]):
@@ -304,7 +311,7 @@ def plotMotion(q, s, h, t, wheels, frames, q_t=[]):
 
     # Save animation
     mywriter = FFMpegWriter(fps=30)
-    anim.save('Experiments/Figures/reach_target1.mp4', writer=mywriter, dpi=300)
+    # anim.save('Experiments/Figures/reach_target1.mp4', writer=mywriter, dpi=300)
       
     plt.show()
 
@@ -327,6 +334,7 @@ if __name__ == "__main__":
                        'w2_x', 'w2_y',
                        'w3_x', 'w3_y',
                        'w4_x', 'w4_y',
+                       'path_x', 'path_y',
                        ]
     df[column_names] = df[column_names].astype(float)
     
@@ -348,6 +356,9 @@ if __name__ == "__main__":
     wheels[1] = [[df.iloc[i]["w2_x"], df.iloc[i]["w2_y"]] for i in range(len(df))]
     wheels[2] = [[df.iloc[i]["w3_x"], df.iloc[i]["w3_y"]] for i in range(len(df))]
     wheels[3] = [[df.iloc[i]["w4_x"], df.iloc[i]["w4_y"]] for i in range(len(df))]
+
+    path_x = df['path_x'].dropna().to_list()
+    path_y = df['path_y'].dropna().to_list()
 
     # plotMotion(q, s, h, t, frames_number, q_t=q_target)
     plotMotion(q, s, h, t, wheels, frames_number, q_t=q_target)

@@ -23,6 +23,7 @@ class Robot(Frame):
         self.head = Frame(0, 0, 0)
         self.tail = Frame(0, 0, 0)
 
+
     @property
     def id(self) -> int:
         return self.__id
