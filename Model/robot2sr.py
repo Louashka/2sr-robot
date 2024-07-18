@@ -103,7 +103,7 @@ class Robot(Frame):
     
     @property
     def jacobian(self) -> np.ndarray:
-        return np.hstack((self.jacobian_soft, self.jacobian_rigid))
+        return np.hstack((self.jacobian_rigid, self.jacobian_soft))
     
     def update(self, v: np.ndarray, time_step: float=0.1) -> None:
         q_dot = self.jacobian_rigid.dot(v)

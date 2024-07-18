@@ -35,6 +35,8 @@ wheel4 = []
 path_x = []
 path_y = []
 
+states = []
+
 x_range = 0
 y_range = 0
 
@@ -67,11 +69,14 @@ tail_direction, = ax.plot([], [], lw=3, color="red")
 
 path_line, = ax.plot([], [], lw=1, color="red", linestyle='dashed')
 
+state_arcs1 = []
+state_arcs2 = []
+
 # ax.axis('off')
 
 
 def init():
-    global ax, x_range, y_range    
+    global ax, x_range, y_range, state_arcs1, state_arcs2    
 
     x_range, y_range = defineRange()
     ax.set_xlim(x_range)
@@ -91,9 +96,13 @@ def init():
     # if q_target:
     #     ax.add_patch(target_link)
 
+    for i in range(len(states)):
+        state_arcs1.append(ax.plot([], [], lw=3, color="black", alpha=0.3)[0])
+        state_arcs2.append(ax.plot([], [], lw=3, color="black", alpha=0.3)[0]) 
+
 
 def defineRange():
-    margin = 1
+    margin = 0.5
 
     q_array = np.array(q_list)
     x_min, y_min = q_array[:, :2].min(axis=0)
@@ -132,19 +141,12 @@ def genArc(q, seg):
 def update(i):
     global arc1, arc2, centre, stiffness_text, target_arc1, target_arc2, head_block, tail_block
     global wheel1_block, wheel2_block, wheel3_block, wheel4_block, agent_direction, head_direction, tail_direction
-    global wheel1_direction, wheel2_direction, wheel3_direction, wheel4_direction, path_line
+    global wheel1_direction, wheel2_direction, wheel3_direction, wheel4_direction, path_line, state_arcs1, state_arcs2  
     q = q_list[i]
 
     x = q[0]
     y = q[1]
     phi = q[2]
-
-    # x = 0
-    # y = 0
-    # phi = 0
-
-    # x0 = x - link_length / 2
-    # y0 = y - link_width / 2
 
     head_x = head[i][0]
     head_y = head[i][1]
@@ -154,8 +156,7 @@ def update(i):
     head_block.set_height(global_var.LU_SIDE)
     head_block.set_xy([head_x - global_var.LU_SIDE/2, head_y - global_var.LU_SIDE/2])
 
-    transform = mpl.transforms.Affine2D().rotate_around(
-        head_x, head_y, head_theta) + ax.transData
+    transform = mpl.transforms.Affine2D().rotate_around(head_x, head_y, head_theta) + ax.transData
     head_block.set_transform(transform)
 
     tail_x = tail[i][0]
@@ -173,15 +174,13 @@ def update(i):
     #//////////////////////////////////////////////////////////
     wheel1_x = wheel1[i][0]
     wheel1_y = wheel1[i][1]
-    # wheel1_theta = wheel1[i][2]
     wheel1_theta = head_theta + global_var.BETA[0]
 
     wheel1_block.set_width(2 * global_var.WHEEL_R)
     wheel1_block.set_height(global_var.WHEEL_TH)
     wheel1_block.set_xy([wheel1_x - global_var.WHEEL_R, wheel1_y - global_var.WHEEL_TH/2])
 
-    transform = mpl.transforms.Affine2D().rotate_around(
-        wheel1_x, wheel1_y, wheel1_theta) + ax.transData
+    transform = mpl.transforms.Affine2D().rotate_around(wheel1_x, wheel1_y, wheel1_theta) + ax.transData
     wheel1_block.set_transform(transform)
 
     wheel1_direction.set_data([wheel1_x, wheel1_x + 0.05 * np.cos(wheel1_theta)], 
@@ -190,15 +189,13 @@ def update(i):
 
     wheel2_x = wheel2[i][0]
     wheel2_y = wheel2[i][1]
-    # wheel2_theta = wheel2[i][2]
     wheel2_theta = head_theta + global_var.BETA[1]
 
     wheel2_block.set_width(2 * global_var.WHEEL_R)
     wheel2_block.set_height(global_var.WHEEL_TH)
     wheel2_block.set_xy([wheel2_x - global_var.WHEEL_R, wheel2_y - global_var.WHEEL_TH/2])
 
-    transform = mpl.transforms.Affine2D().rotate_around(
-        wheel2_x, wheel2_y, wheel2_theta) + ax.transData
+    transform = mpl.transforms.Affine2D().rotate_around(wheel2_x, wheel2_y, wheel2_theta) + ax.transData
     wheel2_block.set_transform(transform)
 
     wheel2_direction.set_data([wheel2_x, wheel2_x + 0.05 * np.cos(wheel2_theta)], 
@@ -207,7 +204,6 @@ def update(i):
     
     wheel3_x = wheel3[i][0]
     wheel3_y = wheel3[i][1]
-    # wheel3_theta = wheel3[i][2]
     wheel3_theta = tail_theta + global_var.BETA[2]
 
     wheel3_block.set_width(2 * global_var.WHEEL_R)
@@ -224,15 +220,13 @@ def update(i):
 
     wheel4_x = wheel4[i][0]
     wheel4_y = wheel4[i][1]   
-    # wheel4_theta = wheel4[i][2]
     wheel4_theta = tail_theta + global_var.BETA[3]
 
     wheel4_block.set_width(2 * global_var.WHEEL_R)
     wheel4_block.set_height(global_var.WHEEL_TH)
     wheel4_block.set_xy([wheel4_x - global_var.WHEEL_R, wheel4_y - global_var.WHEEL_TH/2])
 
-    transform = mpl.transforms.Affine2D().rotate_around(
-        wheel4_x, wheel4_y, wheel4_theta) + ax.transData
+    transform = mpl.transforms.Affine2D().rotate_around(wheel4_x, wheel4_y, wheel4_theta) + ax.transData
     wheel4_block.set_transform(transform)
 
     wheel4_direction.set_data([wheel4_x, wheel4_x + 0.05 * np.cos(wheel4_theta)], 
@@ -249,10 +243,7 @@ def update(i):
                             [tail_y, tail_y + 0.1 * np.sin(tail_theta)])
 
     #//////////////////////////////////////////////////////////
-
-    # seg1 = genArc(q, 1)
-    # seg2 = genArc(q, 2)
-
+    
     seg1 = genArc([x, y, phi, q[3], q[4]], 1)
     seg2 = genArc([x, y, phi, q[3], q[4]], 2)
 
@@ -280,24 +271,31 @@ def update(i):
 
     path_line.set_data(path_x, path_y)
 
-    if q_target:
+    # if q_target:
 
-        target_seg1 = genArc(q_target, 1)
-        target_seg2 = genArc(q_target, 2)
+    #     target_seg1 = genArc(q_target, 1)
+    #     target_seg2 = genArc(q_target, 2)
 
-        target_arc1.set_data(target_seg1[0], target_seg1[1])
-        target_arc2.set_data(target_seg2[0], target_seg2[1])
+    #     target_arc1.set_data(target_seg1[0], target_seg1[1])
+    #     target_arc2.set_data(target_seg2[0], target_seg2[1])
 
-        return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, target_arc1, target_arc2
+    #     return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, target_arc1, target_arc2
 
-    return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line
+    for state, state_arc1, state_arc2 in zip(states, state_arcs1, state_arcs2):
+        state_seg1 = genArc(state, 1)
+        state_seg2 = genArc(state, 2)
+
+        state_arc1.set_data(state_seg1[0], state_seg1[1])
+        state_arc2.set_data(state_seg2[0], state_seg2[1])
+
+    return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, state_arcs1, state_arcs2
 
 
-def plotMotion(q, s, h, t, wheels, frames, q_t=[]):
+def plotMotion(q, s, h, t, wheels, frames):
     global q_list, s_array, q_target, head, tail, wheel1, wheel2, wheel3, wheel4
     q_list = q
     s_array = s
-    q_target = q_t
+    # q_target = q_t
     head = h
     tail = t
 
@@ -321,27 +319,18 @@ if __name__ == "__main__":
     filename = os.path.join(dirname, 'Data/reach_target.csv')
 
     df = pd.read_csv(filename, header=0)
-    
-    column_names = ["x_target", "y_target", "angle_target", "k1_target", "k2_target", 
-                       "x", "y", "angle", "k1", "k2",
-                       'x_head', 'y_head', 'theta_head', 
-                       'x_tail', 'y_tail', 'theta_tail',
-                    #    'w1_x', 'w1_y', 'w1_theta',
-                    #    'w2_x', 'w2_y', 'w2_theta',
-                    #    'w3_x', 'w3_y', 'w3_theta',
-                    #    'w4_x', 'w4_y', 'w4_theta',
-                       'w1_x', 'w1_y',
-                       'w2_x', 'w2_y',
-                       'w3_x', 'w3_y',
-                       'w4_x', 'w4_y',
-                       'path_x', 'path_y',
-                       ]
+
+    column_names = df.columns.tolist()
+    column_names = [col for col in column_names if col != 'time']
+
     df[column_names] = df[column_names].astype(float)
     
     q = [[df.iloc[i]["x"], df.iloc[i]["y"], df.iloc[i]["angle"], df.iloc[i]["k1"], df.iloc[i]["k2"]] for i in range(len(df))]
     frames_number = len(q)
     s = [[0, 0]]  * frames_number
-    q_target = [df["x_target"][1], df["y_target"][1], df["angle_target"][1], df["k1_target"][1], df["k2_target"][1]]
+
+    # last_ind = df.shape[0]-1
+    # q_target = [df["x_target"][last_ind], df["y_target"][last_ind], df["angle_target"][last_ind], df["k1_target"][last_ind], df["k2_target"][last_ind]]
 
     h = [[df.iloc[i]["x_head"], df.iloc[i]["y_head"], df.iloc[i]["theta_head"]] for i in range(len(df))]
     t = [[df.iloc[i]["x_tail"], df.iloc[i]["y_tail"], df.iloc[i]["theta_tail"]] for i in range(len(df))]
@@ -360,6 +349,9 @@ if __name__ == "__main__":
     path_x = df['path_x'].dropna().to_list()
     path_y = df['path_y'].dropna().to_list()
 
+    for state_ind in range(1, len(column_names) - 20):
+         states.append(df['state{}'.format(state_ind)].dropna().to_list())
+
     # plotMotion(q, s, h, t, frames_number, q_t=q_target)
-    plotMotion(q, s, h, t, wheels, frames_number, q_t=q_target)
+    plotMotion(q, s, h, t, wheels, frames_number)
 
