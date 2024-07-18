@@ -1,4 +1,5 @@
 import numpy as np
+from Model import global_var as gv
 
 def getDistance(p1, p2):
     """
@@ -10,6 +11,51 @@ def getDistance(p1, p2):
     dx = p1[0] - p2[0]
     dy = p1[1] - p2[1]
     return np.hypot(dx, dy)
+
+class LogSpiral:
+    def __init__(self, n: int):
+        self.m = gv.M[n-1]
+        self.a = gv.SPIRAL_COEF[0][n-1]
+        self.b = gv.SPIRAL_COEF[1][n-1]
+        self.theta_min = gv.SPIRAL_TH_MIN[n-1]
+
+    def get_theta(self, k: float) -> float:
+        return k * gv.L_VSS / self.m
+
+    def get_rho(self, k: float) -> float:
+        b = -self.b if k > 0 else self.b
+        theta = self.get_theta(k)
+        theta = theta - self.theta_min if k > 0 else theta + self.theta_min
+        return self.a * np.exp(b * theta)
+    
+    def get_pos_dot(self, theta_0: float, k: float, seg: int = 1, lu: int = 1) -> list:
+        seg_flag = -1 if seg == 1 else 1
+        lu_flag = -1 if lu == 1 else 1
+        b = -self.b if k > 0 else self.b
+
+        theta = self.get_theta(k)
+        phi = theta_0 + seg_flag * k * gv.L_VSS
+  
+        pos_dot_local = np.array([
+            [b * np.cos(theta) - np.sin(theta)],
+            [lu_flag * (b * np.sin(theta) + np.cos(theta))]
+        ])
+
+        rho = self.get_rho(k)
+        pos_dot_local *= (rho - gv.L_VSS) / rho
+    
+        rot_spiral_to_global = np.array([
+            [np.cos(phi), -np.sin(phi)],
+            [np.sin(phi), np.cos(phi)]
+        ])
+    
+        return (rot_spiral_to_global @ pos_dot_local).flatten().tolist()
+    
+    def get_th_dot(self, k:float):
+        return self.m / self.get_rho(k)
+    
+    def get_k_dot(self, k: float):
+        return self.get_th_dot(k) / gv.L_VSS
 
 class Trajectory:
     def __init__(self, traj_x, traj_y):

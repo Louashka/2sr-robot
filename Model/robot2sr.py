@@ -1,5 +1,5 @@
 from Model.frame import Frame
-from Model import global_var as gv
+from Model import splines
 from typing import List
 import numpy as np
 
@@ -85,12 +85,6 @@ class Robot(Frame):
         self.k2 = value[4]
 
     @property
-    def jacobian_soft(self) -> np.ndarray:
-        J_soft = np.array([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]])
-
-        return J_soft
-
-    @property
     def jacobian_rigid(self) -> np.ndarray:
 
         J_rigid = np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
@@ -100,6 +94,43 @@ class Robot(Frame):
                             [0, 0, 0]])
         
         return J_rigid
+    
+    def jacobian_soft_case(self, case: int) -> np.ndarray:
+        if case == 3:
+            spiral1 = spiral2 = splines.LogSpiral(3)
+        else:
+            spiral1 = splines.LogSpiral(1)
+            spiral2 = splines.LogSpiral(2)
+
+        pos_lu1 = spiral2.get_pos_dot(self.theta, self.k2, 2, 1)
+        pos_lu2 = spiral2.get_pos_dot(self.theta, self.k1, 1, 2)
+
+        J = np.array([[pos_lu1[0], pos_lu2[0]],
+                      [pos_lu1[1], pos_lu2[1]],
+                      [spiral2.get_th_dot(self.k2), spiral2.get_th_dot(self.k1)],
+                      [-spiral1.get_k_dot(self.k1), spiral2.get_k_dot(self.k1)],
+                      [-spiral2.get_k_dot(self.k2), spiral1.get_k_dot(self.k2)]])
+        
+        stiffness_array = np.array([[self.stiffness[1], self.stiffness[0]],
+                                    [self.stiffness[1], self.stiffness[0]],
+                                    [self.stiffness[1], self.stiffness[0]],
+                                    [self.stiffness[0], self.stiffness[0]],
+                                    [self.stiffness[1], self.stiffness[1]]])
+        
+        return np.multiply(stiffness_array, J)
+    
+    @property
+    def jacobian_soft(self) -> np.ndarray:
+        delta = np.array([
+                        int(self.stiffness[0] and not self.stiffness[1]),    
+                        int(not self.stiffness[0] and self.stiffness[1]),    
+                        int(all(self.stiffness))                
+                    ])
+    
+        J_array = np.array([self.jacobian_soft_case(i) for i in range(1, 4)])
+        J_soft =  np.tensordot(J_array, delta, axes=([0], [0]))
+    
+        return J_soft
     
     @property
     def jacobian(self) -> np.ndarray:

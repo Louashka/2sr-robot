@@ -2,7 +2,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from Model import global_var as gv
+from Model import global_var as gv, splines
+from typing import List
 
 def arc(q, seg=1) -> list:
     s = np.linspace(0, gv.L_VSS, 50)
@@ -25,58 +26,30 @@ def arc(q, seg=1) -> list:
         
     return [x, y]
 
-def get_spiral_parameters(n: int, k: float) -> tuple[float, float, float, float]:
-    n -= 1
 
-    a = gv.SPIRAL_COEF[0][n]
-    b = gv.SPIRAL_COEF[1][n]
-    theta = k * gv.L_VSS / gv.M[n]
-    theta_min = gv.SPIRAL_TH_MIN[n]
-
-    return a, b, theta, theta_min
-
-
-def get_rho(n: int, k: float) -> float:
-    a, b, theta, theta_min = get_spiral_parameters(n, k)
-
-    if k > 0:
-        b = -b
-        theta -= theta_min
+def get_jacobian(n: int, q:np.ndarray, s: List[float]) -> np.ndarray:
+    if n == 3:
+        spiral1 = spiral2 = splines.LogSpiral(3)
     else:
-        theta += theta_min
+        spiral1 = splines.LogSpiral(1)
+        spiral2 = splines.LogSpiral(2)
 
-    rho = a * np.exp(b * theta)
+    pos_lu1 = spiral2.get_pos_dot(q[2], q[4], 2, 1)
+    pos_lu2 = spiral2.get_pos_dot(q[2], q[3], 1, 2)
 
-    return rho
-
-def get_pos_dot(n: int, theta_0: float, k: float, scale: float, seg:int = 1, lu: int = 1) -> list:
-    seg_flag = -1 if seg == 1 else 1
-    lu_flag = -1 if lu == 1 else 1
-
-    _, b, theta, _ = get_spiral_parameters(n, k)
-
-    phi = theta_0 + seg_flag * k * gv.L_VSS
-  
-    pos_dot_local = np.array([[b * np.cos(theta) - np.sin(theta)],
-                              [lu_flag * (b * np.sin(theta) + np.cos(theta))]])
-
-    pos_dot_local *= scale
+    J = np.array([[pos_lu1[0], pos_lu2[0]],
+                  [pos_lu1[1], pos_lu2[1]],
+                  [spiral2.get_th_dot(q[4]), spiral2.get_th_dot(q[3])],
+                  [-spiral1.get_k_dot(q[3]), spiral2.get_k_dot(q[3])],
+                  [-spiral2.get_k_dot(q[4]), spiral1.get_k_dot(q[4])]])
     
-    rot_spiral_to_global = np.array([[np.cos(phi), -np.sin(phi)],
-                                       [np.sin(phi), np.cos(phi)]])
+    stiffness_array = np.array([[s[1], s[0]],
+                                [s[1], s[0]],
+                                [s[1], s[0]],
+                                [s[0], s[0]],
+                                [s[1], s[1]]])
     
-    pos_dot_global = rot_spiral_to_global@pos_dot_local
-    
-    return pos_dot_global.flatten().tolist()
-
-def get_jacobian():
-    J = np.array([[0, x12_dot],
-                  [0, y12_dot],
-                  [0, theta12_dot],
-                  [k11_dot, k12_dot],
-                   [0, 0]])
-    
-    return
+    return np.multiply(stiffness_array, J)
 
 
 fig, ax = plt.subplots()
@@ -86,7 +59,7 @@ dt = 0.1  # step size
 q = np.array([0.0, 0.0, np.pi/5, 0.0, 0.0])
 s = [1, 1]
 
-v = np.array([0.04, 0.04])
+v = np.array([0.03, -0.03])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")
@@ -102,84 +75,18 @@ def init():
 def update(i):
     global q, arc1, arc2, centre
 
-    #//////////////////////////////////Case I.I//////////////////////////////////
-
-    rho11 = get_rho(1, q[3])
-
-    k11_dot = -gv.M[0] / (gv.L_VSS * rho11)
-
-    #//////////////////////////////////Case I.II/////////////////////////////////
-
-    rho12 = get_rho(2, q[3])
- 
-    theta12_dot = gv.M[1] / rho12
-    k12_dot = theta12_dot / gv.L_VSS
-
-    scale1 = (rho12 - gv.L_VSS) / rho12
-    x12_dot, y12_dot = get_pos_dot(2, q[2], q[3], scale1, 1, 2)
-
-    #Combine case I.I and I.II into complete Case I
-
-    J1 = np.array([[0, x12_dot],
-                   [0, y12_dot],
-                   [0, theta12_dot],
-                   [k11_dot, k12_dot],
-                   [0, 0]])
+    delta = np.array([
+                        int(s[0] and not s[1]),    # delta1
+                        int(not s[0] and s[1]),    # delta2
+                        int(all(s))                # delta3
+                    ])
     
-    #////////////////////////////////////////////////////////////////////////////
-
-    #//////////////////////////////////Case II.I/////////////////////////////////
-
-    rho21 = get_rho(1, q[4])
-
-    k21_dot = gv.M[0] / (gv.L_VSS * rho21)
-
-    #//////////////////////////////////Case II.II////////////////////////////////
-
-    rho22 = get_rho(2, q[4])
-
-    theta22_dot = gv.M[1] / rho22
-    k22_dot = -theta22_dot / gv.L_VSS
+    J_array = np.array([get_jacobian(i, q, s) for i in range(1, 4)])
     
-    scale2 = (rho22 - gv.L_VSS) / rho22
-    x22_dot, y22_dot = get_pos_dot(2, q[2], q[4], scale2, 2, 1)
-
-    #Combine case II.I and II.II into complete Case II
-
-    J2 = np.array([[x22_dot, 0],
-                   [y22_dot, 0],
-                   [theta22_dot, 0],
-                   [0, 0],
-                   [k22_dot, k21_dot]])
-    
-    #////////////////////////////////////////////////////////////////////////////
-
-    #//////////////////////////////////Case III//////////////////////////////////
-
-    rho3 = get_rho(3, (q[3] + q[4]) / 2)
-
-    theta3_dot = gv.M[2] / rho3
-    k3_dot = theta3_dot / gv.L_VSS
-    
-    scale3 = (rho3 - rho11) / rho3
-    x31_dot, y31_dot = get_pos_dot(3, q[2], q[4], scale3, 2, 1)
-    x32_dot, y32_dot = get_pos_dot(3, q[2], q[3], scale3, 1, 2)
-
-    J3 = np.array([[x31_dot, x32_dot],
-                   [y31_dot, y32_dot],
-                   [theta3_dot, theta3_dot],
-                   [-k3_dot, k3_dot],
-                   [-k3_dot, k3_dot]])
-
-    #////////////////////////////////////////////////////////////////////////////
-
-    # Combine all parts into one Jacobian
-
-    delta1 = int(s[0] and not s[1])
-    delta2 = int(not s[0] and s[1])
-    delat3 = int(all(s))
-    
-    J = delta1 * J1 + delta2 * J2 + delat3 * J3
+    # Perform matrix multiplication
+    # J_array shape: (3, m, n), delta shape: (3,)
+    # Result shape: (m, n)
+    J =  np.tensordot(J_array, delta, axes=([0], [0]))
     
     q_dot = J@v
     q += q_dot * dt
