@@ -41,9 +41,9 @@ x_range = 0
 y_range = 0
 
 # link = Rectangle((0, 0), 0, 0, fc='y')
-arc1, = ax.plot([], [], lw=5, color="blue")
-arc2, = ax.plot([], [], lw=5, color="blue")
-centre, = ax.plot([], [], lw=5, marker=".", color="black")
+arc1, = ax.plot([], [], lw=4, color="blue")
+arc2, = ax.plot([], [], lw=4, color="blue")
+centre, = ax.plot([], [], lw=4, marker=".", color="black")
 
 stiffness_text = ax.text(0, 0, '', fontsize=font_size)
 
@@ -58,14 +58,14 @@ wheel2_block = Rectangle((0, 0), 0, 0, fc='y')
 wheel3_block = Rectangle((0, 0), 0, 0, fc='m')
 wheel4_block = Rectangle((0, 0), 0, 0, fc='g')
 
-wheel1_direction, = ax.plot([], [], lw=2, color="red")
-wheel2_direction, = ax.plot([], [], lw=2, color="red")
-wheel3_direction, = ax.plot([], [], lw=2, color="red")
-wheel4_direction, = ax.plot([], [], lw=2, color="red")
+wheel1_direction, = ax.plot([], [], lw=1, color="red")
+wheel2_direction, = ax.plot([], [], lw=1, color="red")
+wheel3_direction, = ax.plot([], [], lw=1, color="red")
+wheel4_direction, = ax.plot([], [], lw=1, color="red")
 
-agent_direction, = ax.plot([], [], lw=3, color="red")
-head_direction, = ax.plot([], [], lw=3, color="red")
-tail_direction, = ax.plot([], [], lw=3, color="red")
+agent_direction, = ax.plot([], [], lw=2, color="red")
+head_direction, = ax.plot([], [], lw=2, color="red")
+tail_direction, = ax.plot([], [], lw=2, color="red")
 
 path_line, = ax.plot([], [], lw=1, color="red", linestyle='dashed')
 
@@ -172,6 +172,8 @@ def update(i):
     tail_block.set_transform(transform)
 
     #//////////////////////////////////////////////////////////
+    wheel_direc_coef = 0.03 
+
     wheel1_x = wheel1[i][0]
     wheel1_y = wheel1[i][1]
     wheel1_theta = head_theta + global_var.BETA[0]
@@ -183,8 +185,8 @@ def update(i):
     transform = mpl.transforms.Affine2D().rotate_around(wheel1_x, wheel1_y, wheel1_theta) + ax.transData
     wheel1_block.set_transform(transform)
 
-    wheel1_direction.set_data([wheel1_x, wheel1_x + 0.05 * np.cos(wheel1_theta)], 
-                              [wheel1_y, wheel1_y + 0.05 * np.sin(wheel1_theta)])
+    wheel1_direction.set_data([wheel1_x, wheel1_x + wheel_direc_coef * np.cos(wheel1_theta)], 
+                              [wheel1_y, wheel1_y + wheel_direc_coef * np.sin(wheel1_theta)])
 
 
     wheel2_x = wheel2[i][0]
@@ -198,8 +200,8 @@ def update(i):
     transform = mpl.transforms.Affine2D().rotate_around(wheel2_x, wheel2_y, wheel2_theta) + ax.transData
     wheel2_block.set_transform(transform)
 
-    wheel2_direction.set_data([wheel2_x, wheel2_x + 0.05 * np.cos(wheel2_theta)], 
-                              [wheel2_y, wheel2_y + 0.05 * np.sin(wheel2_theta)])
+    wheel2_direction.set_data([wheel2_x, wheel2_x + wheel_direc_coef * np.cos(wheel2_theta)], 
+                              [wheel2_y, wheel2_y + wheel_direc_coef * np.sin(wheel2_theta)])
 
     
     wheel3_x = wheel3[i][0]
@@ -233,14 +235,15 @@ def update(i):
                               [wheel4_y, wheel4_y + 0.05 * np.sin(wheel4_theta)])
 
     
-    agent_direction.set_data([x, x + 0.1 * np.cos(phi)], 
-                             [y, y + 0.1 * np.sin(phi)])
+    direc_coef = 0.05
+    agent_direction.set_data([x, x + direc_coef * np.cos(phi)], 
+                             [y, y + direc_coef * np.sin(phi)])
     
-    head_direction.set_data([head_x, head_x + 0.1 * np.cos(head_theta)], 
-                            [head_y, head_y + 0.1 * np.sin(head_theta)])
+    head_direction.set_data([head_x, head_x + direc_coef * np.cos(head_theta)], 
+                            [head_y, head_y + direc_coef * np.sin(head_theta)])
     
-    tail_direction.set_data([tail_x, tail_x + 0.1 * np.cos(tail_theta)], 
-                            [tail_y, tail_y + 0.1 * np.sin(tail_theta)])
+    tail_direction.set_data([tail_x, tail_x + direc_coef * np.cos(tail_theta)], 
+                            [tail_y, tail_y + direc_coef * np.sin(tail_theta)])
 
     #//////////////////////////////////////////////////////////
     

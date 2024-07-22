@@ -163,13 +163,13 @@ class Task(keyboard_controller.ActionsHandler):
 
         dist = splines.getDistance(self.agent.position, goal)
         
-        frames = 1000
+        frames = 300
         counter = 0
 
-        # while counter < frames:
-        while dist > 10**(-2):
+        while counter < frames:
+        # while dist > 10**(-2):
             
-            v, s = self.agent_controller.motionPlanner(self.agent, path)
+            v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
             # v = [0, 0.1, 0, 0, 0]
             # print(v)
             wheels, q = self.agent_controller.move(self.agent, v, s)

@@ -133,7 +133,7 @@ class Robot(Frame):
         return J_soft
     
     @property
-    def jacobian(self) -> np.ndarray:
+    def  J_jacobian(self) -> np.ndarray:
         return np.hstack((self.jacobian_rigid, self.jacobian_soft))
     
     def update(self, v: np.ndarray, time_step: float=0.1) -> None:

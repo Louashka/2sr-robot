@@ -72,7 +72,7 @@ class Trajectory:
     def __calculate_cumulative_length(self) -> None:
         dx = np.diff(self.traj_x)
         dy = np.diff(self.traj_y)
-        segment_lengths = np.sqrt(dx**2 + dy**2)
+        segment_lengths = np.hypot(dx, dy)
         self.length = np.concatenate(([0], np.cumsum(segment_lengths)))
 
     def getPoint(self, idx) -> list:
