@@ -166,10 +166,10 @@ class Task(keyboard_controller.ActionsHandler):
         frames = 300
         counter = 0
 
-        while counter < frames:
-        # while dist > 10**(-2):
+        # while counter < frames:
+        while dist > 10**(-2):
             
-            v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
+            v, s = self.agent_controller.motionPlanner(self.agent, path, states)
             # v = [0, 0.1, 0, 0, 0]
             # print(v)
             wheels, q = self.agent_controller.move(self.agent, v, s)
@@ -226,7 +226,7 @@ class Task(keyboard_controller.ActionsHandler):
         df['path_y'] = pd.Series(path.traj_y)
 
         state_ind = 1
-        for state in states:
+        for state in states.values():
             df['state{}'.format(state_ind)] = pd.Series(state)
             state_ind += 1
 
@@ -249,17 +249,18 @@ class Task(keyboard_controller.ActionsHandler):
         path_slices = path.divideIntoThirds()
         states_idx = list(path_slices) + [len(path.traj_x)-1]
 
-        states = []
+        states = {}
 
         for state_idx in states_idx: 
             position = path.getPoint(state_idx)
             orientation = path.getSlopeAngle(state_idx) - np.pi/2
+            orientation %= (2 * np.pi)
             k1 = rnd.uniform(-max_curvature, max_curvature)
             k2 = rnd.uniform(-max_curvature, max_curvature)
 
             state_config = position + [orientation, k1, k2]
 
-            states.append(state_config)
+            states[str(state_idx)] = state_config
 
         return states
 

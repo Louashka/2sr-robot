@@ -108,28 +108,73 @@ class Controller:
         return A, B
 
 
-    def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory) -> tuple[List[float], List[float]]:
+    def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
+        flag = False
+
         target_point = path.getTargetPoint(agent.position, self.lookahead_distance)
         desired_heading = np.arctan2(target_point[1] - agent.y, target_point[0] - agent.x) - np.pi/2
         desired_heading %= (2 * np.pi)
 
-        distance = target_point - np.array(agent.position)
-        heading_error = self.minAngleDistance(desired_heading, agent.theta)
+        target_config = target_point + [desired_heading] + agent.curvature
+
+        for alt_idx in states:
+            if int(alt_idx) - path.last_idx > 0 and int(alt_idx) - path.last_idx < 3:
+                # if np.all(np.abs((states[alt_idx][3:] - np.array(agent.curvature))) < 0.5):
+                #     continue
+
+                target_config = states[alt_idx] 
+                flag = True
+                break
+
+        distance = target_config[:2] - np.array(agent.position)
+        heading_error = self.minAngleDistance(target_config[2], agent.theta)
+        curvature_diff = target_config[3:] - np.array(agent.curvature)
 
         q_tilda = np.concatenate([
             self.kp_linear * distance,
             [self.kp_angular * heading_error],
-            [0, 0]
+            curvature_diff
         ])
 
-        v_optimal = np.linalg.pinv(agent.jacobian) @ q_tilda
+        # A set of possible stiffness configurations
+        s = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        # A set of possible configurations
+        q_ = [None] * len(s)
+        v_ = [None] * len(s)
+
+        for i in range(len(s)):
+            J = agent.jacobian(s[i])
+            v_[i] = np.linalg.pinv(J) @ q_tilda
+            q_dot = J @ v_[i]
+            q_[i] = agent.config + q_dot * global_var.DT
+
+        # Determine the stiffness configuration that promotes
+        # faster approach to the target
+        dist_ = np.linalg.norm(q_ - np.array(target_config), axis=1)
+        min_i = np.argmin(dist_)
+
+        # The extent of the configuration change
+        delta_q_ = np.linalg.norm(agent.config - np.array(q_), axis=1)
+        current_i = s.index(agent.stiffness)
+
+        # # Stiffness transition is committed only if the previous
+        # # stiffness configuration does not promote further motion
+        # if min_i != current_i:
+        #     if delta_q_[current_i] > 10**(-17):
+        #         min_i = current_i
+
+        if not flag:
+            min_i = 0
+
+        # v_optimal = np.linalg.pinv(agent.jacobian([0, 0])) @ q_tilda
+        v_optimal = v_[min_i]
 
         # Apply constraints to v_optimal
         # v_constrained = self.applyCelocity_constraints(agent, v_optimal)
         
         # v = v_constrained.tolist()
         
-        return v_optimal.tolist(), agent.stiffness
+        return v_optimal.tolist(), s[min_i]
 
 
     def applyVelocityConstraints(self, agent: robot2sr.Robot, v_optimal: np.ndarray) -> np.ndarray:
@@ -179,7 +224,7 @@ class Controller:
         V = self._wheelsConfigMatrix(wheels, s)
         omega = np.round(V @ v, 3)
         v_new = np.linalg.pinv(V) @ omega
-        q_dot = agent.jacobian @ v_new
+        q_dot = agent.jacobian(s) @ v_new
         q = agent.config + q_dot * global_var.DT
 
         print(omega)
