@@ -6,15 +6,15 @@ import numpy as np
 import matplotlib.pyplot as plot
 
 # Camera
-fx = 507.47653462
-fy = 506.96777583
-cx = 674.16058506
-cy = 301.97157826
-k1 = 0.03506687
-k2 = -0.04692763
-p1 = -0.0005411
-p2 = 0.00109113
-k3 = 0.01093749
+fx = 587.77695912
+fy = 587.49352402
+cx = 636.67708427
+cy = 350.68017254
+k1 = 3.58183122e-04
+k2 = -2.20971875e-02
+p1 = -2.46447770e-05
+p2 = 1.46568391e-03
+k3 = 6.40455235e-03
 cameraMatrix = np.array([[fx, 0, cx],
                          [0, fy, cy],
                          [0, 0, 1]])
@@ -60,8 +60,8 @@ def DetectArucoPose(frame):
 
     if ids is not None:
         rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, 0.05, cameraMatrix, dist)
-        # print("rvec: ", rvec)
-        # print("tvex: ", tvec)
+        print("rvec: ", rvec[0])
+        print("tvex: ", tvec[0])
         for i in range(rvec.shape[0]):
             tvecCopy = tvec[i, :, :] + [10., 0, 0]
             # print("tvecCopy", tvecCopy)

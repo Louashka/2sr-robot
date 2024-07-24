@@ -4,20 +4,21 @@ import cvxpy
 import math
 import numpy as np
 import cubic_spline_planner
+from Model import splines
 
 show_animation = True
 NX = 3  # x = x, y, yaw
 NU = 2  # a = [linear velocity,angular velocity ]
-T = 5  # horizon length
+T = 10  # horizon length
 
 # mpc parameters
 R = np.diag([10000, .05])  # input cost matrix
-Q = np.diag([10, 10,0.000])  # state cost matrix
-Qf = np.diag([10, 10, 0.000]) # state final matrix
-Rd = np.diag([10000, 0.01])
+Q = np.diag([10, 10, 0.1])  # state cost matrix
+Qf = np.diag([10, 10, 0.1]) # state final matrix
+Rd = np.diag([10, 0.01])
 
-GOAL_DIS = 4  # goal distance
-STOP_SPEED = 0.15   # stop speed
+GOAL_DIS = 2  # goal distance
+STOP_SPEED = 0.05   # stop speed
 MAX_TIME = 200.0  # max simulation time
 
 # iterative paramter
@@ -27,7 +28,7 @@ DU_TH = 0.1  # iteration finish param
 N_IND_SEARCH = 10  # Search index number
 DT = 0.25  # [s] time tick
 
-TARGET_SPEED = 0.35   # [m/s] target speed
+TARGET_SPEED = 0.1   # [m/s] target speed
 
 class State:
     def __init__(self, x=0.0, y=0.0, yaw=0.0):
@@ -69,7 +70,7 @@ def pi_2_pi(angle):
         angle = angle + 2.0 * math.pi
     return angle
 
-def plot_arrow(x, y, yaw, length=0.2, width=0.5, fc="r", ec="k"):
+def plot_arrow(x, y, yaw, length=0.05, width=0.1, fc="r", ec="k"):
     if not isinstance(x, float):
         for (ix, iy, iyaw) in zip(x, y, yaw):
             plot_arrow(ix, iy, iyaw)
@@ -211,10 +212,16 @@ def linear_mpc_control(xref, xbar, x0, vref):
 
 
 if __name__ == '__main__':
-    dl = 0.1 # course tick
-    ax = [0.0, 1.0, 1.5, 3.0, 4.0]
-    ay = [0.0, 1.0, 1.5, 1.0, 0.0] 
-    cx, cy, cyaw, _, s = cubic_spline_planner.calc_spline_course(ax, ay, ds=dl)
+    dl = 0.05 # course tick
+    # ax = [0.0, 1.0, 1.5, 3.0, 4.0]
+    # ay = [0.0, 1.0, 1.5, 1.0, 0.0] 
+    # cx, cy, cyaw, _, s = cubic_spline_planner.calc_spline_course(ax, ay, ds=dl)
+
+    path_x = np.arange(0, 2, 0.01)
+    path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x])
+    path = splines.Trajectory(path_x, path_y)
+
+    cx, cy, cyaw, s = path.params
 
     sp = [TARGET_SPEED] * len(cx)
     sp[-1] = 0.0
@@ -222,11 +229,11 @@ if __name__ == '__main__':
     state = State(x=cx[0], y=cy[0], yaw=cyaw[0])
 
     goal = [cx[-1], cy[-1]]
-    # initial yaw compensation
-    if state.yaw - cyaw[0] >= math.pi:
-        state.yaw -= math.pi * 2.0
-    elif state.yaw - cyaw[0] <= -math.pi:
-        state.yaw += math.pi * 2.0
+    # # initial yaw compensation
+    # if state.yaw - cyaw[0] >= math.pi:
+    #     state.yaw -= math.pi * 2.0
+    # elif state.yaw - cyaw[0] <= -math.pi:
+    #     state.yaw += math.pi * 2.0
 
     time = 0.0
     x, y, yaw, v, omega, t = [state.x], [state.y], [state.yaw], [0.0], [0.0], [0.0]

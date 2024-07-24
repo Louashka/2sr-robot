@@ -64,19 +64,30 @@ class Trajectory:
         :param traj_x: list, list of x position
         :param traj_y: list, list of y position
         """
-        self.traj_x = traj_x
-        self.traj_y = traj_y
-        self.last_idx = 0
+        self.x = traj_x
+        self.y = traj_y
+        self.yaw = []
+
+        for i in range(len(traj_x)):
+            self.yaw.append(self.getSlopeAngle(i))
+
         self.__calculate_cumulative_length()
+        self.s = list(np.linspace(0, self.length[-1], len(traj_x)))
+
+        self.last_idx = 0
+
+    @property
+    def params(self) -> tuple[list, list, list, list]:
+        return self.x, self.y, self.yaw, self.s
 
     def __calculate_cumulative_length(self) -> None:
-        dx = np.diff(self.traj_x)
-        dy = np.diff(self.traj_y)
+        dx = np.diff(self.x)
+        dy = np.diff(self.y)
         segment_lengths = np.hypot(dx, dy)
         self.length = np.concatenate(([0], np.cumsum(segment_lengths)))
 
     def getPoint(self, idx) -> list:
-        return [self.traj_x[idx], self.traj_y[idx]]
+        return [self.x[idx], self.y[idx]]
 
     def getTargetPoint(self, pos, la_dist) -> list:
         """
@@ -88,7 +99,7 @@ class Trajectory:
         target_point = self.getPoint(target_idx)
         current_dist = getDistance(pos, target_point)
 
-        while current_dist < la_dist and target_idx < len(self.traj_x) - 1:
+        while current_dist < la_dist and target_idx < len(self.x) - 1:
             target_idx += 1
             target_point = self.getPoint(target_idx)
             current_dist = getDistance(pos, target_point)
@@ -116,13 +127,13 @@ class Trajectory:
         :return: float, angle in radians from -pi to pi
         """
         if idx == 0:
-            dx = self.traj_x[1] - self.traj_x[0]
-            dy = self.traj_y[1] - self.traj_y[0]
-        elif idx == len(self.traj_x) - 1:
-            dx = self.traj_x[-1] - self.traj_x[-2]
-            dy = self.traj_y[-1] - self.traj_y[-2]
+            dx = self.x[1] - self.x[0]
+            dy = self.y[1] - self.y[0]
+        elif idx == len(self.x) - 1:
+            dx = self.x[-1] - self.x[-2]
+            dy = self.y[-1] - self.y[-2]
         else:
-            dx = self.traj_x[idx+1] - self.traj_x[idx-1]
-            dy = self.traj_y[idx+1] - self.traj_y[idx-1]
+            dx = self.x[idx+1] - self.x[idx-1]
+            dy = self.y[idx+1] - self.y[idx-1]
 
         return np.arctan2(dy, dx)

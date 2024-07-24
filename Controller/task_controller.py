@@ -169,7 +169,8 @@ class Task(keyboard_controller.ActionsHandler):
         # while counter < frames:
         while dist > 10**(-2):
             
-            v, s = self.agent_controller.motionPlanner(self.agent, path, states)
+            # v, s = self.agent_controller.motionPlanner(self.agent, path, states)
+            v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
             # v = [0, 0.1, 0, 0, 0]
             # print(v)
             wheels, q = self.agent_controller.move(self.agent, v, s)

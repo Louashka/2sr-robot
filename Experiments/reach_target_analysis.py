@@ -238,7 +238,7 @@ def update(i):
     direc_coef = 0.05
     agent_direction.set_data([x, x + direc_coef * np.cos(phi)], 
                              [y, y + direc_coef * np.sin(phi)])
-    
+     
     head_direction.set_data([head_x, head_x + direc_coef * np.cos(head_theta)], 
                             [head_y, head_y + direc_coef * np.sin(head_theta)])
     
@@ -284,18 +284,12 @@ def update(i):
 
     #     return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, target_arc1, target_arc2
 
-    j = 1
     for state, state_arc1, state_arc2 in zip(states, state_arcs1, state_arcs2):
-        if j == 2:
-            state_seg1 = genArc(state[:3] + [-state[4], -state[3]], 1)
-            state_seg2 = genArc(state[:3] + [-state[4], -state[3]], 2)
-        else:
-            state_seg1 = genArc(state, 1)
-            state_seg2 = genArc(state, 2)
+        state_seg1 = genArc(state, 1)
+        state_seg2 = genArc(state, 2)
 
         state_arc1.set_data(state_seg1[0], state_seg1[1])
         state_arc2.set_data(state_seg2[0], state_seg2[1])
-        j += 1
 
     return arc1, arc2, centre, stiffness_text, head_block, tail_block, path_line, state_arcs1, state_arcs2
 
@@ -318,7 +312,7 @@ def plotMotion(q, s, h, t, wheels, frames):
 
     # Save animation
     mywriter = FFMpegWriter(fps=30)
-    anim.save('Experiments/Figures/reach_target1.mp4', writer=mywriter, dpi=300)
+    # anim.save('Experiments/Figures/reach_target1.mp4', writer=mywriter, dpi=300)
       
     plt.show()
 

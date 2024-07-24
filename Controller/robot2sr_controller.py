@@ -137,7 +137,7 @@ class Controller:
         ])
 
         # A set of possible stiffness configurations
-        s = [[0, 0], [0, 1], [1, 0], [1, 1]]
+        s = [[0, 0], [1, 0], [0, 1], [1, 1]]
         # A set of possible configurations
         q_ = [None] * len(s)
         v_ = [None] * len(s)
