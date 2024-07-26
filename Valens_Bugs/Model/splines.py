@@ -17,36 +17,36 @@ class LogSpiral:
         self.m = gv.M[n-1]
         self.a = gv.SPIRAL_COEF[0][n-1]
         self.b = gv.SPIRAL_COEF[1][n-1]
-        self.phi0 = gv.SPIRAL_PHI0[n-1]
+        self.theta_min = gv.SPIRAL_TH_MIN[n-1]
 
-    def get_phi(self, k: float) -> float:
+    def get_theta(self, k: float) -> float:
         return k * gv.L_VSS / self.m
 
     def get_rho(self, k: float) -> float:
         b = -self.b if k > 0 else self.b
-        phi = self.get_phi(k)
-        phi = phi - self.phi0 if k > 0 else phi + self.phi0
-        return self.a * np.exp(b * phi)
+        theta = self.get_theta(k)
+        theta = theta - self.theta_min if k > 0 else theta + self.theta_min
+        return self.a * np.exp(b * theta)
     
-    def get_pos_dot(self, th0: float, k: float, seg: int = 1, lu: int = 1) -> list:
+    def get_pos_dot(self, theta_0: float, k: float, seg: int = 1, lu: int = 1) -> list:
+        seg_flag = -1 if seg == 1 else 1
+        lu_flag = -1 if lu == 1 else 1
         b = -self.b if k > 0 else self.b
 
-        phi = self.get_phi(k)
-        phi = phi - self.phi0 if k > 0 else phi + self.phi0
+        theta = self.get_theta(k)
+        phi = theta_0 + seg_flag * k * gv.L_VSS
   
         pos_dot_local = np.array([
-            [b * np.cos(phi) - np.sin(phi)],
-            [(-1)**lu * (b * np.sin(phi) + np.cos(phi))]
+            [b * np.cos(theta) - np.sin(theta)],
+            [lu_flag * (b * np.sin(theta) + np.cos(theta))]
         ])
 
         rho = self.get_rho(k)
         pos_dot_local *= (rho - gv.L_VSS) / rho
-
-        th = th0 + (-1)**seg * k * gv.L_VSS
     
         rot_spiral_to_global = np.array([
-            [np.cos(th), -np.sin(th)],
-            [np.sin(th), np.cos(th)]
+            [np.cos(phi), -np.sin(phi)],
+            [np.sin(phi), np.cos(phi)]
         ])
     
         return (rot_spiral_to_global @ pos_dot_local).flatten().tolist()

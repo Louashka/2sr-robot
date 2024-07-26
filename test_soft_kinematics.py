@@ -59,7 +59,7 @@ dt = 0.1  # step size
 q = np.array([0.0, 0.0, np.pi/5, 0.0, 0.0])
 s = [1, 1]
 
-v = np.array([0.03, -0.03])
+v = np.array([-0.03, 0.0])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")

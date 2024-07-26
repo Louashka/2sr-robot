@@ -21,8 +21,8 @@ cameraMatrix = np.array([[fx, 0, cx],
 dist = np.array([k1, k2, p1, p2, k3])
 
 # aruco markers
-markerA = 12
-markerB = 10
+markerA = 10
+markerB = 12
 markerA_position = [0, 0]
 markerB_position = [0, 0]
 optiTrackA_position = [0, 0]
@@ -58,10 +58,11 @@ def DetectArucoPose(frame):
     parameters = aruco.DetectorParameters_create()
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
 
-    if ids is not None:
+    if ids is not None and len(ids) == 2:
         rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, 0.05, cameraMatrix, dist)
-        print("rvec: ", rvec[0])
-        print("tvex: ", tvec[0])
+        print("rvec: ", rvec)
+        print("tvex: ", tvec)
+        print("tvex print end")
         for i in range(rvec.shape[0]):
             tvecCopy = tvec[i, :, :] + [10., 0, 0]
             # print("tvecCopy", tvecCopy)
