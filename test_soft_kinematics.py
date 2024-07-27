@@ -27,8 +27,8 @@ def arc(q, seg=1) -> list:
     return [x, y]
 
 
-def get_jacobian(n: int, q:np.ndarray, s: List[float]) -> np.ndarray:
-    if n == 3:
+def get_jacobian(q:np.ndarray, s: List[float]) -> np.ndarray:
+    if all(s):
         spiral1 = spiral2 = splines.LogSpiral(3)
     else:
         spiral1 = splines.LogSpiral(1)
@@ -75,18 +75,20 @@ def init():
 def update(i):
     global q, arc1, arc2, centre
 
-    delta = np.array([
-                        int(s[0] and not s[1]),    # delta1
-                        int(not s[0] and s[1]),    # delta2
-                        int(all(s))                # delta3
-                    ])
+    # delta = np.array([
+    #                     int(s[0] and not s[1]),    # delta1
+    #                     int(not s[0] and s[1]),    # delta2
+    #                     int(all(s))                # delta3
+    #                 ])
     
-    J_array = np.array([get_jacobian(i, q, s) for i in range(1, 4)])
+    # J_array = np.array([get_jacobian(i, q, s) for i in range(1, 4)])
     
-    # Perform matrix multiplication
-    # J_array shape: (3, m, n), delta shape: (3,)
-    # Result shape: (m, n)
-    J =  np.tensordot(J_array, delta, axes=([0], [0]))
+    # # Perform matrix multiplication
+    # # J_array shape: (3, m, n), delta shape: (3,)
+    # # Result shape: (m, n)
+    # J =  np.tensordot(J_array, delta, axes=([0], [0]))
+
+    J = get_jacobian(q, s)
     
     q_dot = J@v
     q += q_dot * dt

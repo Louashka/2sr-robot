@@ -260,6 +260,8 @@ if __name__ == "__main__":
         ret, frame = cap.read()
         h1, w1 = frame.shape[:2]
         undistort_frame = undistort(frame)
+        undistort_frame = cv2.rotate(undistort_frame, cv2.ROTATE_180)
+        # cv2.imshow("rotated by 180", rotated_frame)
 
         frame_wait_for_crop = DetectArucoPose(undistort_frame)
         aruco_pixel_distance_x = aruco_B_position[0] - aruco_A_position[0]

@@ -95,8 +95,9 @@ class Robot(Frame):
         
         return delta * J_rigid
     
-    def jacobian_soft_case(self, case: int, varsigma: list) -> np.ndarray:
-        if case == 3:
+    
+    def jacobian_soft(self, varsigma) -> np.ndarray:
+        if all(varsigma):
             spiral1 = spiral2 = splines.LogSpiral(3)
         else:
             spiral1 = splines.LogSpiral(1)
@@ -117,18 +118,8 @@ class Robot(Frame):
                                     [self.stiffness[0], varsigma[0]],
                                     [self.stiffness[1], varsigma[1]]])
         
-        return np.multiply(stiffness_array, J)
-    
-    def jacobian_soft(self, varsigma) -> np.ndarray:
-        delta = np.array([
-                        int(varsigma[0] and not varsigma[1]),    
-                        int(not varsigma[0] and varsigma[1]),    
-                        int(all(varsigma))                
-                    ])
-    
-        J_array = np.array([self.jacobian_soft_case(i, varsigma) for i in range(1, 4)])
-        J_soft =  np.tensordot(J_array, delta, axes=([0], [0]))
-    
+        J_soft = np.multiply(stiffness_array, J)
+        
         return J_soft
     
     def jacobian(self, varsigma) -> np.ndarray:
