@@ -29,13 +29,13 @@ path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x])
 # shift
 path_x = - path_x + 1
 path_y = path_y - 0.3
-print("path x: ", path_x)
-print("path y: ", path_y)
+# print("path x: ", path_x)
+# print("path y: ", path_y)
 
 class Aligner():
 
     def __init__(self):
-        self.file_path = "calibration_data.json"
+        self.file_path = "Valens_Bugs\calibration_data.json"
         self.data = None
         self.cameraMatrix = None
         self.dist = None
@@ -71,7 +71,7 @@ class Aligner():
         self.read_opti_calibration_data(opti_data)
 
     def run(self):
-        cap = cv2.VideoCapture(1)
+        cap = cv2.VideoCapture(0)
         fps = cap.get(5)
         # set the resolution to 1280x720
         cap.set(3, 1280)
@@ -86,6 +86,7 @@ class Aligner():
 
         # OptiTrack Markers
         opti_A1_position = self.opti_A1_position
+        print("opti_A1_position: ", opti_A1_position)
         opti_A2_position = self.opti_A2_position
         opti_B1_position = self.opti_B1_position
         opti_B2_position = self.opti_B2_position
@@ -101,7 +102,7 @@ class Aligner():
             undistort_frame = self.undistort(frame)
             undistort_frame = cv2.rotate(undistort_frame, cv2.ROTATE_180)
 
-            frame_wait_for_crop = self.DetectArucoPose(undistort_frame)
+            frame_wait_for_crop, aruco_A_position, aruco_B_position = self.DetectArucoPose(undistort_frame, aruco_A_position, aruco_B_position)
             aruco_pixel_distance_x = aruco_B_position[0] - aruco_A_position[0]
             aruco_pixel_distance_y = aruco_B_position[1] - aruco_A_position[1]
 
@@ -113,14 +114,12 @@ class Aligner():
 
             # Crop the frame using the calculated ROI
             cropped_frame = undistort_frame[roi_y:roi_y + roi_height, roi_x:roi_x + roi_width]
+            print("cropped frame: ", cropped_frame)
             # print(cropped_frame.shape)
-
-            # Display the cropped frame
-            # cv2.imshow('Cropped Frame', cropped_frame)
 
             # Resize the cropped frame while maintaining the aspect ratio
             height = 720
-            width = int(cropped_frame.shape[1] * (height / cropped_frame.shape[0]))
+            width = int(self.frame_size[1])
             resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
             frame_shape = resized_frame.shape
             frame_size = self.frame_size
@@ -184,46 +183,59 @@ class Aligner():
         cv2.destroyAllWindwos()
 
     def calibration(self):
-        cap = cv2.VideoCapture(0)
-        fps = cap.get(5)
-        # set the resolution to 1280x720
-        cap.set(3, 1280)
-        cap.set(4, 720)
-
-        crop_flag = False
-
-        self.startDataListener()
-
         # ArUco Markers
-        aruco_A_id = 10
-        aruco_B_id = 12
-        aruco_A_position = np.array([93, 65])
-        aruco_B_position = np.array([1151, 619])
+        aruco_A_id = self.aruco_A_id
+        aruco_B_id = self.aruco_B_id
+        aruco_A_position = self.aruco_A_position
+        aruco_B_position = self.aruco_B_position
 
-        marker_length = 0.04  # meters
+        frame_size = self.frame_size
 
         # OptiTrack Markers
         opti_A1_id = 27373
         opti_A2_id = 27379
         opti_B1_id = 27673
         opti_B2_id = 27674
-        opti_A1_position = np.array([-0.4310126304626465, 0.01978898048400879, 1.2289113998413086])
-        opti_A2_position = np.array([-0.3793858289718628, 0.018277883529663086, 1.165675163269043])
-        opti_B1_position = np.array([0.7488584518432617, -0.002796173095703125, -1.2286527156829834])
-        opti_B2_position = np.array([0.8024942278862, -0.005115032196044922, -1.2898616790771484])
+        opti_A1_position = self.opti_A1_position
+        opti_A2_position = self.opti_A2_position
+        opti_B1_position = self.opti_B1_position
+        opti_B2_position = self.opti_B2_position
 
         opti_A1_position = self.convert_opti_coordinate_to_workspace(opti_A1_position)
         opti_A2_position = self.convert_opti_coordinate_to_workspace(opti_A2_position)
         opti_B1_position = self.convert_opti_coordinate_to_workspace(opti_B1_position)
         opti_B2_position = self.convert_opti_coordinate_to_workspace(opti_B2_position)
 
+        opti_A_position = np.array([(opti_A1_position[0]+opti_A2_position[0]) / 2,
+                                    (opti_A1_position[0]+opti_A2_position[0]) / 2])      # mid-point of the marker A under opti coordinate
+        opti_B_position = np.array([(opti_B1_position[0]+opti_B2_position[0]) / 2,
+                                    (opti_B1_position[0]+opti_B2_position[0]) / 2])      # mid-point of the marker B under opti coordinate
+
+        cap = cv2.VideoCapture(0)
+        width = cap.get(3)
+        height = cap.get(4)
+        fps = cap.get(5)
+        # print(width, height, fps)  # 640.0 480.0 30.0
+
+        # set the resoulution to 1280x720
+        cap.set(3, 1280)
+        cap.set(4, 720)
+        width = cap.get(3)
+        height = cap.get(4)
+        print(width, height, fps)  # 1280.0 720.0 30.0
+
+        crop_flag = False
+
+        self.startDataListener()
+
         while cap.isOpened():
             ret, frame = cap.read()
             h1, w1 = frame.shape[:2]
             undistort_frame = self.undistort(frame)
             undistort_frame = cv2.rotate(undistort_frame, cv2.ROTATE_180)
+            # cv2.imshow("rotated by 180", rotated_frame)
 
-            frame_wait_for_crop = self.DetectArucoPose(undistort_frame)
+            frame_wait_for_crop, aruco_A_position, aruco_B_position = self.DetectArucoPose(undistort_frame, aruco_A_position, aruco_B_position)
             aruco_pixel_distance_x = aruco_B_position[0] - aruco_A_position[0]
             aruco_pixel_distance_y = aruco_B_position[1] - aruco_A_position[1]
 
@@ -234,7 +246,7 @@ class Aligner():
             roi_height = int(abs(aruco_pixel_distance_y))
 
             # Crop the frame using the calculated ROI
-            cropped_frame = undistort_frame[roi_y:roi_y + roi_height, roi_x:roi_x + roi_width]
+            cropped_frame = undistort_frame[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
             # print(cropped_frame.shape)
 
             # Display the cropped frame
@@ -258,7 +270,7 @@ class Aligner():
             opti_B_position[1] = (opti_B1_position[1] + opti_B2_position[1]) / 2
             print("optiTrack marker set A: ", opti_A_position)
             print("optiTrack marker set B: ", opti_B_position)
-
+            
             '''In case of being confused, here is a graph of how to convert the coordinate
             . ------> x (camera)
             |       -----------------------------------------
@@ -275,18 +287,16 @@ class Aligner():
             coordinate_origin = opti_B_position
             print("coordinate_origin: ", coordinate_origin)
             # print("markerA_pos - camera_zero: ", markerA_pos - camera_zero)
-            markerA_pos = np.array(
-                [opti_A_position[0] - coordinate_origin[0], opti_A_position[1] - coordinate_origin[1]])
-            markerB_pos = np.array(
-                [opti_B_position[0] - coordinate_origin[0], opti_B_position[1] - coordinate_origin[1]])  # (0, 0)
+            markerA_pos = np.array([opti_A_position[0] - coordinate_origin[0], opti_A_position[1] - coordinate_origin[1]])
+            markerB_pos = np.array([opti_B_position[0] - coordinate_origin[0], opti_B_position[1] - coordinate_origin[1]])  # (0, 0)
             print("markerA_pos: ", markerA_pos)
             print("markerB_pos: ", markerB_pos)
 
             # calculate the distance in meters and the pixel distance of two coordinates, and calculate the ratio
-            aruco_distance = self.cal_distance(frame_size, np.array([0, 0]))  # pixel
-            opti_distance = self.cal_distance(markerA_pos, markerB_pos)  # meter
+            aruco_distance = self.cal_distance(frame_size, np.array([0, 0]))     # pixel
+            opti_distance = self.cal_distance(markerA_pos, markerB_pos)          # meter
 
-            ratio = aruco_distance / opti_distance  # pixel to meter
+            ratio = aruco_distance / opti_distance      # pixel to meter
             print("Ratio： ", ratio)
             # convert the opti coordinate back to camera coordinate
             optiA_cam_pos = self.convert_opti_coordinate_to_camera_coordinate(markerA_pos, frame_size, ratio)
@@ -298,7 +308,7 @@ class Aligner():
             # cv2.imshow("result", resized_frame)
 
             # map the trajectory to the coordinate
-            for i in range(0, len(path_x)):
+            for i in range (0, len(path_x)):
                 point = np.array([path_y[i] - coordinate_origin[0], path_x[i] - coordinate_origin[1]])
                 camera_position = self.convert_opti_coordinate_to_camera_coordinate(point, frame_size, ratio)
                 cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 255, 0), -1)
@@ -323,7 +333,8 @@ class Aligner():
         data["camera"]['frame_size'] = self.frame_size
 
         # update the aruco marker position
-        for marker in data["aruco"]:
+        for marker in data["aruco"]["markers"]:
+            print(marker)
             if marker["id"] == self.aruco_A_id:
                 marker["position"] = self.aruco_A_position
             elif marker["id"] == self.aruco_B_id:
@@ -337,7 +348,7 @@ class Aligner():
 
         # write the updated data to the file
         with open(self.file_path, 'w') as file:
-            json.dump(data, file, indent=2)
+            json.dump(data, file, indent=2, cls=NumpyEncoder)
 
         print("Calibration finished! Data has been updated!")
 
@@ -348,8 +359,7 @@ class Aligner():
         return cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
 
     # For ArUco
-    def DetectArucoPose(self, frame):
-        global aruco_A_position, aruco_B_position, ratio, offset, opti_A_position, opti_B_position
+    def DetectArucoPose(self, frame, aruco_A_position, aruco_B_position):
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
@@ -389,7 +399,7 @@ class Aligner():
                     cv2.circle(frame, (int(center_x), int(center_y)), 3, (0, 0, 255), -1)
 
             # print("Ratio: ", ratio)
-        return frame
+        return frame, aruco_A_position, aruco_B_position
 
     # for optitrack
     def receiveData(self,value) -> None:
@@ -428,7 +438,6 @@ class Aligner():
         streaming_client.run()
 
     def unpackData(self):
-        global opti_A1_position, opti_A2_position, opti_B1_position, opti_B2_position
         if data is not None:
 
             labeled_marker_data = data.labeled_marker_data
@@ -444,21 +453,25 @@ class Aligner():
                 if marker_id == self.opti_A1_id:
                     opti_position = marker.pos
                     opti_A1_position = self.convert_opti_coordinate_to_workspace(opti_position)
+                    self.opti_A1_position = opti_A1_position
                     print("OptiTrack Marker A1 position: ", opti_A1_position)
 
                 if marker_id == self.opti_A2_id:
                     opti_position = marker.pos
                     opti_A2_position = self.convert_opti_coordinate_to_workspace(opti_position)
+                    self.opti_A2_position = opti_A2_position
                     print("OptiTrack Marker A2 position: ", opti_A2_position)
 
                 if marker_id == self.opti_B1_id:
                     opti_position = marker.pos
                     opti_B1_position = self.convert_opti_coordinate_to_workspace(opti_position)
+                    self.opti_B1_position = opti_B1_position
                     print("OptiTrack Marker B1 position: ", opti_B1_position)
 
                 if marker_id == self.opti_B2_id:
                     opti_position = marker.pos
                     opti_B2_position = self.convert_opti_coordinate_to_workspace(opti_position)
+                    self.opti_B2_position = opti_B2_position
                     print("OptiTrack Marker B2 position: ", opti_B2_position)
 
     def cal_distance(self, A, B):
@@ -532,14 +545,14 @@ class Aligner():
             (opti_A1_position[1] + opti_A2_position[1]) / 2,
             (opti_A1_position[2] + opti_A2_position[2]) / 2
         ])
-        opti_A_position = self.convert_opti_coordinate_to_workspace(opti_A_position)
+        # opti_A_position = self.convert_opti_coordinate_to_workspace(opti_A_position)
 
         opti_B_position = np.array([
             (opti_B1_position[0] + opti_B2_position[0]) / 2,
             (opti_B1_position[1] + opti_B2_position[1]) / 2,
             (opti_B1_position[2] + opti_B2_position[2]) / 2
         ])
-        opti_B_position = self.convert_opti_coordinate_to_workspace(opti_B_position)
+        # opti_B_position = self.convert_opti_coordinate_to_workspace(opti_B_position)
 
         self.opti_A_position = opti_A_position
         self.opti_B_position = opti_B_position
@@ -548,5 +561,12 @@ class Aligner():
         self.opti_B1_position = opti_B1_position
         self.opti_B2_position = opti_B2_position
 
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
 aligner = Aligner()
-aligner.run()
+# aligner.run()
+aligner.calibration()
