@@ -69,12 +69,15 @@ class Trajectory:
         self.yaw = []
 
         for i in range(len(traj_x)):
-            self.yaw.append(self.getSlopeAngle(i))
+            yaw = self.getSlopeAngle(i) - np.pi/2
+            yaw %= (2 * np.pi)
+            self.yaw.append(yaw)
 
         self.__calculate_cumulative_length()
         self.s = list(np.linspace(0, self.length[-1], len(traj_x)))
 
         self.last_idx = 0
+        self.curvature = self.calculate_curvature()
 
     @property
     def params(self) -> tuple[list, list, list, list]:
@@ -137,3 +140,38 @@ class Trajectory:
             dy = self.y[idx+1] - self.y[idx-1]
 
         return np.arctan2(dy, dx)
+    
+    def calculate_curvature(self) -> list:
+        """
+        Calculate the curvature at each point of the trajectory
+        :return: list of curvatures
+        """
+        curvature = []
+        n = len(self.x)
+
+        for i in range(n):
+            if i == 0:
+                dx1, dy1 = self.x[1] - self.x[0], self.y[1] - self.y[0]
+                dx2, dy2 = self.x[2] - self.x[1], self.y[2] - self.y[1]
+            elif i == n - 1:
+                dx1, dy1 = self.x[-1] - self.x[-2], self.y[-1] - self.y[-2]
+                dx2, dy2 = self.x[-1] - self.x[-2], self.y[-1] - self.y[-2]
+            else:
+                dx1, dy1 = self.x[i] - self.x[i-1], self.y[i] - self.y[i-1]
+                dx2, dy2 = self.x[i+1] - self.x[i], self.y[i+1] - self.y[i]
+
+            dx = (dx1 + dx2) / 2
+            dy = (dy1 + dy2) / 2
+
+            ddx = dx2 - dx1
+            ddy = dy2 - dy1
+
+            numerator = abs(dx * ddy - dy * ddx)
+            denominator = (dx**2 + dy**2)**1.5
+
+            if denominator == 0:
+                curvature.append(0)  # Straight line
+            else:
+                curvature.append(numerator / denominator)
+
+        return curvature

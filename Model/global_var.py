@@ -5,7 +5,7 @@ OMNI_SPEED = 0.12
 ROTATION_SPEED = 1
 LU_SPEED = 0.12
 
-DT = 0.01
+DT = 0.1
 
 scale = 1
 

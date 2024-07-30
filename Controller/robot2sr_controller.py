@@ -23,90 +23,6 @@ class Controller:
         self.kp_linear = 3  # Proportional gain for linear velocity
         self.kp_angular = 1  # Proportional gain for angular velocity
 
-        self.NX = 3  # Number of state variables: x, y, yaw
-        self.NU = 2  # Number of control inputs: v, omega
-        self.T = 50 # Prediction horizon
-
-        self.velocity = 0
-
-        # Weight matrices for the cost function
-        self.Q = np.diag([1.0, 1.0, 0.5])  # State cost
-        self.R = np.diag([0.01, 0.01])  # Control cost
-        self.Qf = self.Q  # Terminal state cost
-
-    def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory) -> tuple[List[float], List[float]]:
-        # Generate reference trajectory
-        xref = self.generate_ref_trajectory(agent, path)
-        
-        # Solve MPC
-        v, omega = self.mpc_control(xref, agent.position)
-
-        return [0, v, omega, 0, 0], agent.stiffness
-    
-    def generate_ref_trajectory(self, agent: robot2sr.Robot, path: splines.Trajectory):
-        xref = np.zeros((self.NX, self.T + 1))
-        
-        for i in range(self.T + 1):
-            target_point = path.getTargetPoint(agent.position, self.lookahead_distance)
-            desired_heading = path.getSlopeAngle(path.last_idx) - np.pi/2
-            desired_heading %= (2 * np.pi)
-            xref[:, i] = [target_point[0], target_point[1], desired_heading]
-        
-        return xref
-    
-    def mpc_control(self, xref, x0):
-        x = cvxpy.Variable((self.NX, self.T + 1))
-        u = cvxpy.Variable((self.NU, self.T))
-
-        cost = 0.0
-        constraints = []
-
-        for t in range(self.T):
-            cost += cvxpy.quad_form(u[:, t], self.R)
-            if t != 0:
-                cost += cvxpy.quad_form(x[:, t] - xref[:, t], self.Q)
-
-            A, B = self.get_linear_model_matrix(x[2, t])
-            constraints += [x[:, t + 1] == A @ x[:, t] + B @ u[:, t]]
-
-        cost += cvxpy.quad_form(x[:, self.T] - xref[:, self.T], self.Qf)
-        constraints += [x[:, 0] == x0]
-
-        # Add constraints for control inputs
-        constraints += [u[0, :] <= 0.2]
-        constraints += [u[0, :] >= -0.2]
-        constraints += [u[1, :] <= 0.2]
-        constraints += [u[1, :] >= -0.2]
-
-        prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-        prob.solve(solver=cvxpy.ECOS, verbose=False)
-
-        if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-            v = u.value[0, 0]
-            omega = u.value[1, 0]
-        else:
-            print("Error: Cannot solve MPC.")
-            v, omega = 0, 0
-
-        return v, omega
-    
-    def get_linear_model_matrix(self, yaw):
-        A = np.zeros((self.NX, self.NX))
-        A[0, 0] = 1.0
-        A[0, 2] = -math.sin(yaw) * global_var.DT
-        A[1, 1] = 1.0
-        A[1, 2] = math.cos(yaw) * global_var.DT
-        A[2, 2] = 1.0
-
-        B = np.zeros((self.NX, self.NU))
-        B[0, 0] = global_var.DT * math.cos(yaw)
-        B[0, 1] = -0.5 * global_var.DT * global_var.DT * math.sin(yaw) 
-        B[1, 0] = global_var.DT * math.sin(yaw)
-        B[1, 1] = 0.5 * global_var.DT * global_var.DT * math.cos(yaw)
-        B[2, 1] = global_var.DT
-        
-        return A, B
-
 
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
         flag = False
@@ -215,6 +131,14 @@ class Controller:
         
         return counterclockwise_distance
     
+    def get_config(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> np.ndarray:
+        q_dot = agent.jacobian(s) @ v
+        q = agent.config + q_dot * global_var.DT
+    
+        q[2] %= (2 * np.pi)
+        
+        return q
+    
     def getWheelsVelocities(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> tuple[np.ndarray, List[List[float]], np.ndarray]:
         head_wheels, head_wheels_global = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, tail_wheels_global = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
@@ -224,11 +148,9 @@ class Controller:
         V = self._wheelsConfigMatrix(wheels, s)
         omega = np.round(V @ v, 3)
         v_new = np.linalg.pinv(V) @ omega
-        q_dot = agent.jacobian(s) @ v_new
-        q = agent.config + q_dot * global_var.DT
 
         print(omega)
-        return omega, wheels_global, q
+        return omega, wheels, self.get_config(agent, v_new, s)
 
     def move(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> tuple[List[List[float]], List[float]]:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
@@ -244,7 +166,6 @@ class Controller:
     def _calcWheelsCoords(agent_pose: List[float], lu_pose: List[float], lu_type='head') -> tuple[List[List[float]], List[List[float]]]:
         w1_0 = np.array([[-0.0275], [0]]) if lu_type == 'head' else np.array([[0.0275], [0]])
         w2_0 = np.array([[0.0105], [-0.0275]]) if lu_type == 'head' else np.array([[-0.0105], [-0.027]])
-        w1_0, w2_0 = w1_0, w2_0
 
         R = np.array([[np.cos(lu_pose[2]), -np.sin(lu_pose[2])],
                       [np.sin(lu_pose[2]), np.cos(lu_pose[2])]])
@@ -275,8 +196,8 @@ class Controller:
 
         V = np.zeros((4, 5))
         for i, w in enumerate(wheels):
-            tau = w[0] * np.sin(w[-1]) - w[1] * np.cos(w[-1])
-            V[i, :] = [flag_rigid * np.cos(w[-1]), flag_rigid * np.sin(w[-1]), flag_rigid * tau,
+            tau = w[0] * np.sin(w[2]) - w[1] * np.cos(w[2])
+            V[i, :] = [flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau,
                        flag_soft * (i < 2), -flag_soft * (i >= 2)]
 
         return 1 / global_var.WHEEL_R * V

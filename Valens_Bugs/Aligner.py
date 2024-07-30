@@ -192,14 +192,14 @@ class Aligner():
         frame_size = self.frame_size
 
         # OptiTrack Markers
-        opti_A1_id = 27373
-        opti_A2_id = 27379
-        opti_B1_id = 27673
-        opti_B2_id = 27674
-        opti_A1_position = self.opti_A1_position
-        opti_A2_position = self.opti_A2_position
-        opti_B1_position = self.opti_B1_position
-        opti_B2_position = self.opti_B2_position
+        self.opti_A1_id = 27373
+        self.opti_A2_id = 27379
+        self.opti_B1_id = 27673
+        self.opti_B2_id = 27674
+        opti_A1_position = np.array([-0.4310126304626465, 0.01978898048400879, 1.2289113998413086])
+        opti_A2_position = np.array([-0.3793858289718628, 0.018277883529663086, 1.165675163269043])
+        opti_B1_position = np.array([0.7488584518432617, -0.002796173095703125, -1.2286527156829834])
+        opti_B2_position = np.array([0.8024942278862, -0.005115032196044922, -1.2898616790771484])
 
         opti_A1_position = self.convert_opti_coordinate_to_workspace(opti_A1_position)
         opti_A2_position = self.convert_opti_coordinate_to_workspace(opti_A2_position)
@@ -247,7 +247,7 @@ class Aligner():
 
             # Crop the frame using the calculated ROI
             cropped_frame = undistort_frame[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
-            # print(cropped_frame.shape)
+            print(cropped_frame.shape)
 
             # Display the cropped frame
             # cv2.imshow('Cropped Frame', cropped_frame)
@@ -568,5 +568,5 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 aligner = Aligner()
-# aligner.run()
-aligner.calibration()
+aligner.run()
+# aligner.calibration()
