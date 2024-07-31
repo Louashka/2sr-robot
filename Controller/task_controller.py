@@ -218,13 +218,17 @@ class Task(keyboard_controller.ActionsHandler):
         # df.to_csv('Experiments/Data/reach_target.csv', index=False)
    
     def __generatePath(self) -> splines.Trajectory:
-        path_x = np.arange(0, 2, 0.01)
-        path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x])
+        x_original = np.arange(0, 2, 0.01)
+        y_original = np.array([np.sin(x / 0.21) * x / 5.0 for x in x_original])
 
-        path_x = - path_x + 1
-        path_y = path_y - 0.3
-        
-        # path_x += self.agent.x
+        rot_angel = self.agent.theta + np.pi/2
+        rot_matrix = np.array([[np.cos(rot_angel), -np.sin(rot_angel)],
+                               [np.sin(rot_angel), np.cos(rot_angel)]])
+        coords_rotated = rot_matrix @ [x_original, y_original]
+
+        coords_rotated += np.array(self.agent.position).reshape(2, 1)
+
+        path_x, path_y = coords_rotated[0,:].tolist(), coords_rotated[1,:].tolist()
 
         path = splines.Trajectory(path_x, path_y)
        

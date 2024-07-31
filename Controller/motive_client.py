@@ -105,8 +105,8 @@ class MocapReader:
         agent = {}
 
         # Parse Motive data
-        # markers, rigid_bodies = self.__unpackData()
-        markers, rigid_bodies = self.__simulateData()
+        markers, rigid_bodies = self.__unpackData()
+        # markers, rigid_bodies = self.__simulateData()
 
         if markers is None or rigid_bodies is None:
             return {}, {}, 'No data is received from Motive!'
