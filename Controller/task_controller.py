@@ -3,7 +3,7 @@ import sys
 sys.path.append('D:/Robot 2SR/2sr-swarm-control')
 from Model import global_var, robot2sr, splines
 from View import plotlib
-import motive_client, keyboard_controller, grasping_controller, robot2sr_controller
+import motive_client, keyboard_controller, robot2sr_controller, camera_optitrack_synchronizer as cos
 import random as rnd
 import numpy as np
 import pandas as pd
@@ -13,35 +13,6 @@ from scipy.interpolate import interp1d
 from typing import List
 
 
-class PI:
-    def __init__(self, kp=1.0, ki=0.1):
-        """
-        Define a PID controller class
-        :param kp: float, kp coeff
-        :param ki: float, ki coeff
-        :param kd: float, kd coeff
-        """
-        self.kp = kp
-        self.ki = ki
-        self.Pterm = 0.0
-        self.Iterm = 0.0
-        self.last_error = 0.0
-
-    def control(self, error):
-        """
-        PID main function, given an input, this function will output a control unit
-        :param error: float, error term
-        :return: float, output control
-        """
-        self.Pterm = self.kp * error
-        self.Iterm += error * global_var.DT
-
-        self.last_error = error
-        output = self.Pterm + self.ki * self.Iterm
-        return output
-
-
-# There are 4 task modes
 class Mode(Enum):
     MANUAL = 1 # Manual control of a single robot via a keyboard
     PATH_TRACKING = 2 # Path tracking
@@ -52,6 +23,7 @@ class Task(keyboard_controller.ActionsHandler):
         self.mode = mode
 
         self.mocap = motive_client.MocapReader() # Initialise the reader of the tracking data
+        self.rgb_camera = cos.Aligner()
         self.gui = plotlib.GUI() # Initialise GUI
 
         self.markers = {}
@@ -59,6 +31,7 @@ class Task(keyboard_controller.ActionsHandler):
         self.agent_controller = robot2sr_controller.Controller()
  
         self.tracking_area = [[-1, 3], [-1, 3]]
+        
 
     @property
     def mode(self) -> Mode:
@@ -68,7 +41,8 @@ class Task(keyboard_controller.ActionsHandler):
     def mode(self, value) -> None:
         if not isinstance(value, Mode):
             raise Exception('Wrong task mode!')
-        self.__mode = value
+        self.__mode = value        
+
 
     # Execute the task of a given mode
     def run(self) -> None:
@@ -90,7 +64,7 @@ class Task(keyboard_controller.ActionsHandler):
                 print('Path tracking mode')
                 self.__pathTrackingMode()
 
-        self.gui.window.mainloop() # Start the GUI application
+        # self.gui.window.mainloop() # Start the GUI application
 
     def start(self) -> None:
         pass
@@ -100,7 +74,6 @@ class Task(keyboard_controller.ActionsHandler):
 
     def quit(self) -> None:
         pass
-
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
@@ -133,7 +106,7 @@ class Task(keyboard_controller.ActionsHandler):
         if self.agent is not None:
             self.agent_controller.move(self.agent, self.v, self.s)
             # Update the GUI
-            self.gui.plotAgent(self.agent, self.markers)
+            # self.gui.plotAgent(self.agent, self.markers)
 
     def __onPress(self, key) -> None:
         super().onPress(key)
@@ -146,10 +119,14 @@ class Task(keyboard_controller.ActionsHandler):
     #//////////////////////////// PATH TRACKING MODE METHODS //////////////////////////////
     
     def  __pathTrackingMode(self):
-        exp_data = []
 
         while not self.agent: 
             self.__updateConfig()
+
+        path = self.__generatePath()
+        self.rgb_camera.startVideo(path.x, path.y)
+
+        exp_data = []
         
         # target = np.array([self.agent.x + rnd.uniform(-1, 1), self.agent.y + rnd.uniform(-1, 1), self.agent.theta + rnd.uniform(-np.pi, np.pi)] + self.agent.curvature)
         
@@ -157,88 +134,97 @@ class Task(keyboard_controller.ActionsHandler):
         # path_x = np.linspace(self.agent.x, target[0], num_points)
         # path_y = np.linspace(self.agent.y, target[1], num_points)
 
-        path = self.__generatePath()
-        goal = path.getPoint(len(path.traj_x) - 1)
-        states = self.__generateStates(path)
+        print("Waiting for the video to start...")
+        while not self.rgb_camera.wait_video:
+            pass
 
-        dist = splines.getDistance(self.agent.position, goal)
+        print('Video started')
+
+        # goal = path.getPoint(len(path.traj_x) - 1)
+        # states = self.__generateStates(path)
+
+        # dist = splines.getDistance(self.agent.position, goal)
         
-        frames = 300
-        counter = 0
+        # frames = 300
+        # counter = 0
 
-        # while counter < frames:
-        while dist > 10**(-2):
+        # # while counter < frames:
+
+        # while dist > 10**(-2):
             
-            # v, s = self.agent_controller.motionPlanner(self.agent, path, states)
-            v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
-            # v = [0, 0.1, 0, 0, 0]
-            # print(v)
-            wheels, q = self.agent_controller.move(self.agent, v, s)
-            self.agent.config = q
+        #     # v, s = self.agent_controller.motionPlanner(self.agent, path, states)
+        #     v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
+        #     # v = [0, 0.1, 0, 0, 0]
+        #     # print(v)
+        #     wheels, q = self.agent_controller.move(self.agent, v, s)
+        #     self.agent.config = q
  
-            # self.__updateConfig()
+        #     # self.__updateConfig()
 
-            vss1 = self.gui.arc(self.agent)
-            vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
-            vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
+        #     vss1 = self.gui.arc(self.agent)
+        #     vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
+        #     vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
 
-            lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
-            lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+        #     lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+        #     lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
  
-            self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
+        #     self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
 
      
-            vss2 = self.gui.arc(self.agent, 2)
-            vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
-            vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
+        #     vss2 = self.gui.arc(self.agent, 2)
+        #     vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
+        #     vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
 
-            lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
-            lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+        #     lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+        #     lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
 
-            self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
+        #     self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
 
-            dist = splines.getDistance(self.agent.position, goal)
+        #     dist = splines.getDistance(self.agent.position, goal)
 
-            # print(dist)
+        #     # print(dist)
             
-            timeStamp = datetime.now().strftime("%H:%M:%S")
-            data = (self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
-                    list(chain(*wheels)) + [timeStamp])
-            exp_data.append(data)  
+        #     timeStamp = datetime.now().strftime("%H:%M:%S")
+        #     data = (self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+        #             list(chain(*wheels)) + [timeStamp])
+        #     exp_data.append(data)  
 
-            counter += 1
+        #     counter += 1
 
-        self.agent_controller.stop(self.agent)
+        # self.agent_controller.stop(self.agent)
 
-        column_names = ["x", "y", "angle", "k1", "k2",  
-                       'x_head', 'y_head', 'theta_head', 
-                       'x_tail', 'y_tail', 'theta_tail',
-                    #    'w1_x', 'w1_y', 'w1_theta',
-                    #    'w2_x', 'w2_y', 'w2_theta',
-                    #    'w3_x', 'w3_y', 'w3_theta',
-                    #    'w4_x', 'w4_y', 'w4_theta',
-                       'w1_x', 'w1_y',
-                       'w2_x', 'w2_y',
-                       'w3_x', 'w3_y',
-                       'w4_x', 'w4_y',
-                       "time"]
-        df = pd.DataFrame(exp_data, columns=column_names)
-        df['path_x'] = pd.Series(path.traj_x)
-        df['path_y'] = pd.Series(path.traj_y)
+        # column_names = ["x", "y", "angle", "k1", "k2",  
+        #                'x_head', 'y_head', 'theta_head', 
+        #                'x_tail', 'y_tail', 'theta_tail',
+        #             #    'w1_x', 'w1_y', 'w1_theta',
+        #             #    'w2_x', 'w2_y', 'w2_theta',
+        #             #    'w3_x', 'w3_y', 'w3_theta',
+        #             #    'w4_x', 'w4_y', 'w4_theta',
+        #                'w1_x', 'w1_y',
+        #                'w2_x', 'w2_y',
+        #                'w3_x', 'w3_y',
+        #                'w4_x', 'w4_y',
+        #                "time"]
+        # df = pd.DataFrame(exp_data, columns=column_names)
+        # df['path_x'] = pd.Series(path.traj_x)
+        # df['path_y'] = pd.Series(path.traj_y)
 
-        state_ind = 1
-        for state in states.values():
-            df['state{}'.format(state_ind)] = pd.Series(state)
-            state_ind += 1
+        # state_ind = 1
+        # for state in states.values():
+        #     df['state{}'.format(state_ind)] = pd.Series(state)
+        #     state_ind += 1
 
-        print("Save experiment data")
-        df.to_csv('Experiments/Data/reach_target.csv', index=False)
+        # print("Save experiment data")
+        # df.to_csv('Experiments/Data/reach_target.csv', index=False)
    
     def __generatePath(self) -> splines.Trajectory:
         path_x = np.arange(0, 2, 0.01)
-        path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x]) + self.agent.y
+        path_y = np.array([np.sin(x / 0.21) * x / 2.7 for x in path_x])
+
+        path_x = - path_x + 1
+        path_y = path_y - 0.3
         
-        path_x += self.agent.x
+        # path_x += self.agent.x
 
         path = splines.Trajectory(path_x, path_y)
        

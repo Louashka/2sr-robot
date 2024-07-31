@@ -338,7 +338,7 @@ class Aligner():
             if marker["id"] == self.aruco_A_id:
                 marker["position"] = self.aruco_A_position
             elif marker["id"] == self.aruco_B_id:
-                marker["position"] = self.aruco_A_position
+                marker["position"] = self.aruco_B_position
 
         # update the opti marker position
         data["opti_track"]["opti_A1_position"] = self.opti_A1_position
