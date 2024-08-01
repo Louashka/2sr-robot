@@ -11,6 +11,7 @@ from datetime import datetime
 from itertools import chain
 from scipy.interpolate import interp1d
 from typing import List
+import time
 
 
 class Mode(Enum):
@@ -124,7 +125,7 @@ class Task(keyboard_controller.ActionsHandler):
             self.__updateConfig()
 
         path = self.__generatePath()
-        self.rgb_camera.startVideo(path.x, path.y)
+        self.rgb_camera.startVideo(path.x, path.y, self.agent.config)
 
         exp_data = []
         
@@ -140,47 +141,74 @@ class Task(keyboard_controller.ActionsHandler):
 
         print('Video started')
 
-        # goal = path.getPoint(len(path.traj_x) - 1)
+        goal = path.getPoint(len(path.x) - 1)
         # states = self.__generateStates(path)
 
-        # dist = splines.getDistance(self.agent.position, goal)
+        dist = splines.getDistance(self.agent.position, goal)
         
         # frames = 300
-        # counter = 0
+        counter = 0
 
         # # while counter < frames:
+         
+        config_last = self.agent.pose
+        last_time = time.perf_counter()
 
-        # while dist > 10**(-2):
+        safety_margin = 2
+
+        experiment_start_time = time.perf_counter()
+
+        while dist > 10**(-2):
             
         #     # v, s = self.agent_controller.motionPlanner(self.agent, path, states)
-        #     v, s = self.agent_controller.motionPlannerMPC(self.agent, path)
+
+            current_time = time.perf_counter()
+            dt = current_time - last_time
+            last_time = current_time
+
+            pose_diff = np.array(config_last) - self.agent.pose
+            velocity_global = pose_diff / dt
+            velocity_body = self.agent.jacobian_rigid([0, 0])[:3, :] @ velocity_global
+
+            v_current = [velocity_body[1], velocity_body[2]]
+            # v_current = [v[1], v[2]]
+            config_last = self.agent.pose
+
+            v, s = self.agent_controller.motionPlannerMPC(self.agent, path, v_current)
         #     # v = [0, 0.1, 0, 0, 0]
         #     # print(v)
-        #     wheels, q = self.agent_controller.move(self.agent, v, s)
-        #     self.agent.config = q
+            if counter > safety_margin:
+                wheels, q = self.agent_controller.move(self.agent, v, s)
+                # self.agent.config = q
  
-        #     # self.__updateConfig()
+            self.__updateConfig()
+            self.rgb_camera.add_config(self.agent.config)
 
-        #     vss1 = self.gui.arc(self.agent)
-        #     vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
-        #     vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
+            # vss1 = self.gui.arc(self.agent)
+            # vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
+            # vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
 
-        #     lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
-        #     lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
+            # lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
+            # lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
  
-        #     self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
+            # self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
 
      
-        #     vss2 = self.gui.arc(self.agent, 2)
-        #     vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
-        #     vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
+            # vss2 = self.gui.arc(self.agent, 2)
+            # vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
+            # vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
 
-        #     lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
-        #     lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
+            # lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
+            # lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
 
-        #     self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
+            # self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
 
-        #     dist = splines.getDistance(self.agent.position, goal)
+            dist = splines.getDistance(self.agent.position, goal)
+
+            experiment_current_time = time.perf_counter()
+
+            if self.rgb_camera.finish:
+                break
 
         #     # print(dist)
             
@@ -189,9 +217,12 @@ class Task(keyboard_controller.ActionsHandler):
         #             list(chain(*wheels)) + [timeStamp])
         #     exp_data.append(data)  
 
-        #     counter += 1
+            counter += 1
 
-        # self.agent_controller.stop(self.agent)
+        self.agent_controller.stop(self.agent)
+        self.rgb_camera.finish = True
+
+        print('Recording time:{} seconds'.format(experiment_current_time - experiment_start_time))
 
         # column_names = ["x", "y", "angle", "k1", "k2",  
         #                'x_head', 'y_head', 'theta_head', 
@@ -219,11 +250,11 @@ class Task(keyboard_controller.ActionsHandler):
    
     def __generatePath(self) -> splines.Trajectory:
         x_original = np.arange(0, 2, 0.01)
-        y_original = np.array([np.sin(x / 0.21) * x / 5.0 for x in x_original])
+        y_original = np.array([np.sin(x / 0.21) * x / 15.0 for x in x_original])
 
-        rot_angel = self.agent.theta + np.pi/2
-        rot_matrix = np.array([[np.cos(rot_angel), -np.sin(rot_angel)],
-                               [np.sin(rot_angel), np.cos(rot_angel)]])
+        rot_angle = self.agent.theta + np.pi/2
+        rot_matrix = np.array([[np.cos(rot_angle), -np.sin(rot_angle)],
+                               [np.sin(rot_angle), np.cos(rot_angle)]])
         coords_rotated = rot_matrix @ [x_original, y_original]
 
         coords_rotated += np.array(self.agent.position).reshape(2, 1)

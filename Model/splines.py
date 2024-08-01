@@ -70,7 +70,10 @@ class Trajectory:
 
         for i in range(len(traj_x)):
             yaw = self.getSlopeAngle(i) - np.pi/2
-            yaw %= (2 * np.pi)
+            while(yaw > np.pi):
+                yaw = yaw - 2.0 * np.pi
+            while(yaw < -np.pi):
+                yaw = yaw + 2.0 * np.pi
             self.yaw.append(yaw)
 
         self.__calculate_cumulative_length()
@@ -92,7 +95,7 @@ class Trajectory:
     def getPoint(self, idx) -> list:
         return [self.x[idx], self.y[idx]]
 
-    def getTargetPoint(self, pos, la_dist) -> list:
+    def getTarget(self, pos, la_dist) -> int:
         """
         Get the next look ahead point
         :param pos: list, vehicle position
@@ -108,7 +111,7 @@ class Trajectory:
             current_dist = getDistance(pos, target_point)
 
         self.last_idx = target_idx
-        return self.getPoint(target_idx)
+        return target_idx
     
     def divideIntoThirds(self) -> tuple:
         """

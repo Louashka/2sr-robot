@@ -33,7 +33,7 @@ DT = gv.DT  # [s] time tick
 TARGET_SPEED = 0.08   # [m/s] target speed
 
 MAX_SPEED = 15  # Maximum speed in rad/s
-MIN_SPEED = 1  # Minimum non-zero speed in rad/s 
+MIN_SPEED = 0.5  # Minimum non-zero speed in rad/s 
 
 agent_controller = robot2sr_controller.Controller()
 
@@ -94,57 +94,12 @@ def calc_nearest_index(agent, cx, cy, cyaw, pind):
         mind *= -1
     return ind, mind
 
-def calc_speed_profile(wheels, cx, cy, cyaw):
-    n = len(cx)-1
-    v = cvxpy.Variable((NU, n))
-    coef = cvxpy.Variable(n)
-    vw = cvxpy.Variable((NW, n))
-    z = cvxpy.Variable((NW, n), boolean=True)
 
-    constraints = []
-
-    for i in range(len(cx)-1):
-        delta_x = cx[i] - cx[i+1]
-        delta_y = cy[i] - cy[i+1]
-        delta_yaw = cyaw[i] - cyaw[i+1]
-
-        constraints += [v[0, i] == coef[i] * (math.sin(cyaw[i]) * delta_x + math.cos(cyaw[i]) * delta_y)]
-        constraints += [v[1, i] == coef[i] * delta_yaw]
-
-        for w in range(NW):
-            constraints += [vw[w, i] == (1 / gv.WHEEL_R) * (math.sin(wheels[w][2]) * (v[0, i]) + 
-                                                            (wheels[w][0] * math.sin(wheels[w][2]) - wheels[w][1] * math.cos(wheels[w][2])) * v[1, i])]
-
-    for w in range(NW):
-        # Exclude velocities from -1 to 1
-        # constraints += [vw[w, :] >= MIN_SPEED - (MAX_SPEED + MIN_SPEED  ) * z[w, :]]
-        # constraints += [vw[w, :] <= -MIN_SPEED + (MAX_SPEED + MIN_SPEED) * (1 - z[w, :])]
-        constraints += [vw[w, :] >= -15]
-        constraints += [vw[w, :] <= 15]
-
-    constraints += [coef >= 0]
-    constraints += [v[0,:] >= 0]
-
-    prob = cvxpy.Problem(cvxpy.Maximize(cvxpy.sum(v[0,:])), constraints)
-    prob.solve(solver=cvxpy.ECOS_BB, verbose=False)
-
-    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-        v_profile = get_nparray_from_matrix(v.value[0, :])
-        v_profile = v_profile.round(4)
-        v_profile = v_profile.tolist()
-        v_profile += [0]
-    else:
-        v_profile = None
-
-    return v_profile
-
-def calc_ref_trajectory(agent, cx, cy, cyaw, sp, dl, pind, cur_vel):
+def calc_ref_trajectory(cx, cy, cyaw, sp, dl, ind, cur_vel):
     xref = np.zeros((NX, T + 1))
     vref = np.zeros((1, T + 1))
     ncourse = len(cx)
-    ind, _ = calc_nearest_index(agent, cx, cy, cyaw, pind)
-    if pind >= ind:
-        ind = pind
+
     xref[0, 0] = cx[ind]
     xref[1, 0] = cy[ind]
     xref[2, 0] = cyaw[ind]
@@ -164,9 +119,7 @@ def calc_ref_trajectory(agent, cx, cy, cyaw, sp, dl, pind, cur_vel):
             xref[2, i] = cyaw[ncourse - 1]
             vref[0, i] = sp[ncourse - 1]
 
-        cur_vel = vref[0, i]
-
-    return xref, ind, vref
+    return xref, vref
 
 def check_goal(agent, goal, tind, nind,vi):
     dx = agent.x - goal[0]
@@ -180,18 +133,19 @@ def check_goal(agent, goal, tind, nind,vi):
         return True
     return False
 
-def predict_motion(x0, xref, v_list, omega_list):
-    xbar = xref * 0.0
-    xbar[:, 0] = x0
+def predict_motion(agent_config: list, shape: tuple, v_list: list, omega_list: list):
+    qbar = np.zeros(shape)
+    qbar[:, 0] = agent_config[:3]
 
-    agent = robot2sr.Robot(1, x0[0], x0[1], x0[2], 0, 0)
-    update_agent(agent, x0 + agent.curvature)
+    agent = robot2sr.Robot(1, *agent_config)
+    update_agent(agent, agent.config)
     for (i, v, omega) in zip(range(1, T + 1), v_list, omega_list):
         q = agent_controller.get_config(agent, [0, v, omega, 0, 0], agent.stiffness)
         update_agent(agent, q)
-        xbar[:, i] = agent.pose
+        qbar[:, i] = agent.pose
 
-    return xbar
+    return qbar
+
 
 def linear_mpc_control(xref, xbar, x0, vref, wheels):    
     x = cvxpy.Variable((NX, T + 1))
@@ -299,18 +253,17 @@ if __name__ == '__main__':
     update_agent(agent, np.array([0, 0, -np.pi/2, 0, 0]))
     wheels, q = agent_controller.move(agent, [0] * 5, agent.stiffness)
     
-    dl = 0.05 # course tick
+    dl = 0.01 # course tick
     # ax = [0.0, 1.0, 1.5, 3.0, 4.0]
     # ay = [0.0, 1.0, 1.5, 1.0, 0.0] 
     # cx, cy, cyaw, _, s = cubic_spline_planner.calc_spline_course(ax, ay, ds=dl)
 
     path_x = np.arange(0, 2, 0.01)
-    path_y = np.array([np.sin(x / 0.21) * x / 3.0 for x in path_x])
+    path_y = np.array([np.sin(x / 0.21) * x / 15.0 for x in path_x])
     path = splines.Trajectory(path_x, path_y)
 
     cx, cy, cyaw, s = path.params
 
-    # sp = calc_speed_profile(wheels, cx, cy, cyaw)
     sp = []
     for i in range(1, len(cx)):
         sp.append(TARGET_SPEED * (1 - path.curvature[i]/(max(path.curvature)+5)))
@@ -320,7 +273,6 @@ if __name__ == '__main__':
 
     time = 0.0
     x, y, yaw, v, omega, t = [agent.x], [agent.y], [agent.theta], [0.0], [0.0], [0.0]
-    target_ind, _ = calc_nearest_index(agent, cx, cy, cyaw, 0)
 
     vi, omegai = 0,0
     ox, oy, oyaw = None, None, None
@@ -330,9 +282,10 @@ if __name__ == '__main__':
     oomega = [0.0] * T
 
 while MAX_TIME >= time:
-        xref, target_ind, vref = calc_ref_trajectory(agent, cx, cy, cyaw, sp, dl, target_ind, vi)     
+        target_ind = path.getTarget(agent.position, dl)
+        xref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, dl, target_ind, vi)     
 
-        xbar = predict_motion(agent.pose, xref, ov, oomega)
+        xbar = predict_motion(agent.config, xref.shape, [vi] * T, [omegai] * T)
         ov, oomega, ox, oy, oyaw, wheels_v = linear_mpc_control(xref, xbar, agent.pose, vref, wheels)
         # print(wheels_v[:,0])
 

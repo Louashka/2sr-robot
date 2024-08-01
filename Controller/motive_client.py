@@ -142,7 +142,7 @@ class MocapReader:
             
             # Calculate the pose of the tail LU
             tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
-            tail_theta = tail_theta % (2 * np.pi)
+            # tail_theta = tail_theta % (2 * np.pi)
 
             tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
             agent['tail'] = tail_pose
@@ -284,7 +284,7 @@ class MocapReader:
 
         delta = points[i_next, :] - points[i, :]
         theta = np.arctan2(delta[1], delta[0])
-        theta = theta  % (2 * np.pi)
+        # theta = theta  % (2 * np.pi)
         
         x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
         y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
@@ -359,7 +359,6 @@ class MocapReader:
         # Calculate the tangent vector at the midpoint
         tangent_x, tangent_y = splev(midpoint_s, tck, der=1)
         theta = np.arctan2(tangent_y, tangent_x)
-        theta = theta % (2 * np.pi)
 
         x_der1, y_der1 = splev(s[:500], tck, der=1)
         x_der2, y_der2 = splev(s[:500], tck, der=2)

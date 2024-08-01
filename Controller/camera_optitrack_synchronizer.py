@@ -9,6 +9,8 @@ class Aligner:
         self.data = None
 
         self.wait_video = False
+        self.finish = False
+        self.config_list = []
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -20,15 +22,23 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def startVideo(self, path_x, path_y):
+    def startVideo(self, path_x, path_y, config0):
+        self.config_list.append(config0)
         thread = threading.Thread(target=self.__run, args=(path_x, path_y))
         thread.start()
+
+    def add_config(self, config) -> None:
+        self.config_list.append(config)
         
     def __run(self, path_x, path_y):
         cap = cv2.VideoCapture(0)
         # set the resolution to 1280x720
         cap.set(3, 1280)
         cap.set(4, 720)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter('Data/Experiments/Video/path_tracking.mp4', fourcc, 20.0, (1421,720))
+
 
         while cap.isOpened():
             _, frame = cap.read()
@@ -49,12 +59,21 @@ class Aligner:
                 point = np.array([path_x[i], path_y[i]])
                 camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
                 cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 255, 0), -1)
+            for i in range(len(self.config_list)):
+                point = np.array(self.config_list[i][:2])
+                camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
+                cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 0, 255), -1)
+            
+            out.write(resized_frame)
             cv2.imshow("RGB camera", resized_frame)
             self.wait_video = True
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q') or self.finish:
+                self.finish = True
                 break
+
         cap.release()
+        out.release()
 
     def __read_camera_calibration_data(self):
         camera_data = self.data["camera"]
