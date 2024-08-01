@@ -29,7 +29,7 @@ class Controller:
         self.T = 10  # horizon length
 
         # mpc parameters
-        self.R = np.diag([10000, .05])  # input cost matrix
+        self.R = np.diag([10000, .01])  # input cost matrix
         self.Q = np.diag([10, 10, 0.0])  # agent cost matrix
         self.Qf = self.Q # agent final matrix
         self.Rd = np.diag([10000, 0.01])
@@ -91,15 +91,15 @@ class Controller:
         qbar[:, 0] = agent_config[:3]
 
         agent = robot2sr.Robot(1, *agent_config)
-        self.__update_agent(agent, agent.config)
+        self.update_agent(agent, agent.config)
         for (i, v, omega) in zip(range(1, self.T + 1), v_list, omega_list):
             q = self.get_config(agent, [0, v, omega, 0, 0], agent.stiffness)
-            self.__update_agent(agent, q)
+            self.update_agent(agent, q)
             qbar[:, i] = agent.pose
 
         return qbar
     
-    def __update_agent(self, agent: robot2sr.Robot, q: np.ndarray) -> None:
+    def update_agent(self, agent: robot2sr.Robot, q: np.ndarray):
         agent.config = q
 
         vss1 = self.__arc(agent)
@@ -110,7 +110,6 @@ class Controller:
         lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
 
         agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
-
 
         vss2 = self.__arc(agent, 2)
         vss2_conn_x = [agent.x + vss2[0][-1], agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
@@ -273,6 +272,10 @@ class Controller:
         # v = v_constrained.tolist()
         
         return v_optimal.tolist(), s[min_i]
+    
+    def inverse_k(self, agent: robot2sr.Robot, target_config: list) -> None:
+        pass
+
 
 
     def applyVelocityConstraints(self, agent: robot2sr.Robot, v_optimal: np.ndarray) -> np.ndarray:

@@ -2,6 +2,7 @@ import json
 import numpy as np
 import cv2
 import threading
+from datetime import datetime
 
 class Aligner:
     def __init__(self) -> None:
@@ -31,13 +32,16 @@ class Aligner:
         self.config_list.append(config)
         
     def __run(self, path_x, path_y):
+        current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        video_path = f'Experiments/Video/path_tracking_{current_time}.mp4'
+
         cap = cv2.VideoCapture(0)
         # set the resolution to 1280x720
         cap.set(3, 1280)
         cap.set(4, 720)
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter('Data/Experiments/Video/path_tracking.mp4', fourcc, 20.0, (1421,720))
+        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1421,720))
 
 
         while cap.isOpened():

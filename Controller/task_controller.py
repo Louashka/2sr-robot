@@ -12,6 +12,7 @@ from itertools import chain
 from scipy.interpolate import interp1d
 from typing import List
 import time
+import json
 
 
 class Mode(Enum):
@@ -124,16 +125,10 @@ class Task(keyboard_controller.ActionsHandler):
         while not self.agent: 
             self.__updateConfig()
 
+        home_pose = self.agent.pose
+
         path = self.__generatePath()
         self.rgb_camera.startVideo(path.x, path.y, self.agent.config)
-
-        exp_data = []
-        
-        # target = np.array([self.agent.x + rnd.uniform(-1, 1), self.agent.y + rnd.uniform(-1, 1), self.agent.theta + rnd.uniform(-np.pi, np.pi)] + self.agent.curvature)
-        
-        # num_points = 50
-        # path_x = np.linspace(self.agent.x, target[0], num_points)
-        # path_y = np.linspace(self.agent.y, target[1], num_points)
 
         print("Waiting for the video to start...")
         while not self.rgb_camera.wait_video:
@@ -143,20 +138,19 @@ class Task(keyboard_controller.ActionsHandler):
 
         goal = path.getPoint(len(path.x) - 1)
         # states = self.__generateStates(path)
-
         dist = splines.getDistance(self.agent.position, goal)
-        
-        # frames = 300
-        counter = 0
-
-        # # while counter < frames:
-         
-        config_last = self.agent.pose
-        last_time = time.perf_counter()
 
         safety_margin = 2
+        counter = 0
+
+        exp_data = []
+        robot_tracking_data = []
 
         experiment_start_time = time.perf_counter()
+
+        config_last = self.agent.pose
+        last_time = experiment_start_time
+        elapsed_time = 0
 
         while dist > 10**(-2):
             
@@ -179,50 +173,55 @@ class Task(keyboard_controller.ActionsHandler):
         #     # print(v)
             if counter > safety_margin:
                 wheels, q = self.agent_controller.move(self.agent, v, s)
-                # self.agent.config = q
- 
-            self.__updateConfig()
-            self.rgb_camera.add_config(self.agent.config)
-
-            # vss1 = self.gui.arc(self.agent)
-            # vss1_conn_x = [self.agent.x + vss1[0][-1] - global_var.L_CONN * np.cos(vss1[2]), self.agent.x + vss1[0][-1]]
-            # vss1_conn_y = [self.agent.y + vss1[1][-1] - global_var.L_CONN * np.sin(vss1[2]), self.agent.y + vss1[1][-1]]
-
-            # lu_head_x = vss1_conn_x[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss1[2] + np.pi + np.pi / 4)
-            # lu_head_y = vss1_conn_y[0] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss1[2] + np.pi + np.pi / 4)
- 
-            # self.agent.head.pose = [lu_head_x, lu_head_y, vss1[2]]
-
-     
-            # vss2 = self.gui.arc(self.agent, 2)
-            # vss2_conn_x = [self.agent.x + vss2[0][-1], self.agent.x + vss2[0][-1] + global_var.L_CONN * np.cos(vss2[2])]
-            # vss2_conn_y = [self.agent.y + vss2[1][-1], self.agent.y + vss2[1][-1] + global_var.L_CONN * np.sin(vss2[2])]
-
-            # lu_tail_x = vss2_conn_x[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.cos(vss2[2] - np.pi / 4)
-            # lu_tail_y = vss2_conn_y[1] + np.sqrt(2) / 2 * global_var.LU_SIDE * np.sin(vss2[2] - np.pi / 4)
-
-            # self.agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]   
+                # self.agent_controller.update_agent(self.agent, q)
+                self.__updateConfig()
+                self.rgb_camera.add_config(self.agent.config)   
 
             dist = splines.getDistance(self.agent.position, goal)
 
             experiment_current_time = time.perf_counter()
+            elapsed_time = experiment_current_time - experiment_start_time
+
+            robot_tracking_data.append({'time': elapsed_time, 'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
+                                        'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]})
+
+            # print(dist)
+            
+            # data_row = (self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
+            #         list(chain(*wheels)) + [elapsed_time])
+            # exp_data.append(data_row)  
+
+            counter += 1
 
             if self.rgb_camera.finish:
                 break
 
-        #     # print(dist)
-            
-        #     timeStamp = datetime.now().strftime("%H:%M:%S")
-        #     data = (self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
-        #             list(chain(*wheels)) + [timeStamp])
-        #     exp_data.append(data)  
-
-            counter += 1
-
         self.agent_controller.stop(self.agent)
         self.rgb_camera.finish = True
 
-        print('Recording time:{} seconds'.format(experiment_current_time - experiment_start_time))
+        print(f'Recording time: {elapsed_time} seconds')
+
+        path_data = []
+        for x, y, yaw, in zip(path.x, path.y, path.yaw):
+            path_data.append({'x': x, 'y': y, 'yaw': yaw})
+            
+        # Create the data structure
+        data_json = {
+            "metadata": {
+                "description": "Path tracking data",
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            },
+            "path": path_data,
+            "robot_tracking": robot_tracking_data
+        }
+
+        # Write the data to a JSON file
+        with open('Experiments/Data/tracking_data.json', 'w') as f:
+            json.dump(data_json, f, indent=2)
+
+        print("JSON file 'tracking_data.json' has been created.")
+
+        self.__go_home(home_pose)
 
         # column_names = ["x", "y", "angle", "k1", "k2",  
         #                'x_head', 'y_head', 'theta_head', 
@@ -285,6 +284,21 @@ class Task(keyboard_controller.ActionsHandler):
             states[str(state_idx)] = state_config
 
         return states
+    
+    def __go_home(self, home_pose) -> None:
+        varsigma = [0, 0]
+
+        target_config = home_pose + self.agent.pose
+        target = np.array(home_pose)
+        dist = np.linalg.norm(self.agent.pose - home_pose)
+
+        while dist > 10**(-2):
+            v, varsigma = self.agent_controller.inverse_k(self.agent, target_config)
+            _, q = self.agent_controller.move(self.agent, v, varsigma)
+            self.agent_controller.update_agent(self.agent, q)
+
+            self.__updateConfig()
+            dist = np.linalg.norm(self.agent.pose - target)
 
     
 if __name__ == "__main__":
