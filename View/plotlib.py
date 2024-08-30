@@ -10,19 +10,19 @@ from typing import List
 from scipy.interpolate import splprep, splev
 from circle_fit import taubinSVD
 
-styles = {'original': {'line_type': '-', 'alpha': 1}, 'target': {'line_type': '.', 'alpha': 0.3}}
+styles = {
+    'original': {'linestyle': '-', 'alpha': 1, 'linewidth': 2},
+    'target': {'linestyle': 'dashed', 'alpha': 0.3, 'linewidth': 1}
+}
 
 class GUI:
     def __init__(self) -> None:
-    # def __init__(self, task: task_controller.Task) -> None:
-        # self.__task = task
 
         self.__window = None
         self.__canvas = None
         self.__axs = None
 
         self.__createWindow()
-        self.__createSideBar()
         self.__defineTrackingArea()
 
     @property
@@ -36,24 +36,6 @@ class GUI:
         self.__window.config(background='#fafafa')
         # self.__window.geometry('1200x720')        
 
-    def __createSideBar(self) -> None:
-        self.__side_bar_frame = tk.Frame(self.__window)
-        self.__side_bar_frame.pack(fill=tk.Y, side=tk.RIGHT)
-
-        self.__buttons_frame = tk.Frame(self.__side_bar_frame)
-        self.__buttons_frame.pack(fill=tk.NONE, expand=True)
-
-        self.__buttons = {}
-        
-        # self.__buttons['gen_path'] = tk.Button(self.__buttons_frame, text='Generate paths', command=self.__task.generatePaths)
-        # self.__buttons['start'] = tk.Button(self.__buttons_frame, text='Start', command=self.__task.start)
-        # self.__buttons['stop'] = tk.Button(self.__buttons_frame, text='Stop', command=self.__task.stop)
-        # self.__buttons['exit'] = tk.Button(self.__buttons_frame, text='Exit', command=self.__task.quit)
-        
-        # for button in self.__buttons.values():
-        #     button['font'] = font.Font(size=26)
-        #     button.pack(fill=tk.X, padx=20, pady=8)
-
     def __defineTrackingArea(self) -> None:
         self.__masFrame = tk.Frame(self.__window)
         self.__masFrame.pack(expand=True)
@@ -61,9 +43,10 @@ class GUI:
         self.__canvas = FigureCanvasTkAgg(self.__fig, master = self.__masFrame)
         self.__canvas.get_tk_widget().pack()
 
-    def __show(self) -> None:
+    def show(self) -> None:
         self.__ax.axis('equal')
         plt.tight_layout()
+        plt.legend()
 
         self.__canvas.draw()
 
@@ -71,7 +54,7 @@ class GUI:
         for marker in markers.values():
             self.__ax.plot(marker['marker_x'], marker['marker_y'], 'bo', markersize=2)
 
-        self.__show()
+        self.show()
 
     def plotPaths(self, paths: dict, area_lim: list, display='original') -> None:
         style = styles[display]
@@ -86,7 +69,7 @@ class GUI:
         self.__axs[0, 0].set_xlim(area_lim[0])
         self.__axs[0, 0].set_ylim(area_lim[1])
 
-        self.__show()    
+        self.show()    
 
     def plotAgent(self, agent: robot2sr.Robot, markers: dict):        
         self.__ax.clear()
@@ -107,7 +90,7 @@ class GUI:
         vss2_conn_y = [agent.y + vss2[1][-1], agent.y + vss2[1][-1] + gv.L_CONN * np.sin(vss2[2])]
         plt.plot(vss2_conn_x, vss2_conn_y, '-k', lw='5')
 
-         # Plot a body frame
+        # Plot a body frame
         plt.plot(agent.x, agent.y, '*r')
         # plt.arrow(robot.x, robot.y, 0.05 * np.cos(robot.theta), 0.05 * np.sin(robot.theta), width=0.005, color='red')
         plt.plot([agent.x, agent.x + 0.05 * np.cos(agent.theta)], 
@@ -144,40 +127,44 @@ class GUI:
 
         self.plotMarkers(markers)
 
-        self.__show()
+        self.show()
 
-    def arc(self, agent: robot2sr.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
-        k = agent.curvature[seg-1]
+    def arc(self, config: list, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
+        k = config[2+seg]
         l = np.linspace(0, gv.L_VSS, 50)
         flag = -1 if seg == 1 else 1
-        theta_array = agent.theta + flag * k * l
+        theta_array = config[2] + flag * k * l
 
         if k == 0:
-            x = np.array([0, flag * gv.L_VSS * np.cos(agent.theta)])
-            y = np.array([0, flag * gv.L_VSS * np.sin(agent.theta)])
+            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
+            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
         else:
-            x = np.sin(theta_array) / k - np.sin(agent.theta) / k
-            y = -np.cos(theta_array) / k + np.cos(agent.theta) / k
+            x = np.sin(theta_array) / k - np.sin(config[2]) / k
+            y = -np.cos(theta_array) / k + np.cos(config[2]) / k
 
         theta_end = theta_array[-1]
             
         return x, y, theta_end % (2 * np.pi)
-
-    def __wheelsToGlobal(self, robot_pose: list, wheel: list):
-        R_ob = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],
-                        [np.sin(robot_pose[2]), np.cos(robot_pose[2])]])
-        
-        T_ob = np.block([[R_ob, np.array([robot_pose[:2]]).T], [np.zeros((1,2)), 1]])
-        wheel_b = wheel + [1]
-
-        wheel_global = np.matmul(T_ob, wheel_b).T[:-1]
-
-        return wheel_global
     
-    def clear(self) -> None:
-        for row in self.__axs:
-            for val in row:
-                val.clear()
+    def plot_config(self, config: list, stiffness: list, label:str, stl:str = 'original') -> None:
+        # Plot a body frame
+        plt.plot(config[0], config[1], '*r')
 
-    def plotMAS(self) -> None:
-        pass
+        # Define colors based on stiffness
+        colors = ['blue' if s == 0 else 'red' if s == 1 else 'black' for s in stiffness]
+
+        # Plot VS segments
+        for i in range(2):  # Assuming there are always 2 segments
+            vss = self.arc(config, i+1)
+            
+            # Create a new style dictionary that includes the color
+            segment_style = styles[stl].copy()
+            segment_style['color'] = colors[i]
+
+            plt.plot(config[0] + vss[0], config[1] + vss[1], label=label, **segment_style)
+
+    def scatter(self, points_x: list, points_y: list, label:str) -> None:
+        plt.plot(points_x, points_y, '.', label=label)
+
+    def clear(self) -> None:
+        self.__ax.clear()

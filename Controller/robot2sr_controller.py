@@ -5,6 +5,7 @@ from typing import List
 from cvxopt import matrix, solvers
 from Model import global_var, robot2sr, splines
 import cvxpy
+from gekko import GEKKO
 
 port_name = "COM3"
 
@@ -23,20 +24,89 @@ class Controller:
 
         self.sp = None
 
-        self.NX = 3  # x = x, y, yaw
+        self.NX = 5  # x = x, y, yaw
         self.NU = 2  # a = [linear velocity, linear velocity, angular velocity ]
         self.NW = 4  # number of wheels
-        self.T = 10  # horizon length
+        self.T = 11  # horizon length
 
         # mpc parameters
-        self.R = np.diag([10000, .01])  # input cost matrix
+        self.R = np.diag([1, 10000, 0.0015])  # input cost matrix
         self.Q = np.diag([10, 10, 0.0])  # agent cost matrix
         self.Qf = self.Q # agent final matrix
-        self.Rd = np.diag([10000, 0.01])
+        self.Rd = np.diag([10, 10000, 0.001])
 
         self.TARGET_SPEED = 0.08
         self.MAX_SPEED = 15  # Maximum speed in rad/s
         self.MIN_SPEED = 0.5  # Minimum non-zero speed in rad/s 
+
+        self.spiral1 = splines.LogSpiral(1)
+        self.spiral2 = splines.LogSpiral(2)
+
+        self.gekko_solver()
+
+    def gekko_solver(self):
+        k_max = math.pi /  global_var.L_VSS
+        self.m = GEKKO(remote=False)  # Initialize GEKKO model
+        self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+
+        # Parameters
+        self.l = self.m.Param(value=global_var.L_VSS)
+        self.var_phi = self.m.Param(value=global_var.M[0])
+
+        # Manipulated variable
+        self.u1 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
+        self.u1.STATUS = 1
+        # self.u1.DCOST = 0.01
+
+        self.u2 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
+        self.u2.STATUS = 1
+        # self.u2.DCOST = 1e-2
+
+        # State variable
+        self.x, self.y, self.theta, self.k1, self.k2 = [self.m.SV() for i in range(5)]
+
+        self.x.FSTATUS = 1
+        self.y.FSTATUS = 1
+        self.x.FSTATUS = 1
+        self.x.FSTATUS = 1
+        self.x.FSTATUS = 1
+
+        self.x_, self.y_, self.theta_, self.k1_, self.k2_ = [self.m.CV() for i in range(5)]
+
+        # Define an intermediate variable for wheel speed
+        w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
+        w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+
+        w2 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u2)
+        w2_curve = self.m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+
+        k1_ratio = self.spiral2.get_k_dot(self.k1.VALUE) / self.spiral1.get_k_dot(self.k1.VALUE)
+        pos_lu2 = self.spiral1.get_pos_dot(self.theta.VALUE, self.k1.VALUE, 1, 2)
+
+        # Equations
+        self.m.Equations([self.x_ == self.x, self.y_ == self.y, self.theta_ == self.theta, 
+                          self.k1_ == self.k1, self.k2_ == self.k2])
+        self.m.Equation(self.x.dt() == k1_ratio * pos_lu2[0] * self.u2)
+        self.m.Equation(self.y.dt() == k1_ratio * pos_lu2[1] * self.u2)
+        self.m.Equation(self.theta.dt() == self.spiral2.get_th_dot(self.k1.VALUE) * self.u2)
+        # self.m.Equation(self.k1.dt() == -self.spiral1.get_k_dot(self.k1.VALUE) * self.u1 + self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
+        self.m.Equation(self.k2.dt() == 0)
+
+        self.m.Equation(self.k1.dt() == self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
+
+        # Constraints
+        self.m.Equation(w1 >= -self.MAX_SPEED)
+        self.m.Equation(w1 <= self.MAX_SPEED)
+        self.m.Equation(w1_curve >= 0)
+
+        self.m.Equation(w2 >= -self.MAX_SPEED)
+        self.m.Equation(w2 <= self.MAX_SPEED)
+        self.m.Equation(w2_curve >= 0)
+
+        # Options
+        self.m.options.IMODE = 6  # MPC mode
+        self.m.options.SOLVER = 1
+
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
@@ -44,20 +114,23 @@ class Controller:
         if self.sp is None:
             self.sp = []
             for i in range(1, len(cx)):
-                self.sp.append(self.TARGET_SPEED * (1 - path.curvature[i]/(max(path.curvature)+5)))
+                self.sp.append(self.TARGET_SPEED * (1 - path.curvature[i]/(max(path.curvature) + 5)))
             self.sp.append(0)
+
+        # r_rot_cost = 0.002 - (0.002 - 0.0008) * path.curvature[path.last_idx] / max(path.curvature)
+        # self.R = np.diag([10, 10000, r_rot_cost])
 
         target_ind = path.getTarget(agent.position, self.lookahead_distance)
         qref, vref = self.__calc_ref_trajectory(cx, cy, cyaw, self.sp, target_ind, v_current[0]) 
-        qbar = self.__predict_motion(agent.config, qref.shape, [v_current[0]] * self.T, [v_current[1]] * self.T)
+        # qbar = self.__predict_motion(agent.pose, qref.shape, [0, v_current[0], v_current[1], 0, 0], [0, 0])
 
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
 
-        v_predicted, omega_predicted = self.__linear_mpc_control(qref, qbar, agent.pose, vref, wheels)
+        vx_predicted, vy_predicted, omega_predicted = self.__linear_mpc_control(qref, agent.pose, vref, wheels)
 
-        return [0, v_predicted[0], omega_predicted[0], 0, 0], agent.stiffness
+        return [vx_predicted[0], vy_predicted[0], omega_predicted[0], 0, 0], agent.stiffness
     
     def __calc_ref_trajectory(self, cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
         qref = np.zeros((self.NX, self.T + 1))
@@ -86,18 +159,18 @@ class Controller:
 
         return qref, vref
     
-    def __predict_motion(self, agent_config: list, shape: tuple, v_list: list, omega_list: list) -> np.ndarray:
-        qbar = np.zeros(shape)
-        qbar[:, 0] = agent_config[:3]
+    # def __predict_motion(self, agent_config: list, shape: tuple, v_list: list, omega_list: list) -> np.ndarray:
+    #     qbar = np.zeros(shape)
+    #     qbar[:, 0] = agent_config[:3]
 
-        agent = robot2sr.Robot(1, *agent_config)
-        self.update_agent(agent, agent.config)
-        for (i, v, omega) in zip(range(1, self.T + 1), v_list, omega_list):
-            q = self.get_config(agent, [0, v, omega, 0, 0], agent.stiffness)
-            self.update_agent(agent, q)
-            qbar[:, i] = agent.pose
+    #     agent = robot2sr.Robot(1, *agent_config)
+    #     self.update_agent(agent, agent.config)
+    #     for (i, v, omega) in zip(range(1, self.T + 1), v_list, omega_list):
+    #         q = self.get_config(agent, [0, v, omega, 0, 0], agent.stiffness)
+    #         self.update_agent(agent, q)
+    #         qbar[:, i] = agent.pose
 
-        return qbar
+    #     return qbar
     
     def update_agent(self, agent: robot2sr.Robot, q: np.ndarray):
         agent.config = q
@@ -137,7 +210,7 @@ class Controller:
             
         return x, y, theta_end % (2 * np.pi)
     
-    def __linear_mpc_control(self, qref: np.ndarray, qbar: np.ndarray, agent_pose: list, vref: np.ndarray, wheels: list):
+    def __linear_mpc_control(self, qref: np.ndarray, agent_pose: list, vref: np.ndarray, wheels: list):
         q = cvxpy.Variable((self.NX, self.T + 1))
         u = cvxpy.Variable((self.NU, self.T))
         vw = cvxpy.Variable((self.NW, self.T)) #to calculate vr and vl
@@ -148,44 +221,43 @@ class Controller:
         cost = 0.0
         constraints = []
 
+        constraints += [q[:, 0] == agent_pose - qref[:,0]]  
+
         for t in range(self.T):
             cost += cvxpy.quad_form(u[:, t], self.R)
             if t != 0:
                 cost += cvxpy.quad_form(q[:, t], self.Q)        
-            A, B = self.__get_linear_model_matrix(vref[0, t], qbar[2, t])  
+            A, B = self.__get_linear_model_matrix(vref[0, t], qref[2, t])  
 
             constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  
 
             for w in range(self.NW):
-                constraints += [vw[w, t] == (1 / global_var.WHEEL_R) * (math.sin(wheels[w][2]) * (u[0, t] + vref[0, t+1]) + 
-                                                            (wheels[w][0] * math.sin(wheels[w][2]) - wheels[w][1] * math.cos(wheels[w][2])) * u[1, t])]
+                constraints += [vw[w, t] == (1 / global_var.WHEEL_R) * (math.cos(wheels[w][2]) * u[0, t] + 
+                                                            math.sin(wheels[w][2]) * (u[1, t] + vref[0, t+1]) + 
+                                                            (wheels[w][0] * math.sin(wheels[w][2]) - wheels[w][1] * math.cos(wheels[w][2])) * u[2, t])]
 
-            if t < (self.T - 1):
-                cost += cvxpy.quad_form((u[:, t + 1] - u[:, t]), self.Rd)
+            # if t < (self.T - 1):
+            #     cost += cvxpy.quad_form((u[:, t + 1] - u[:, t]), self.Rd)
 
-        # constraints += [vw[:,:] <= 15]  
-        # constraints += [vw[:,:] >= -15]    
 
         for w in range(self.NW):
             # Exclude velocities from -1 to 1
             constraints += [vw[w, :] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[w, :]]
             constraints += [vw[w, :] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[w, :])]
 
-        cost += cvxpy.quad_form(q[:, self.T], self.Qf)
-        constraints += [q[:, 0] ==  agent_pose - qref[:,0]]    
+        cost += cvxpy.quad_form(q[:, self.T], self.Qf)  
         prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
         prob.solve(solver=cvxpy.ECOS_BB, verbose=False)
-        #OSQP,CVXOPT, ECOS, scs
-
 
         if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-            v_predicted = np.array(u.value[0, :]).flatten() + vref[0, 1:]
-            omega_predicted = np.array(u.value[1, :]).flatten()
+            vx_predicted = np.array(u.value[0, :]).flatten()
+            vy_predicted = np.array(u.value[1, :]).flatten() + vref[0, 1:]
+            omega_predicted = np.array(u.value[2, :]).flatten()
         else:
             print("Error: Cannot solve mpc..")
-            v_predicted, omega_predicted = None, None
+            vx_predicted, vy_predicted, omega_predicted = None, None, None
 
-        return v_predicted, omega_predicted
+        return vx_predicted, vy_predicted, omega_predicted
     
     def __get_linear_model_matrix(self, vref, phi):
         A = np.zeros((self.NX, self.NX))
@@ -196,13 +268,123 @@ class Controller:
         A[2, 2] = 1.0
 
         B = np.zeros((self.NX, self.NU))
-        B[0, 0] = -self.dt * math.sin(phi)
-        B[0, 1] = 0 #0
-        B[1, 0] = self.dt * math.cos(phi)
-        B[1, 1] = 0 #0
-        B[2, 1] = self.dt
+        B[0, 0] = self.dt * math.cos(phi)
+        B[0, 1] = -self.dt * math.sin(phi)
+        B[1, 0] = self.dt * math.sin(phi)
+        B[1, 1] = self.dt * math.cos(phi)
+        B[2, 2] = self.dt
 
         return A, B
+    
+    def __get_linear_model_matrix10(self, q):
+        A = np.eye(self.NX)
+
+        pos_lu2 = self.spiral2.get_pos_dot(q[2], q[3], 1, 2)
+
+        B = np.zeros((self.NX, self.NU))
+        B[0, 1] = pos_lu2[0] * self.dt 
+        B[1, 1] = pos_lu2[1] * self.dt 
+        B[2, 1] = self.spiral2.get_th_dot(q[3]) * self.dt 
+        B[3, 0] = -self.spiral1.get_k_dot(q[3]) * self.dt 
+        B[3, 1] = self.spiral2.get_k_dot(q[3]) * self.dt
+
+        return A, B
+    
+    def motionPlannerMPC10(self, agent: robot2sr.Robot, q_ref: list) -> tuple[float, float]:
+        v1, v2 = self.__linear_mpc_control10(agent.config, q_ref)
+        
+        return v1, v2
+    
+    # def __predict_motion(self, agent_config: list, shape: tuple, v: list, s: list) -> np.ndarray:
+    #     qbar = np.zeros(shape)
+    #     qbar[:, 0] = agent_config[:shape[0]]
+
+    #     agent = robot2sr.Robot(1, *agent_config)
+    #     self.update_agent(agent, agent.config)
+    #     for i in range(1, self.T + 1):
+    #         q = self.get_config(agent, v, s)
+    #         self.update_agent(agent, q)
+    #         qbar[:, i] = agent.config[:shape[0]]
+
+    #     return qbar
+    
+    def __linear_mpc_control10(self, q_current: np.ndarray, q_ref: list) -> tuple[float, float]:
+
+        Q = [10, 10, 1, 0.1, 0.1]
+        R = [0.001, 0]
+
+        self.x_.VALUE = q_ref[0]
+        self.y_.VALUE = q_ref[1]
+        self.theta_.VALUE = q_ref[2]
+        self.k1_.VALUE = q_ref[3]
+        self.k2_.VALUE = q_ref[4]
+
+        self.m.Obj(Q[0] * self.x ** 2 + Q[1] * self.y ** 2 + Q[2] * self.theta ** 2 + 
+                   Q[3] * self.k1 ** 2 + Q[4] * self.k2 ** 2 + 
+                   R[0] * self.u1**2 + R[1] * self.u2**2)
+
+        # Solve
+        self.m.solve(disp=False)
+
+        self.x.MEAS = q_current[0]
+        self.y.MEAS = q_current[1]
+        self.theta.MEAS = q_current[2]
+        self.k1.MEAS = q_current[3]
+        self.k2.MEAS = q_current[4]
+
+        # Solve
+        self.m.solve(disp=False)
+
+        if self.m.options.SOLVESTATUS == 1: 
+            v1 = self.u1.NEWVAL  
+            v2 = self.u2.NEWVAL  
+        else:
+            return None, None
+        
+        return v1, v2
+    
+    def mhe(self, ref_traj: splines.Trajectory, k_array: np.ndarray):
+        n = len(ref_traj.x)
+
+        m = GEKKO(remote=False)
+        m.time = np.linspace(0, global_var.DT * (n-1), n)
+
+        # x = m.CV(value=ref_traj.x)
+        # y = m.CV(value=ref_traj.y)
+        # theta = m.CV(value=ref_traj.yaw)
+        k1 = m.CV(value=k_array)
+
+        # x.FSTATUS = 1
+        # y.FSTATUS = 1
+        # theta.FSTATUS = 1
+        k1.FSTATUS = 1
+
+        u2 = m.MV(value=0.0, lb = -0.2, ub=0.2)
+
+        u2.STATUS = 1
+
+        w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
+        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+
+        # k1_ratio = self.spiral2.get_k_dot(k1.VALUE) / self.spiral1.get_k_dot(k1.VALUE)
+        # pos_lu2 = self.spiral1.get_pos_dot(theta.VALUE, k1.VALUE, 1, 2)
+
+        # Equations
+        # m.Equation(x.dt() == k1_ratio * pos_lu2[0] * u2)
+        # m.Equation(y.dt() == k1_ratio * pos_lu2[1] * u2)
+        # m.Equation(theta.dt() == self.spiral2.get_th_dot(k1.VALUE) * u2)
+        m.Equation(k1.dt() == self.spiral2.m / (self.spiral2.a * m.exp(-self.spiral2.b * k1 * global_var.L_VSS / self.spiral2.m - self.spiral2.phi0) * global_var.L_VSS) * u2)
+
+        # Constraints
+        m.Equation(w2 >= -self.MAX_SPEED)
+        m.Equation(w2 <= self.MAX_SPEED)
+        m.Equation(w2_curve >= 0)
+
+        m.options.IMODE = 5
+        m.options.EV_TYPE = 2
+        m.solve(disp=False)
+
+        return [0] * n, u2.VALUE
 
 
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
@@ -274,36 +456,13 @@ class Controller:
         return v_optimal.tolist(), s[min_i]
     
     def inverse_k(self, agent: robot2sr.Robot, target_config: list) -> None:
-        pass
+        q_t = np.array(target_config)
+        q_tilda = 2 * (q_t - agent.config) * global_var.DT
 
+        J = agent.jacobian([0, 0])
+        v = np.linalg.pinv(J) @ q_tilda
 
-
-    def applyVelocityConstraints(self, agent: robot2sr.Robot, v_optimal: np.ndarray) -> np.ndarray:
-        # First, constrain control velocities
-        v_constrained = np.clip(v_optimal, -self.max_linear_velocity, self.max_linear_velocity)
-        v_constrained[2:5] = np.clip(v_constrained[2:5], -self.max_angular_velocity, self.max_angular_velocity)
-
-        # Calculate wheel velocities
-        head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
-        tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
-        wheels = head_wheels + tail_wheels
-        V = self._wheelsConfigMatrix(wheels, agent.stiffness)
-        
-        wheel_velocities = np.dot(V, v_constrained)
-
-        # Check if any wheel velocity exceeds the limits
-        if np.any(wheel_velocities < WHEEL_MIN_SPEED) or np.any(wheel_velocities > WHEEL_MAX_SPEED):
-            # Scale wheel velocities if limits are exceeded
-            scale = min(
-                WHEEL_MAX_SPEED / np.maximum(np.abs(wheel_velocities), 1e-6).max(),
-                WHEEL_MIN_SPEED / np.minimum(np.abs(wheel_velocities), 1e-6).min()
-            )
-            wheel_velocities *= scale
-            
-            # Recalculate control velocities from scaled wheel velocities
-            v_constrained = np.linalg.lstsq(V, wheel_velocities, rcond=None)[0]
-
-        return v_constrained
+        return v, [0, 0]
     
     @staticmethod
     def minAngleDistance(initial_angle, target_angle):
@@ -381,7 +540,7 @@ class Controller:
         for i, w in enumerate(wheels):
             tau = w[0] * np.sin(w[2]) - w[1] * np.cos(w[2])
             V[i, :] = [flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau,
-                       flag_soft * (i < 2), -flag_soft * (i >= 2)]
+                       -flag_soft * (i == 0), -flag_soft * (i == 2)]
 
         return 1 / global_var.WHEEL_R * V
 

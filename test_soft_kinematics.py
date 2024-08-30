@@ -34,11 +34,13 @@ def get_jacobian(q:np.ndarray, s: List[float]) -> np.ndarray:
         spiral1 = splines.LogSpiral(1)
         spiral2 = splines.LogSpiral(2)
 
-    pos_lu1 = spiral2.get_pos_dot(q[2], q[4], 2, 1)
-    pos_lu2 = spiral2.get_pos_dot(q[2], q[3], 1, 2)
+    k1_ratio = spiral2.get_k_dot(q[3]) / spiral1.get_k_dot(q[3])
 
-    J = np.array([[pos_lu1[0], pos_lu2[0]],
-                  [pos_lu1[1], pos_lu2[1]],
+    pos_lu1 = spiral1.get_pos_dot(q[2], q[4], 2, 1)
+    pos_lu2 = spiral1.get_pos_dot(q[2], q[3], 1, 2)
+
+    J = np.array([[pos_lu1[0], k1_ratio * pos_lu2[0]],
+                  [pos_lu1[1], k1_ratio * pos_lu2[1]],
                   [spiral2.get_th_dot(q[4]), spiral2.get_th_dot(q[3])],
                   [-spiral1.get_k_dot(q[3]), spiral2.get_k_dot(q[3])],
                   [-spiral2.get_k_dot(q[4]), spiral1.get_k_dot(q[4])]])
@@ -57,9 +59,9 @@ fig, ax = plt.subplots()
 dt = 0.1  # step size
 
 q = np.array([0.0, 0.0, np.pi/5, 0.0, 0.0])
-s = [1, 1]
+s = [1, 0]
 
-v = np.array([-0.03, 0.0])
+v = np.array([0, 0.1])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")
@@ -68,8 +70,8 @@ centre, = ax.plot([], [], lw=5, marker="o", color="black")
 def init():
     global ax
 
-    ax.set_xlim([-0.25, 0.25])
-    ax.set_ylim([-0.25, 0.25])
+    ax.set_xlim([-0.15, 0.15])
+    ax.set_ylim([-0.15, 0.15])
     ax.set_aspect("equal")
 
 def update(i):

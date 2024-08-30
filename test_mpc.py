@@ -14,7 +14,7 @@ NW = 4  # number of wheels
 T = 10  # horizon length
 
 # mpc parameters
-R = np.diag([10000, .001])  # input cost matrix
+R = np.diag([10000, .002])  # input cost matrix
 Q = np.diag([10, 10, 0.0])  # agent cost matrix
 Qf = Q # agent final matrix
 Rd = np.diag([10000, 0.01])
@@ -162,7 +162,7 @@ def linear_mpc_control(xref, xbar, x0, vref, wheels):
         cost += cvxpy.quad_form(u[:, t], R)
         if t != 0:
             cost += cvxpy.quad_form(x[:, t], Q)        
-        A, B = get_linear_model_matrix(vref[0, t], xbar[2, t])  
+        A, B = get_linear_model_matrix(vref[0, t], xref[2, t])  
 
         constraints += [x[:, t + 1] == A @ x[:, t] + B @ u[:, t]]  
 
@@ -249,8 +249,8 @@ def update_agent(agent: robot2sr.Robot, q: np.ndarray):
 
 
 if __name__ == '__main__':
-    agent = robot2sr.Robot(1, 0, 0, -np.pi/2, 0, 0)
-    update_agent(agent, np.array([0, 0, -np.pi/2, 0, 0]))
+    agent = robot2sr.Robot(1, 0, 0, 0, 0, 0)
+    update_agent(agent, np.array([0, 0, 0, 0, 0]))
     wheels, q = agent_controller.move(agent, [0] * 5, agent.stiffness)
     
     dl = 0.01 # course tick
@@ -258,9 +258,13 @@ if __name__ == '__main__':
     # ay = [0.0, 1.0, 1.5, 1.0, 0.0] 
     # cx, cy, cyaw, _, s = cubic_spline_planner.calc_spline_course(ax, ay, ds=dl)
 
-    path_x = np.arange(0, 2, 0.01)
-    path_y = np.array([np.sin(x / 0.21) * x / 15.0 for x in path_x])
-    path = splines.Trajectory(path_x, path_y)
+    # path_x = np.arange(0, 1.7, 0.01)
+    # path_y = np.array([np.sin(x / 0.18) * x / 15.0 for x in path_x])
+    a, b = 0.3, 0.55
+    theta = np.linspace(0, 2*np.pi, 100)
+    path_x = a * np.cos(theta)
+    path_y = b * np.sin(theta)
+    path = splines.Trajectory(path_x-a, path_y)
 
     cx, cy, cyaw, s = path.params
 
@@ -283,7 +287,8 @@ if __name__ == '__main__':
 
 while MAX_TIME >= time:
         target_ind = path.getTarget(agent.position, dl)
-        xref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, dl, target_ind, vi)     
+        xref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, dl, target_ind, vi)    
+        print(xref[2,0]) 
 
         xbar = predict_motion(agent.config, xref.shape, [vi] * T, [omegai] * T)
         ov, oomega, ox, oy, oyaw, wheels_v = linear_mpc_control(xref, xbar, agent.pose, vref, wheels)

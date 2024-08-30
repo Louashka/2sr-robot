@@ -4,7 +4,7 @@ from typing import List
 import numpy as np
 
 class Robot(Frame):
-    def __init__(self, id: int, x, y, theta, k1, k2, stiffness: List[int]=[0, 0]):
+    def __init__(self, id: int, x, y, theta, k1 = 0, k2 = 0, stiffness: List[int]=[0, 0]):
         """
         Define a robot class
         :param x: float, x position
@@ -84,16 +84,14 @@ class Robot(Frame):
         self.k1 = value[3]
         self.k2 = value[4]
 
-    def jacobian_rigid(self, varsigma: list) -> np.ndarray:
-        delta = int(not(any(varsigma)))
-
+    def jacobian_rigid(self) -> np.ndarray:
         J_rigid = np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
                             [np.sin(self.theta), np.cos(self.theta), 0],
                             [0, 0, 1],
                             [0, 0, 0],
                             [0, 0, 0]])
         
-        return delta * J_rigid
+        return J_rigid
     
     
     def jacobian_soft(self, varsigma) -> np.ndarray:
@@ -103,11 +101,13 @@ class Robot(Frame):
             spiral1 = splines.LogSpiral(1)
             spiral2 = splines.LogSpiral(2)
 
-        pos_lu1 = spiral2.get_pos_dot(self.theta, self.k2, 2, 1)
-        pos_lu2 = spiral2.get_pos_dot(self.theta, self.k1, 1, 2)
+        k1_ratio = spiral2.get_k_dot(self.k1) / spiral1.get_k_dot(self.k1)
 
-        J = np.array([[pos_lu1[0], pos_lu2[0]],
-                      [pos_lu1[1], pos_lu2[1]],
+        pos_lu1 = spiral1.get_pos_dot(self.theta, self.k2, 2, 1)
+        pos_lu2 = spiral1.get_pos_dot(self.theta, self.k1, 1, 2)
+
+        J = np.array([[pos_lu1[0], k1_ratio * pos_lu2[0]],
+                      [pos_lu1[1], k1_ratio * pos_lu2[1]],
                       [spiral2.get_th_dot(self.k2), spiral2.get_th_dot(self.k1)],
                       [-spiral1.get_k_dot(self.k1), spiral2.get_k_dot(self.k1)],
                       [-spiral2.get_k_dot(self.k2), spiral1.get_k_dot(self.k2)]])
@@ -115,16 +115,16 @@ class Robot(Frame):
         stiffness_array = np.array([[varsigma[1], varsigma[0]],
                                     [varsigma[1], varsigma[0]],
                                     [varsigma[1], varsigma[0]],
-                                    [self.stiffness[0], varsigma[0]],
-                                    [self.stiffness[1], varsigma[1]]])
+                                    [varsigma[0], varsigma[0]],
+                                    [varsigma[1], varsigma[1]]])
         
         J_soft = np.multiply(stiffness_array, J)
         
         return J_soft
     
     def jacobian(self, varsigma) -> np.ndarray:
-        return np.hstack((self.jacobian_rigid(varsigma), self.jacobian_soft(varsigma)))
+        return np.hstack((int(not(any(varsigma))) * self.jacobian_rigid(), self.jacobian_soft(varsigma)))
     
     def update(self, v: np.ndarray, time_step: float=0.1) -> None:
-        q_dot = self.jacobian_rigid.dot(v)
+        q_dot = self.jacobian_rigid().dot(v)
         self.config += q_dot * time_step

@@ -41,15 +41,15 @@ bj_Q_w = [[-H1, -H3, H3, H1],
 
 # SPIRAL_COEF = [[2.3250 * L_VSS, 3.3041 * L_VSS,
 #                 2.4471 * L_VSS], [0.3165, 0.083, 0.2229]]
-SPIRAL_COEF = [[0.0624, 0.1369, 0.1227], 
-               [0.2797, 0.1217, 0.2664]]
+SPIRAL_COEF = [[0.059, 0.1369, 0.1227], 
+               [0.18, 0.1217, 0.2664]]
 
-SPIRAL_PHI0 = [0.018, 0.1, 0.19]
+SPIRAL_PHI0 = [0.18, 0.1, 0.19]
 
 SPIRAL_CENTRE = [-0.1223 * L_VSS, 0.1782 * L_VSS]
 
 # M = [3 / 2, 1, 3 / 4]
-M = [math.pi/1.818, math.pi/2.8, math.pi/2.14]
+M = [math.pi/2.0, math.pi/2.8, math.pi/2.14]
 
 # Motive tracling data
 M_POS = ['marker_x', 'marker_y', 'marker_z']

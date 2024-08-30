@@ -49,6 +49,7 @@ class MocapReader:
         self.__isRunning = False
         self.__data = None
         self.__markers_id = set()
+        self.agent_theta_prev = None
 
     @property
     def isRunning(self) -> bool:
@@ -359,6 +360,20 @@ class MocapReader:
         # Calculate the tangent vector at the midpoint
         tangent_x, tangent_y = splev(midpoint_s, tck, der=1)
         theta = np.arctan2(tangent_y, tangent_x)
+
+        if self.agent_theta_prev is None:
+            self.agent_theta_prev = theta
+        else:
+            diff = theta - self.agent_theta_prev
+            # Check if we've crossed the -pi/pi boundary
+            offset = 0
+            if diff > np.pi:
+                offset -= 2*np.pi
+            elif diff < -np.pi:
+                offset += 2*np.pi
+
+            theta += offset
+            self.agent_theta_prev = theta
 
         x_der1, y_der1 = splev(s[:500], tck, der=1)
         x_der2, y_der2 = splev(s[:500], tck, der=2)

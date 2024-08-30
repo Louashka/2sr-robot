@@ -20,27 +20,33 @@ class LogSpiral:
         self.phi0 = gv.SPIRAL_PHI0[n-1]
 
     def get_phi(self, k: float) -> float:
-        return k * gv.L_VSS / self.m
+        phi = k * gv.L_VSS / self.m
+        phi = phi - self.phi0 if k > 0 else phi + self.phi0
+        return phi
 
     def get_rho(self, k: float) -> float:
         b = -self.b if k > 0 else self.b
         phi = self.get_phi(k)
-        phi = phi - self.phi0 if k > 0 else phi + self.phi0
         return self.a * np.exp(b * phi)
+    
+    def get_pos(self, k:float) -> list:
+        phi = self.get_phi(k)
+        rho = self.get_rho(k)
+
+        x = rho * np.cos(phi)
+        y = rho * np.sin(phi)
+
+        return [x, y]
     
     def get_pos_dot(self, th0: float, k: float, seg: int = 1, lu: int = 1) -> list:
         b = -self.b if k > 0 else self.b
 
         phi = self.get_phi(k)
-        phi = phi - self.phi0 if k > 0 else phi + self.phi0
   
         pos_dot_local = np.array([
             [b * np.cos(phi) - np.sin(phi)],
             [(-1)**lu * (b * np.sin(phi) + np.cos(phi))]
         ])
-
-        rho = self.get_rho(k)
-        pos_dot_local *= (rho - gv.L_VSS) / rho
 
         th = th0 + (-1)**seg * k * gv.L_VSS
     
@@ -66,15 +72,13 @@ class Trajectory:
         """
         self.x = traj_x
         self.y = traj_y
-        self.yaw = []
-
+        
+        yaw_list = []
         for i in range(len(traj_x)):
             yaw = self.getSlopeAngle(i) - np.pi/2
-            while(yaw > np.pi):
-                yaw = yaw - 2.0 * np.pi
-            while(yaw < -np.pi):
-                yaw = yaw + 2.0 * np.pi
-            self.yaw.append(yaw)
+            yaw_list.append(yaw)
+
+        self.yaw = np.unwrap(np.array(yaw_list)).tolist()
 
         self.__calculate_cumulative_length()
         self.s = list(np.linspace(0, self.length[-1], len(traj_x)))

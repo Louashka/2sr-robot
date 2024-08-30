@@ -19,6 +19,12 @@ class Mode(Enum):
     MANUAL = 1 # Manual control of a single robot via a keyboard
     PATH_TRACKING = 2 # Path tracking
 
+class PathShape(Enum):
+    curve = 1
+    ellipse = 2 
+    lemniscate = 3
+    spiral = 4
+
 class Task(keyboard_controller.ActionsHandler):
     def __init__(self, mode: Mode) -> None:
         super().__init__(global_var.OMNI_SPEED, global_var.ROTATION_SPEED, global_var.LU_SPEED)
@@ -33,6 +39,8 @@ class Task(keyboard_controller.ActionsHandler):
         self.agent_controller = robot2sr_controller.Controller()
  
         self.tracking_area = [[-1, 3], [-1, 3]]
+
+        self.simulation = False
         
 
     @property
@@ -64,18 +72,10 @@ class Task(keyboard_controller.ActionsHandler):
                 self.__manualMode()
             case Mode.PATH_TRACKING:
                 print('Path tracking mode')
-                self.__pathTrackingMode()
+                # self.__pathTrackingMode()
+                self.__testSoftStates()
 
-        # self.gui.window.mainloop() # Start the GUI application
-
-    def start(self) -> None:
-        pass
-
-    def stop(self) -> None:
-        self.mas.stop()
-
-    def quit(self) -> None:
-        pass
+        self.gui.window.mainloop() # Start the GUI application
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
@@ -122,19 +122,24 @@ class Task(keyboard_controller.ActionsHandler):
     
     def  __pathTrackingMode(self):
 
+        ps = PathShape.lemniscate
+        # self.simulation = True
+
         while not self.agent: 
             self.__updateConfig()
 
         home_pose = self.agent.pose
 
-        path = self.__generatePath()
-        self.rgb_camera.startVideo(path.x, path.y, self.agent.config)
+        path = self.__generatePath(ps)
+        date_title = ps.name + '_' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.rgb_camera.startVideo(path.x, path.y, self.agent.config, date_title)
 
         print("Waiting for the video to start...")
         while not self.rgb_camera.wait_video:
             pass
 
         print('Video started')
+        print()
 
         goal = path.getPoint(len(path.x) - 1)
         # states = self.__generateStates(path)
@@ -142,6 +147,8 @@ class Task(keyboard_controller.ActionsHandler):
 
         safety_margin = 2
         counter = 0
+        v_prev = [0, 0]
+        elapsed_time = 0
 
         exp_data = []
         robot_tracking_data = []
@@ -150,47 +157,60 @@ class Task(keyboard_controller.ActionsHandler):
 
         config_last = self.agent.pose
         last_time = experiment_start_time
-        elapsed_time = 0
 
-        while dist > 10**(-2):
-            
-        #     # v, s = self.agent_controller.motionPlanner(self.agent, path, states)
-
+        while dist > 0.02 or elapsed_time < 5:
             current_time = time.perf_counter()
             dt = current_time - last_time
             last_time = current_time
 
             pose_diff = np.array(config_last) - self.agent.pose
             velocity_global = pose_diff / dt
-            velocity_body = self.agent.jacobian_rigid([0, 0])[:3, :] @ velocity_global
+            velocity_body = np.linalg.pinv(self.agent.jacobian_rigid()[:3, :]) @ velocity_global
 
             v_current = [velocity_body[1], velocity_body[2]]
-            # v_current = [v[1], v[2]]
             config_last = self.agent.pose
 
             v, s = self.agent_controller.motionPlannerMPC(self.agent, path, v_current)
-        #     # v = [0, 0.1, 0, 0, 0]
-        #     # print(v)
+            print(v)
+
             if counter > safety_margin:
                 wheels, q = self.agent_controller.move(self.agent, v, s)
-                # self.agent_controller.update_agent(self.agent, q)
-                self.__updateConfig()
+                if self.simulation:
+                    self.agent_controller.update_agent(self.agent, q)
+                else:
+                    self.__updateConfig()
                 self.rgb_camera.add_config(self.agent.config)   
 
             dist = splines.getDistance(self.agent.position, goal)
+            target_point = path.getPoint(path.last_idx)
+            pose_errors = [target_point[0] - self.agent.x, target_point[1] - self.agent.y, path.yaw[path.last_idx] - self.agent.theta]
 
             experiment_current_time = time.perf_counter()
             elapsed_time = experiment_current_time - experiment_start_time
 
-            robot_tracking_data.append({'time': elapsed_time, 'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
-                                        'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]})
+            # print(f'ref yaw: {path.yaw[path.last_idx]}')
+            # print(f'cur yaw: {self.agent.theta}')
+            # print()
 
-            # print(dist)
             
-            # data_row = (self.agent.config.tolist() + self.agent.head.pose + self.agent.tail.pose + 
-            #         list(chain(*wheels)) + [elapsed_time])
-            # exp_data.append(data_row)  
+            # Collect data in a JSON file
 
+            robot_pose_data ={'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
+                              'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]}
+            robot_velocity_data = {'v_x': 0, 'v_y': v_current[0], 'omega': v_current[1]}
+            robot_pose_errors_data = {'e_x': pose_errors[0], 'e_y': pose_errors[1], 'e_theta': pose_errors[2]}
+            robot_vel_errors_data = {'e_v_x': 0, 'e_v_y': v_prev[0] - v_current[0], 'e_omega':  v_prev[1] - v_current[1]}
+            errors_data = {'pose_errors': robot_pose_errors_data, 
+                           'vel_errors': robot_vel_errors_data}
+            
+            robot_tracking_data.append({'time': elapsed_time, 
+                                        'pose': robot_pose_data, 
+                                        'distance_to_target': dist,
+                                        'vel': robot_velocity_data,
+                                        'errors': errors_data})
+
+
+            v_prev = v
             counter += 1
 
             if self.rgb_camera.finish:
@@ -199,6 +219,7 @@ class Task(keyboard_controller.ActionsHandler):
         self.agent_controller.stop(self.agent)
         self.rgb_camera.finish = True
 
+        print()
         print(f'Recording time: {elapsed_time} seconds')
 
         path_data = []
@@ -208,7 +229,7 @@ class Task(keyboard_controller.ActionsHandler):
         # Create the data structure
         data_json = {
             "metadata": {
-                "description": "Path tracking data",
+                "description": "Path tracking plus morphology change data",
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             },
             "path": path_data,
@@ -216,47 +237,49 @@ class Task(keyboard_controller.ActionsHandler):
         }
 
         # Write the data to a JSON file
-        with open('Experiments/Data/tracking_data.json', 'w') as f:
+        json_path = f'Experiments/Data/tracking_data_{date_title}.json'
+        with open(json_path, 'w') as f:
             json.dump(data_json, f, indent=2)
 
-        print("JSON file 'tracking_data.json' has been created.")
+        print()
+        print("JSON file 'tracking_morph_data.json' has been created.")
 
-        self.__go_home(home_pose)
+        # self.__go_home(home_pose)
 
-        # column_names = ["x", "y", "angle", "k1", "k2",  
-        #                'x_head', 'y_head', 'theta_head', 
-        #                'x_tail', 'y_tail', 'theta_tail',
-        #             #    'w1_x', 'w1_y', 'w1_theta',
-        #             #    'w2_x', 'w2_y', 'w2_theta',
-        #             #    'w3_x', 'w3_y', 'w3_theta',
-        #             #    'w4_x', 'w4_y', 'w4_theta',
-        #                'w1_x', 'w1_y',
-        #                'w2_x', 'w2_y',
-        #                'w3_x', 'w3_y',
-        #                'w4_x', 'w4_y',
-        #                "time"]
-        # df = pd.DataFrame(exp_data, columns=column_names)
-        # df['path_x'] = pd.Series(path.traj_x)
-        # df['path_y'] = pd.Series(path.traj_y)
-
-        # state_ind = 1
-        # for state in states.values():
-        #     df['state{}'.format(state_ind)] = pd.Series(state)
-        #     state_ind += 1
-
-        # print("Save experiment data")
-        # df.to_csv('Experiments/Data/reach_target.csv', index=False)
    
-    def __generatePath(self) -> splines.Trajectory:
-        x_original = np.arange(0, 2, 0.01)
-        y_original = np.array([np.sin(x / 0.21) * x / 15.0 for x in x_original])
+    def __generatePath(self, shape: PathShape) -> splines.Trajectory:        
+        if shape == PathShape.curve:
+            x_original = np.arange(0, 1.7, 0.01)
+            y_original = np.array([np.sin(x / 0.18) * x / 15.0 for x in x_original])
 
-        rot_angle = self.agent.theta + np.pi/2
-        rot_matrix = np.array([[np.cos(rot_angle), -np.sin(rot_angle)],
-                               [np.sin(rot_angle), np.cos(rot_angle)]])
-        coords_rotated = rot_matrix @ [x_original, y_original]
+            rot_angle = self.agent.theta + np.pi/2
+            rot_matrix = np.array([[np.cos(rot_angle), -np.sin(rot_angle)],
+                                [np.sin(rot_angle), np.cos(rot_angle)]])
+            coords_rotated = rot_matrix @ [x_original, y_original]
+            coords_rotated += np.array(self.agent.position).reshape(2, 1)
+        if shape == PathShape.ellipse:
+            a, b = 0.55, 0.38
+            theta = np.linspace(0, 2*np.pi, 100)
+            x_original = a * np.cos(theta)
+            y_original = b * np.sin(theta)
 
-        coords_rotated += np.array(self.agent.position).reshape(2, 1)
+            rot_angle = self.agent.theta
+            rot_matrix = np.array([[np.cos(rot_angle), -np.sin(rot_angle)],
+                                [np.sin(rot_angle), np.cos(rot_angle)]])
+            coords_rotated = rot_matrix @ [x_original, y_original]
+            coords_rotated += np.array([self.agent.x, self.agent.y + a]).reshape(2, 1)
+
+        if shape == PathShape.lemniscate:
+            t = np.linspace(0, 2*np.pi, 150)
+            a = 0.75  # controls the size of the figure-8
+            x_original = a * np.cos(t) / (np.sin(t)**2 + 1)
+            y_original = a * np.cos(t) * np.sin(t) / (np.sin(t)**2 + 1)
+
+            rot_angle = self.agent.theta
+            rot_matrix = np.array([[np.cos(rot_angle), -np.sin(rot_angle)],
+                                [np.sin(rot_angle), np.cos(rot_angle)]])
+            coords_rotated = rot_matrix @ [x_original, y_original]
+            coords_rotated += np.array([self.agent.x, self.agent.y + a]).reshape(2, 1)
 
         path_x, path_y = coords_rotated[0,:].tolist(), coords_rotated[1,:].tolist()
 
@@ -288,17 +311,216 @@ class Task(keyboard_controller.ActionsHandler):
     def __go_home(self, home_pose) -> None:
         varsigma = [0, 0]
 
-        target_config = home_pose + self.agent.pose
-        target = np.array(home_pose)
-        dist = np.linalg.norm(self.agent.pose - home_pose)
+        dx = home_pose[0] - self.agent.x
+        dy = home_pose[1] - self.agent.y
+        direction = np.arctan2(dy, dx)
 
-        while dist > 10**(-2):
-            v, varsigma = self.agent_controller.inverse_k(self.agent, target_config)
+        target_angle = direction - np.pi/2
+
+        angle_diff = abs(target_angle - self.agent.theta)
+        
+        while angle_diff > 0.05:
+            theta_dot = 1.65 * (target_angle - self.agent.theta) * global_var.DT
+            _, q = self.agent_controller.move(self.agent, [0, 0, theta_dot, 0, 0], [0, 0])
+
+            if self.simulation:
+                self.agent_controller.update_agent(self.agent, q)
+            else:
+                self.__updateConfig()
+
+            self.rgb_camera.add_config(self.agent.config)   
+
+            angle_diff = abs(target_angle - self.agent.theta)
+
+        target = np.array(home_pose)
+        dist = np.linalg.norm(self.agent.pose - target)
+
+        while dist > 10**(-1):
+            v, varsigma = self.agent_controller.inverse_k(self.agent, home_pose + self.agent.curvature)
             _, q = self.agent_controller.move(self.agent, v, varsigma)
+
+            if self.simulation:
+                self.agent_controller.update_agent(self.agent, q)
+            else:
+                self.__updateConfig()
+
+            self.rgb_camera.add_config(self.agent.config)   
+
+            dist = np.linalg.norm(self.agent.pose - target)
+            print(dist)
+
+    def __testSoftStates(self):
+        k_max = np.pi / (2 * global_var.L_VSS)
+        max_values = [2.78, 1.4, 2*np.pi, k_max, k_max]
+
+        q_start = [0, 0, 0, 0.001, 0]
+        self.agent = robot2sr.Robot(1, *q_start, stiffness=[1, 0])
+        self.agent_controller.update_agent(self.agent, self.agent.config)
+
+        v_fk = [0, 0, 0, 0, 0.15]
+
+        print()
+        print(f'Original velocity v2: {v_fk[-1]}')
+        print()
+
+        original_traj_x = []
+        original_traj_y = []
+        counter = 0
+
+        self.agent.theta0 = self.agent.theta
+
+        print('Original wheels\' velocities:' )
+
+        while counter < 10:
+            _, q = self.agent_controller.move(self.agent, v_fk, self.agent.stiffness)
             self.agent_controller.update_agent(self.agent, q)
 
-            self.__updateConfig()
-            dist = np.linalg.norm(self.agent.pose - target)
+            original_traj_x.append(q[0])
+            original_traj_y.append(q[1])
+            counter += 1
+
+            if np.abs(q[3]) >= k_max or np.abs(q[4]) >= k_max:
+                break
+
+        print()
+
+        target_config = self.agent.config
+        # print(f'Target: {target_config}')
+        self.agent_controller.update_agent(self.agent, q_start)
+
+
+        #------------------------------------------------------------------------------
+        # Generate reference trajectory
+
+        ref_traj = []
+
+        N = 9
+        k_array = np.linspace(q_start[3], target_config[3], N+1)
+        spiral1 = splines.LogSpiral(1)
+        
+        for k in k_array:
+            ref_pos = spiral1.get_pos(k)
+
+            ref_traj.append(ref_pos)
+
+        rot = np.array([[np.cos(q_start[2]), -np.sin(q_start[2])],
+                        [np.sin(q_start[2]), np.cos(q_start[2])]])
+        
+        ref_traj = rot @ np.array(ref_traj).T
+        
+        offset = [q_start[0] - ref_traj[0, 0], q_start[1] - ref_traj[1, 0]]
+        ref_traj += np.array(offset).reshape(2, 1)
+
+        ref_traj_x = ref_traj[0,:]
+        ref_traj_y = ref_traj[1,:]
+
+        ref_traj = splines.Trajectory(ref_traj_x, ref_traj_y)
+
+        #------------------------------------------------------------------------------
+        v1_predicted, v2_predicted = self.agent_controller.mhe(ref_traj, k_array)
+        # print(v1_predicted)
+        print('Estimated velocities v2 along the traj:')
+        print(v2_predicted)        
+
+        print()
+        print('Output wheels\' velocities:')
+
+        #------------------------------------------------------------------------------
+        for v2 in v2_predicted:
+            v = [0] * 4 + [v2]
+
+            _, q = self.agent_controller.move(self.agent, v, self.agent.stiffness)
+            self.agent_controller.update_agent(self.agent, q)
+            self.gui.plot_config(self.agent.config, self.agent.stiffness, '')
+
+        self.agent_controller.move(self.agent, [0] * 5, self.agent.stiffness)
+
+        #------------------------------------------------------------------------------
+        # goal = ref_traj.getPoint(len(ref_traj.x) - 1)
+        # dist = splines.getDistance(self.agent.position, goal)
+
+        # last_dist = 0
+
+        # diff = self.normalized_difference(self.agent.config, target_config, max_values)
+
+        # config_last = self.agent.config
+
+        # last_time = time.perf_counter()
+        # last_diff = 0
+        # self.gui.plot_config(self.agent.config, self.agent.stiffness)
+
+
+        # while dist > 0.01:
+        # #     current_time = time.perf_counter()
+        # #     dt = current_time - last_time
+        # #     last_time = current_time
+
+        # #     config_diff = np.array(config_last) - self.agent.config
+        # #     q_dot = config_diff / dt
+        # #     vel_current = np.linalg.pinv(self.agent.jacobian_soft([1, 0])) @ q_dot
+        #     x_ref, y_ref, th_ref, k1_ref, k2_ref = [], [], [], [], []
+
+        #     n = len(ref_traj.x)
+        #     nearest_ind = ref_traj.getTarget(self.agent.position, 0.007)
+        #     for i in range(0, self.agent_controller.T):
+        #         if nearest_ind + i < n:
+        #             x_ref.append(ref_traj.x[nearest_ind + i])
+        #             y_ref.append(ref_traj.y[nearest_ind + i])
+        #             th_ref.append(ref_traj.yaw[nearest_ind + i])
+        #             k1_ref.append(k_array[nearest_ind + i])
+        #         else:
+        #             x_ref.append(ref_traj.x[n-1])
+        #             y_ref.append(ref_traj.y[n-1])
+        #             th_ref.append(ref_traj.yaw[n-1])
+        #             k1_ref.append(k_array[n-1])
+                    
+        #         k2_ref.append(self.agent.k2)
+
+        #     q_ref = [x_ref, y_ref, th_ref, k1_ref, k2_ref]
+
+        #     v1, v2 = self.agent_controller.motionPlannerMPC10(self.agent, q_ref)
+        #     v = [0] * 3 + [v1, v2]
+        #     print(f'v1: {v1}, v2: {v2}')
+
+        #     _, q = self.agent_controller.move(self.agent, v, self.agent.stiffness)
+        #     self.agent_controller.update_agent(self.agent, q)
+        #     self.gui.plot_config(self.agent.config, self.agent.stiffness)
+
+        #     dist = splines.getDistance(self.agent.position, goal)
+
+        # #     diff = self.normalized_difference(self.agent.config, target_config, max_values)
+        #     print()
+        #     print(f'Distance: {dist}')
+        #     print()
+
+        #     if abs(dist - last_dist) == 0:
+        #         break
+
+        # #     last_diff = diff
+        #     last_dist = dist
+        
+        # self.gui.clear()
+        self.gui.plot_config(q_start, self.agent.stiffness, '')
+        self.gui.scatter(original_traj_x, original_traj_y, 'original traj')
+        self.gui.scatter(ref_traj_x, ref_traj_y, 'estimated traj')
+        self.gui.plot_config(target_config, self.agent.stiffness, 'target', 'target')
+        self.gui.show()
+
+    
+    @staticmethod
+    def normalized_difference(q1, q2, max_values):
+        # Ensure inputs are numpy arrays
+        q1 = np.array(q1)
+        q2 = np.array(q2)
+        max_values = np.array(max_values)
+        
+        # Normalize the difference
+        normalized_diff = (q1 - q2) / max_values
+        
+        # Calculate the Euclidean norm of the normalized difference
+        norm_diff = np.linalg.norm(normalized_diff)
+        
+        return norm_diff
 
     
 if __name__ == "__main__":

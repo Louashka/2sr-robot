@@ -2,7 +2,6 @@ import json
 import numpy as np
 import cv2
 import threading
-from datetime import datetime
 
 class Aligner:
     def __init__(self) -> None:
@@ -23,17 +22,16 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def startVideo(self, path_x, path_y, config0):
+    def startVideo(self, path_x, path_y, config0, date_title):
         self.config_list.append(config0)
-        thread = threading.Thread(target=self.__run, args=(path_x, path_y))
+        thread = threading.Thread(target=self.__run, args=(path_x, path_y, date_title))
         thread.start()
 
     def add_config(self, config) -> None:
         self.config_list.append(config)
         
-    def __run(self, path_x, path_y):
-        current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        video_path = f'Experiments/Video/path_tracking_{current_time}.mp4'
+    def __run(self, path_x, path_y, date_title):
+        video_path = f'Experiments/Video/path_tracking_{date_title}.mp4'
 
         cap = cv2.VideoCapture(0)
         # set the resolution to 1280x720
@@ -41,7 +39,7 @@ class Aligner:
         cap.set(4, 720)
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1421,720))
+        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1377,720))
 
 
         while cap.isOpened():
@@ -78,6 +76,7 @@ class Aligner:
 
         cap.release()
         out.release()
+        cv2.destroyAllWindows()
 
     def __read_camera_calibration_data(self):
         camera_data = self.data["camera"]
