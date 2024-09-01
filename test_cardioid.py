@@ -18,17 +18,12 @@ def arc(theta0, k, seg=1):
         
     return [x, y, theta % (2 * np.pi)]
 
-center_x = 0.0152
-center_y = 0.014
-
-spiral1 = splines.LogSpiral(1)
-spiral2 = splines.LogSpiral(2)
 
 dt = 0.1
 k = 0
 t = 20
 counter = 0
-v = 0.2
+v = 0.97
 
 # while counter < t:
 #     vss1 = arc(0, k, 2)
@@ -64,78 +59,41 @@ v = 0.2
 # plt.show()
 
 k_max = np.pi / gv.L_VSS
-k_array_positive = np.linspace(0, k_max, 15)
-k_array_negative = np.linspace(0, -k_max, 15)
+k_array = np.linspace(-k_max, k_max, 30)
 
-for k in k_array_positive:
+cardiod = splines.Cardioid(1)
+
+vss1 = arc(0, k_array[0], 2)
+x_, y_, th = vss1[0][-1], vss1[1][-1], vss1[2]
+
+for k in k_array:
     vss1 = arc(0, k, 2)
+    th = vss1[2]
+    print(th)
     
     plt.plot(vss1[0], vss1[1], '-r')
 
-    origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+    # origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
 
-    vss2 = arc(origin[2], k, 2)
-    vss2[0] += origin[0]
-    vss2[1] += origin[1]
+    # vss2 = arc(origin[2], k, 2)
+    # vss2[0] += origin[0]
+    # vss2[1] += origin[1]
 
-    plt.plot(vss2[0], vss2[1], '-b')
+    # plt.plot(vss2[0], vss2[1], '-b')
 
-    
+    x, y = cardiod.pos(k, 2)
+    x -= 0.0085
 
-for k in k_array_negative:
-    vss1 = arc(0, k, 2)
-    
-    plt.plot(vss1[0], vss1[1], '-r')
+    plt.plot(x, y, '.m')
 
-    origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+    # Generate points based on pos_dot
+    # dx, dy = cardiod.pos_dot(th, k, 1, 2)
 
-    vss2 = arc(origin[2], k, 2)
-    vss2[0] += origin[0]
-    vss2[1] += origin[1]
+    # x_ += dx * v * dt
+    # y_ += dy * v * dt
 
-    plt.plot(vss2[0], vss2[1], '-b')
+    # plt.plot(x_, y_, '.g')
 
-
-theta = np.linspace(0, 2 * np.pi, 50)
-
-# a = gv.L_VSS / 1.5
-# b = gv.L_VSS / 1.37
-
-# x = a * np.cos(theta)
-# y = b * np.sin(theta)
-
-# x += gv.L_VSS - a
-
-a = 0.043
-r = 2 * a * (1 - np.cos(theta))
-
-x = -r * np.cos(theta) - 0.017
-y = r * np.sin(theta)
-
-plt.plot(x, y)
-
-# x_top = a * np.cos(np.pi/2)
-# y_top = b * np.sin(np.pi/2)
-
-# plt.plot(x_top + gv.L_VSS - a, y_top, 'ro')
-
-# theta = np.linspace(-1.8, 0.018, 20)
-
-# a = 0.0634
-# b = 0.2697
-
-# r = a * np.exp(b * theta)
-
-# x = r * np.cos(theta)
-# y = r * np.sin(theta)
-
-# x += 0.015
-
-# print(x[-1])
-# print(y[-1])
-# print()
-
-# plt.plot(x, y)
 
 plt.axis('equal')
 plt.show()

@@ -60,3 +60,7 @@ RB_ANGLES = ['roll', 'pitch', 'yaw']
 # Coords of the real LU center w.r.t. the rb position
 HEAD_CENTER_R = scale * 0.01074968
 HEAD_CENTER_ANGLE = math.radians(-60.2551187)
+
+CARDIOID_A = [0.0215, 0.05, 0.043]
+CARDIOID_TH_MIN = [1.74533, 1.1, 0]
+CARDIOID_TH_MAX = [4.537856, 5.18, 6.2832]

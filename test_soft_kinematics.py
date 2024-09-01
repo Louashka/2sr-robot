@@ -28,22 +28,27 @@ def arc(q, seg=1) -> list:
 
 
 def get_jacobian(q:np.ndarray, s: List[float]) -> np.ndarray:
+    cardioid1 = splines.Cardioid(1)
+    cardioid2 = splines.Cardioid(2)
+    cardioid3 = splines.Cardioid(3)
+
     if all(s):
-        spiral1 = spiral2 = splines.LogSpiral(3)
+        spiral1 = spiral2 = cardioid3
     else:
-        spiral1 = splines.LogSpiral(1)
-        spiral2 = splines.LogSpiral(2)
+        spiral1 = cardioid1
+        spiral2 = cardioid2
 
-    k1_ratio = spiral2.get_k_dot(q[3]) / spiral1.get_k_dot(q[3])
+    k1_ratio = spiral2.k_dot(q[4]) / cardioid1.k_dot(q[4])
+    k2_ratio = spiral2.k_dot(q[3]) / cardioid1.k_dot(q[3])
 
-    pos_lu1 = spiral1.get_pos_dot(q[2], q[4], 2, 1)
-    pos_lu2 = spiral1.get_pos_dot(q[2], q[3], 1, 2)
+    pos_lu1 = cardioid1.pos_dot(q[2], q[4], 2, 1)
+    pos_lu2 = cardioid1.pos_dot(q[2], q[3], 1, 2)
 
-    J = np.array([[pos_lu1[0], k1_ratio * pos_lu2[0]],
-                  [pos_lu1[1], k1_ratio * pos_lu2[1]],
-                  [spiral2.get_th_dot(q[4]), spiral2.get_th_dot(q[3])],
-                  [-spiral1.get_k_dot(q[3]), spiral2.get_k_dot(q[3])],
-                  [-spiral2.get_k_dot(q[4]), spiral1.get_k_dot(q[4])]])
+    J = np.array([[k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
+                  [k1_ratio * pos_lu1[1], k2_ratio * pos_lu2[1]],
+                  [spiral2.th_dot(q[4]), spiral2.th_dot(q[3])],
+                  [-spiral1.k_dot(q[3]), spiral2.k_dot(q[3])],
+                  [-spiral2.k_dot(q[4]), spiral1.k_dot(q[4])]])
     
     stiffness_array = np.array([[s[1], s[0]],
                                 [s[1], s[0]],
@@ -58,14 +63,17 @@ fig, ax = plt.subplots()
 
 dt = 0.1  # step size
 
-q = np.array([0.0, 0.0, np.pi/5, 0.0, 0.0])
-s = [1, 0]
+q = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+s = [0, 1]
 
-v = np.array([0, 0.1])
+v = np.array([-0.08, 0.0])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")
 centre, = ax.plot([], [], lw=5, marker="o", color="black")
+end_points, = ax.plot([], [], 'ro', markersize=2)  # New line for end points
+
+end_point_history = []  # List to store end point coordinates
 
 def init():
     global ax
@@ -75,7 +83,7 @@ def init():
     ax.set_aspect("equal")
 
 def update(i):
-    global q, arc1, arc2, centre
+    global q, arc1, arc2, centre, end_points, end_point_history
 
     # delta = np.array([
     #                     int(s[0] and not s[1]),    # delta1
@@ -106,6 +114,13 @@ def update(i):
     arc1.set_data(seg1[0], seg1[1])
     arc2.set_data(seg2[0], seg2[1])
 
+    # Store the end point of seg2
+    end_point_history.append((seg1[0][-1], seg1[1][0-1]))
+
+    # Update the end_points plot with all historical points
+    x_history, y_history = zip(*end_point_history)
+    end_points.set_data(x_history, y_history)
+
     if s[0] == 0:
         arc1.set_color("blue")
     else:
@@ -116,7 +131,7 @@ def update(i):
     else:
         arc2.set_color("red")
 
-    return arc1, arc2, centre
+    return arc1, arc2, centre, end_points
 
 # def arc_new(theta0, k, seg=1):
 #     l = np.linspace(0, gv.L_VSS, 50)
@@ -137,22 +152,5 @@ def update(i):
 if __name__ == "__main__":
 
     anim = FuncAnimation(fig, update, frames=30, init_func=init, interval=100, repeat=False)
-
-    # lu2_path_x = []
-    # lu2_path_y = []
-
-    # for k in range(0, 81, 1):
-    #     vss1_ = arc_new(0, k, 2)
-
-    #     origin_ = [vss1_[0][-1], vss1_[1][-1], vss1_[2]]
-
-    #     vss2_ = arc_new(origin_[2], 0, 2)
-    #     vss2_[0] += origin_[0]
-    #     vss2_[1] += origin_[1]
-
-    #     lu2_path_x.append(vss2_[0][-1])
-    #     lu2_path_y.append(vss2_[1][-1])
-
-    # plt.scatter(lu2_path_x, lu2_path_y)
 
     plt.show()

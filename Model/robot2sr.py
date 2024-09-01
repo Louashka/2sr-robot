@@ -95,28 +95,35 @@ class Robot(Frame):
     
     
     def jacobian_soft(self, varsigma) -> np.ndarray:
-        if all(varsigma):
-            spiral1 = spiral2 = splines.LogSpiral(3)
+        cardioid1 = splines.Cardioid(1)
+        cardioid2 = splines.Cardioid(2)
+        cardioid3 = splines.Cardioid(3)
+
+        if all(s):
+            spiral1 = spiral2 = cardioid3
         else:
-            spiral1 = splines.LogSpiral(1)
-            spiral2 = splines.LogSpiral(2)
+            spiral1 = cardioid1
+            spiral2 = cardioid2
 
-        k1_ratio = spiral2.get_k_dot(self.k1) / spiral1.get_k_dot(self.k1)
+        k1_ratio = spiral2.k_dot(q[4]) / cardioid1.k_dot(q[4])
+        k2_ratio = spiral2.k_dot(q[3]) / cardioid1.k_dot(q[3])
 
-        pos_lu1 = spiral1.get_pos_dot(self.theta, self.k2, 2, 1)
-        pos_lu2 = spiral1.get_pos_dot(self.theta, self.k1, 1, 2)
+        pos_lu1 = cardioid1.pos_dot(q[2], q[4], 2, 1)
+        pos_lu2 = cardioid1.pos_dot(q[2], q[3], 1, 2)
 
-        J = np.array([[pos_lu1[0], k1_ratio * pos_lu2[0]],
-                      [pos_lu1[1], k1_ratio * pos_lu2[1]],
-                      [spiral2.get_th_dot(self.k2), spiral2.get_th_dot(self.k1)],
-                      [-spiral1.get_k_dot(self.k1), spiral2.get_k_dot(self.k1)],
-                      [-spiral2.get_k_dot(self.k2), spiral1.get_k_dot(self.k2)]])
+        J = np.array([
+            [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
+            [k1_ratio * pos_lu1[1], k2_ratio * pos_lu2[1]], 
+            [spiral2.th_dot(q[4]), spiral2.th_dot(q[3])], 
+            [-spiral1.k_dot(q[3]), spiral2.k_dot(q[3])], 
+            [-spiral2.k_dot(q[4]), spiral1.k_dot(q[4])]
+        ])
         
-        stiffness_array = np.array([[varsigma[1], varsigma[0]],
-                                    [varsigma[1], varsigma[0]],
-                                    [varsigma[1], varsigma[0]],
-                                    [varsigma[0], varsigma[0]],
-                                    [varsigma[1], varsigma[1]]])
+        stiffness_array = np.array([[s[1], s[0]],
+                                    [s[1], s[0]],
+                                    [s[1], s[0]],
+                                    [s[0], s[0]],
+                                    [s[1], s[1]]])
         
         J_soft = np.multiply(stiffness_array, J)
         

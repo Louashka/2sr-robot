@@ -62,6 +62,65 @@ class LogSpiral:
     
     def get_k_dot(self, k: float):
         return self.get_th_dot(k) / gv.L_VSS
+    
+    
+class Cardioid:
+    def __init__(self, n: int):
+        self.a = gv.CARDIOID_A[n-1]
+        self.phi_min = gv.CARDIOID_TH_MIN[n-1]
+        self.phi_max = gv.CARDIOID_TH_MAX[n-1]
+
+        self.var_phi = 2 * np.pi / (gv.L_VSS * (self.phi_max - self.phi_min))
+
+    def phi(self, k: float) -> float:
+        phi = self.phi_min + (1 / self.var_phi) * (k + np.pi / gv.L_VSS)
+        return phi
+    
+    def rho(self, k: float) -> float:
+        phi = self.phi(k)
+        return 2 * self.a * (1 - np.cos(phi))
+    
+    def pos(self, k:float, seg=1) -> list:
+        phi = self.phi(k)
+        rho = self.rho(k)
+
+        x = rho * np.cos(phi)
+        y = rho * np.sin(phi)
+
+        if seg == 2:
+            x = -x
+
+        return [x, y]
+        
+    
+    def pos_dot(self, th0: float, k: float, seg: int = 1, lu: int = 1) -> list:
+        phi = self.phi(k)
+        rho = self.rho(k)
+  
+        pos_dot_local = np.array([
+            [2 * self.a * (np.sin(phi) - np.sin(2*phi)) / rho],
+            [(-1)**lu * 2 * self.a * (-np.cos(phi) + np.cos(2*phi)) / rho]
+        ])
+
+        th = th0 + (-1)**seg * k * gv.L_VSS
+    
+        rot_spiral_to_global = np.array([
+            [np.cos(th), -np.sin(th)],
+            [np.sin(th), np.cos(th)]
+        ])
+    
+        return (rot_spiral_to_global @ pos_dot_local).flatten().tolist()
+
+        # return pos_dot_local.flatten().tolist()
+        
+
+    def th_dot(self, k: float) -> float:
+        return self.k_dot(k) * gv.L_VSS
+
+    def k_dot(self, k: float) -> float:
+        return self.var_phi / self.rho(k)
+
+    
 
 class Trajectory:
     def __init__(self, traj_x, traj_y):
