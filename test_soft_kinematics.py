@@ -64,9 +64,9 @@ fig, ax = plt.subplots()
 dt = 0.1  # step size
 
 q = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
-s = [0, 1]
+s = [1, 0]
 
-v = np.array([-0.08, 0.0])
+v = np.array([0.0, 0.1])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")

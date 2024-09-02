@@ -84,7 +84,8 @@ for k in k_array:
     x, y = cardiod.pos(k, 2)
     x -= 0.0085
 
-    plt.plot(x, y, '.m')
+    if k > 0:
+        plt.plot(x, y, '.m')
 
     # Generate points based on pos_dot
     # dx, dy = cardiod.pos_dot(th, k, 1, 2)

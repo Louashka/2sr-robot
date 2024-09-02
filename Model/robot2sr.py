@@ -99,31 +99,31 @@ class Robot(Frame):
         cardioid2 = splines.Cardioid(2)
         cardioid3 = splines.Cardioid(3)
 
-        if all(s):
+        if all(varsigma):
             spiral1 = spiral2 = cardioid3
         else:
             spiral1 = cardioid1
             spiral2 = cardioid2
 
-        k1_ratio = spiral2.k_dot(q[4]) / cardioid1.k_dot(q[4])
-        k2_ratio = spiral2.k_dot(q[3]) / cardioid1.k_dot(q[3])
+        k1_ratio = spiral2.k_dot(self.k2) / cardioid1.k_dot(self.k2)
+        k2_ratio = spiral2.k_dot(self.k1) / cardioid1.k_dot(self.k1)
 
-        pos_lu1 = cardioid1.pos_dot(q[2], q[4], 2, 1)
-        pos_lu2 = cardioid1.pos_dot(q[2], q[3], 1, 2)
+        pos_lu1 = cardioid1.pos_dot(self.theta, self.k2, 2, 1)
+        pos_lu2 = cardioid1.pos_dot(self.theta, self.k1, 1, 2)
 
         J = np.array([
             [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
             [k1_ratio * pos_lu1[1], k2_ratio * pos_lu2[1]], 
-            [spiral2.th_dot(q[4]), spiral2.th_dot(q[3])], 
-            [-spiral1.k_dot(q[3]), spiral2.k_dot(q[3])], 
-            [-spiral2.k_dot(q[4]), spiral1.k_dot(q[4])]
+            [spiral2.th_dot(self.k2), spiral2.th_dot(self.k1)], 
+            [-spiral1.k_dot(self.k1), spiral2.k_dot(self.k1)], 
+            [-spiral2.k_dot(self.k2), spiral1.k_dot(self.k2)]
         ])
         
-        stiffness_array = np.array([[s[1], s[0]],
-                                    [s[1], s[0]],
-                                    [s[1], s[0]],
-                                    [s[0], s[0]],
-                                    [s[1], s[1]]])
+        stiffness_array = np.array([[varsigma[1], varsigma[0]],
+                                    [varsigma[1], varsigma[0]],
+                                    [varsigma[1], varsigma[0]],
+                                    [varsigma[0], varsigma[0]],
+                                    [varsigma[1], varsigma[1]]])
         
         J_soft = np.multiply(stiffness_array, J)
         

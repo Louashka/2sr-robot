@@ -80,15 +80,16 @@ class Cardioid:
         phi = self.phi(k)
         return 2 * self.a * (1 - np.cos(phi))
     
-    def pos(self, k:float, seg=1) -> list:
+    def pos(self, k:float, lu=1) -> list:
         phi = self.phi(k)
         rho = self.rho(k)
 
         x = rho * np.cos(phi)
         y = rho * np.sin(phi)
 
-        if seg == 2:
+        if lu == 2:
             x = -x
+            y = -y
 
         return [x, y]
         
