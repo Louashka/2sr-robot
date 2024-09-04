@@ -1,6 +1,9 @@
 import numpy as np
 from Model import global_var as gv
 
+k_max = np.pi / (2 * gv.L_VSS)
+max_values = [2.78, 1.4, k_max, k_max]
+
 def getDistance(p1, p2):
     """
     Calculate distance
@@ -11,6 +14,22 @@ def getDistance(p1, p2):
     dx = p1[0] - p2[0]
     dy = p1[1] - p2[1]
     return np.hypot(dx, dy)
+
+def getNormalizedDistance(p1, p2):
+    global max_values
+
+    p1 = np.array(p1[:2] + p1[3:])
+    p2 = np.array(p2[:2] + p2[3:])
+    max_values = np.array(max_values)
+    
+    # Normalize the difference
+    normalized_diff = (p1 - p2) / max_values
+    
+    # Calculate the Euclidean norm of the normalized difference
+    norm_diff = np.linalg.norm(normalized_diff)
+    
+    return norm_diff
+
 
 class LogSpiral:
     def __init__(self, n: int):
@@ -121,7 +140,42 @@ class Cardioid:
     def k_dot(self, k: float) -> float:
         return self.var_phi / self.rho(k)
 
+class TrajectoryShape:
+    def __init__(self, traj):
+        self.x = traj[0,:]
+        self.y = traj[1,:]
+        self.theta = traj[2,:]
+        self.k1 = traj[3,:]
+        self.k2 = traj[4,:]
+
+        self.last_idx = 0
+
+    @property
+    def n(self) -> int:
+        return len(self.x)
     
+    def getPoint(self, i) -> list:
+        return [self.x[i], self.y[i], self.theta[i], self.k1[i], self.k2[i]]
+
+    def getTarget(self, config: list, la_dist: float) -> int:
+        """
+        Get the next look ahead point
+        :param pos: list, vehicle position
+        :return: list, target point
+        """
+        target_idx = self.last_idx
+        target_point = self.getPoint(target_idx)
+        current_dist = getNormalizedDistance(config, target_point)
+
+        while current_dist < la_dist and target_idx < len(self.x) - 1:
+            target_idx += 1
+            target_point = self.getPoint(target_idx)
+            current_dist = getNormalizedDistance(config, target_point)
+
+        self.last_idx = target_idx
+        return target_idx
+
+
 
 class Trajectory:
     def __init__(self, traj_x, traj_y):
@@ -149,6 +203,10 @@ class Trajectory:
     @property
     def params(self) -> tuple[list, list, list, list]:
         return self.x, self.y, self.yaw, self.s
+    
+    @property
+    def n(self) -> int:
+        return len(self.x)
 
     def __calculate_cumulative_length(self) -> None:
         dx = np.diff(self.x)

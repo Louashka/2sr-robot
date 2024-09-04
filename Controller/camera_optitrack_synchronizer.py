@@ -3,6 +3,8 @@ import numpy as np
 import cv2
 import threading
 
+from Model import splines, global_var as gv
+
 class Aligner:
     def __init__(self) -> None:
         self.file_path = "Controller/calibration_data.json"
@@ -22,16 +24,19 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def startVideo(self, path_x, path_y, config0, date_title):
+    def startVideo(self, path: splines.TrajectoryShape, config0, date_title):
         self.config_list.append(config0)
-        thread = threading.Thread(target=self.__run, args=(path_x, path_y, date_title))
+        thread = threading.Thread(target=self.__run, args=(path, date_title))
         thread.start()
 
     def add_config(self, config) -> None:
         self.config_list.append(config)
         
-    def __run(self, path_x, path_y, date_title):
+    def __run(self, path: splines.TrajectoryShape, date_title: str):
         video_path = f'Experiments/Video/path_tracking_{date_title}.mp4'
+
+        target_seg1 = self.__arc(path.getPoint(path.n-1), 1)
+        target_seg2 = self.__arc(path.getPoint(path.n-1), 2)
 
         cap = cv2.VideoCapture(0)
         # set the resolution to 1280x720
@@ -57,14 +62,17 @@ class Aligner:
             resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
 
             # map the trajectory to the coordinate
-            for i in range(0, len(path_x)):
-                point = np.array([path_x[i], path_y[i]])
+            for i in range(0, path.n):
+                point = np.array([path.x[i], path.y[i]])
                 camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-                cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 255, 0), -1)
+                cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (0, 255, 0), -1)
             for i in range(len(self.config_list)):
                 point = np.array(self.config_list[i][:2])
                 camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-                cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 0, 255), -1)
+                cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (0, 0, 255), -1)
+            
+            cv2.polylines(resized_frame, [target_seg1], False, (0, 255, 0), 1)
+            cv2.polylines(resized_frame, [target_seg2], False, (0, 255, 0), 1)
             
             out.write(resized_frame)
             cv2.imshow("RGB camera", resized_frame)
@@ -104,6 +112,31 @@ class Aligner:
         marker_pixel_postion_x = self.data['scale_x'] * opti_position[1] + self.data['translate_x']
         marker_pixel_postion_y = self.data['scale_y'] * opti_position[0] + self.data['translate_y']
 
-        marker_pixel_postion = np.array([marker_pixel_postion_x, marker_pixel_postion_y])
+        marker_pixel_postion = [int(marker_pixel_postion_x), int(marker_pixel_postion_y)]
 
         return marker_pixel_postion
+    
+    def __arc(self, config, seg=1):
+        l = np.linspace(0, gv.L_VSS, 10)
+        flag = -1 if seg == 1 else 1
+        theta_array = config[2] + flag * config[2+seg] * l
+
+        if config[2+seg] == 0:
+            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
+            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
+        else:
+            x = np.sin(theta_array) / config[2+seg] - np.sin(config[2]) / config[2+seg]
+            y = -np.cos(theta_array) / config[2+seg] + np.cos(config[2]) / config[2+seg]
+
+        x += config[0]
+        y += config[1]
+
+        points = []
+        for x_i, y_i in zip(x, y):
+            point = self.__convert_opti_coordinate_to_camera_coordinate([x_i, y_i])
+            points.append(point)
+
+        points = np.array(points).reshape((-1, 1, 2))
+
+        return points
+

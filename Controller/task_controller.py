@@ -18,6 +18,7 @@ import json
 class Mode(Enum):
     MANUAL = 1 # Manual control of a single robot via a keyboard
     PATH_TRACKING = 2 # Path tracking
+    SOFT = 3
 
 class PathShape(Enum):
     curve = 1
@@ -74,8 +75,11 @@ class Task(keyboard_controller.ActionsHandler):
                 print('Path tracking mode')
                 # self.__pathTrackingMode()
                 self.__testSoftStates()
+            case Mode.SOFT:
+                print('Soft mode')
+                self.__softMode()
 
-        self.gui.window.mainloop() # Start the GUI application
+        # self.gui.window.mainloop() # Start the GUI application
 
     def __updateConfig(self):
         # Get the current MAS and manipulandums configuration
@@ -349,6 +353,102 @@ class Task(keyboard_controller.ActionsHandler):
             dist = np.linalg.norm(self.agent.pose - target)
             print(dist)
 
+    #//////////////////////////////// SOFT MODE METHODS ////////////////////////////////
+
+    def __softMode(self):
+        # self.simulation = True
+
+        k_max = np.pi / (2 * global_var.L_VSS)
+        max_values = [2.78, 1.4, 2*np.pi, k_max, k_max]
+        
+        v = [0.08, 0.0]
+        s = [1, 0]
+
+        # if self.simulation:
+        #     q_start = [0, 0, 0, 0, 0]
+        #     self.agent = robot2sr.Robot(1, *q_start, stiffness=[1, 0])
+        # else:
+        while not self.agent: 
+            self.__updateConfig()
+
+        config_traj = self._generateSoftTrajectory(v, s, 10)
+        config_traj_array = np.array(config_traj).T
+
+        path = splines.TrajectoryShape(config_traj_array)
+        # goal = path.getPoint(len(path.x) - 1)
+
+        # dist = splines.getDistance(self.agent.position, goal)
+
+        date_title = 'soft_mode_test_' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.rgb_camera.startVideo(path, self.agent.config, date_title)
+
+        print("Waiting for the video to start...")
+        while not self.rgb_camera.wait_video:
+            pass
+
+        print('Video started')
+        print()
+
+        dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+
+        elapsed_time = 0
+        experiment_start_time = time.perf_counter()
+        counter = 0
+        safety_margin = 2
+
+        while elapsed_time < 5:
+            v_soft = self.agent_controller.softMPC(self.agent, path, config_traj_array)
+            v = [0] * 3 + v_soft
+
+            print(v_soft)
+
+            if counter > safety_margin:
+                wheels, q = self.agent_controller.move(self.agent, v, self.agent.stiffness)
+                if self.simulation:
+                    self.agent_controller.update_agent(self.agent, q)
+                else:
+                    self.__updateConfig()
+                self.rgb_camera.add_config(self.agent.config)   
+
+            # dist = splines.getDistance(self.agent.position, goal)
+
+            experiment_current_time = time.perf_counter()
+            elapsed_time = experiment_current_time - experiment_start_time
+
+            counter += 1
+
+            dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+            print(f'Distance: {dist}')
+            if dist < 0.03:
+                break
+
+        # if self.simulation:
+        #     self.gui.plot_config(q_start, self.agent.stiffness, 'initial')
+        #     self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
+        #     self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
+        #     self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
+        #     self.gui.show()
+
+    def _generateSoftTrajectory(self, v, s, timer):
+        q_start = self.agent.config
+        v_all = [0] * 3 + v
+
+        traj = []
+
+        t = 0
+
+        while t < timer:
+            q = self.agent_controller.get_config(self.agent, v_all, s)
+            # print(splines.getDistance(self.agent.position, q[:2]))
+            self.agent_controller.update_agent(self.agent, q)
+
+            traj.append(q)
+            t += 1 
+
+        self.agent.config = q_start
+
+        return traj
+
     def __testSoftStates(self):
         k_max = np.pi / (2 * global_var.L_VSS)
         max_values = [2.78, 1.4, 2*np.pi, k_max, k_max]
@@ -524,5 +624,5 @@ class Task(keyboard_controller.ActionsHandler):
 
     
 if __name__ == "__main__":
-    experiment = Task(Mode.PATH_TRACKING)
+    experiment = Task(Mode.SOFT)
     experiment.run()

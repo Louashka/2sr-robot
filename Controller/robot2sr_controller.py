@@ -16,7 +16,7 @@ class Controller:
 
         self.max_linear_velocity = 0.2  # Maximum desired linear velocity
         self.max_angular_velocity = 1.0  # Maximum desired angular velocity
-        self.lookahead_distance = 0.05  # Adjust based on your robot's size and desired responsiveness
+        self.lookahead_distance = 0.15  # Adjust based on your robot's size and desired responsiveness
         self.kp_linear = 3  # Proportional gain for linear velocity
         self.kp_angular = 1  # Proportional gain for angular velocity
 
@@ -42,70 +42,72 @@ class Controller:
         self.spiral1 = splines.LogSpiral(1)
         self.spiral2 = splines.LogSpiral(2)
 
+        self.cardioid1 = splines.Cardioid(1)
+
         self.gekko_solver()
 
-    def gekko_solver(self):
-        k_max = math.pi /  global_var.L_VSS
-        self.m = GEKKO(remote=False)  # Initialize GEKKO model
-        self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+    # def gekko_solver(self):
+    #     k_max = math.pi /  global_var.L_VSS
+    #     self.m = GEKKO(remote=False)  # Initialize GEKKO model
+    #     self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
-        # Parameters
-        self.l = self.m.Param(value=global_var.L_VSS)
-        self.var_phi = self.m.Param(value=global_var.M[0])
+    #     # Parameters
+    #     self.l = self.m.Param(value=global_var.L_VSS)
+    #     self.var_phi = self.m.Param(value=global_var.M[0])
 
-        # Manipulated variable
-        self.u1 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
-        self.u1.STATUS = 1
-        # self.u1.DCOST = 0.01
+    #     # Manipulated variable
+    #     self.u1 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
+    #     self.u1.STATUS = 1
+    #     # self.u1.DCOST = 0.01
 
-        self.u2 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
-        self.u2.STATUS = 1
-        # self.u2.DCOST = 1e-2
+    #     self.u2 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
+    #     self.u2.STATUS = 1
+    #     # self.u2.DCOST = 1e-2
 
-        # State variable
-        self.x, self.y, self.theta, self.k1, self.k2 = [self.m.SV() for i in range(5)]
+    #     # State variable
+    #     self.x, self.y, self.theta, self.k1, self.k2 = [self.m.SV() for i in range(5)]
 
-        self.x.FSTATUS = 1
-        self.y.FSTATUS = 1
-        self.x.FSTATUS = 1
-        self.x.FSTATUS = 1
-        self.x.FSTATUS = 1
+    #     self.x.FSTATUS = 1
+    #     self.y.FSTATUS = 1
+    #     self.x.FSTATUS = 1
+    #     self.x.FSTATUS = 1
+    #     self.x.FSTATUS = 1
 
-        self.x_, self.y_, self.theta_, self.k1_, self.k2_ = [self.m.CV() for i in range(5)]
+    #     self.x_, self.y_, self.theta_, self.k1_, self.k2_ = [self.m.CV() for i in range(5)]
 
-        # Define an intermediate variable for wheel speed
-        w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
-        w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+    #     # Define an intermediate variable for wheel speed
+    #     w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
+    #     w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
 
-        w2 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u2)
-        w2_curve = self.m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+    #     w2 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u2)
+    #     w2_curve = self.m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
 
-        k1_ratio = self.spiral2.get_k_dot(self.k1.VALUE) / self.spiral1.get_k_dot(self.k1.VALUE)
-        pos_lu2 = self.spiral1.get_pos_dot(self.theta.VALUE, self.k1.VALUE, 1, 2)
+    #     k1_ratio = self.spiral2.get_k_dot(self.k1.VALUE) / self.spiral1.get_k_dot(self.k1.VALUE)
+    #     pos_lu2 = self.spiral1.get_pos_dot(self.theta.VALUE, self.k1.VALUE, 1, 2)
 
-        # Equations
-        self.m.Equations([self.x_ == self.x, self.y_ == self.y, self.theta_ == self.theta, 
-                          self.k1_ == self.k1, self.k2_ == self.k2])
-        self.m.Equation(self.x.dt() == k1_ratio * pos_lu2[0] * self.u2)
-        self.m.Equation(self.y.dt() == k1_ratio * pos_lu2[1] * self.u2)
-        self.m.Equation(self.theta.dt() == self.spiral2.get_th_dot(self.k1.VALUE) * self.u2)
-        # self.m.Equation(self.k1.dt() == -self.spiral1.get_k_dot(self.k1.VALUE) * self.u1 + self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
-        self.m.Equation(self.k2.dt() == 0)
+    #     # Equations
+    #     self.m.Equations([self.x_ == self.x, self.y_ == self.y, self.theta_ == self.theta, 
+    #                       self.k1_ == self.k1, self.k2_ == self.k2])
+    #     self.m.Equation(self.x.dt() == k1_ratio * pos_lu2[0] * self.u2)
+    #     self.m.Equation(self.y.dt() == k1_ratio * pos_lu2[1] * self.u2)
+    #     self.m.Equation(self.theta.dt() == self.spiral2.get_th_dot(self.k1.VALUE) * self.u2)
+    #     # self.m.Equation(self.k1.dt() == -self.spiral1.get_k_dot(self.k1.VALUE) * self.u1 + self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
+    #     self.m.Equation(self.k2.dt() == 0)
 
-        self.m.Equation(self.k1.dt() == self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
+    #     self.m.Equation(self.k1.dt() == self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
 
-        # Constraints
-        self.m.Equation(w1 >= -self.MAX_SPEED)
-        self.m.Equation(w1 <= self.MAX_SPEED)
-        self.m.Equation(w1_curve >= 0)
+    #     # Constraints
+    #     self.m.Equation(w1 >= -self.MAX_SPEED)
+    #     self.m.Equation(w1 <= self.MAX_SPEED)
+    #     self.m.Equation(w1_curve >= 0)
 
-        self.m.Equation(w2 >= -self.MAX_SPEED)
-        self.m.Equation(w2 <= self.MAX_SPEED)
-        self.m.Equation(w2_curve >= 0)
+    #     self.m.Equation(w2 >= -self.MAX_SPEED)
+    #     self.m.Equation(w2 <= self.MAX_SPEED)
+    #     self.m.Equation(w2_curve >= 0)
 
-        # Options
-        self.m.options.IMODE = 6  # MPC mode
-        self.m.options.SOLVER = 1
+    #     # Options
+    #     self.m.options.IMODE = 6  # MPC mode
+    #     self.m.options.SOLVER = 1
 
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
@@ -385,6 +387,87 @@ class Controller:
         m.solve(disp=False)
 
         return [0] * n, u2.VALUE
+    
+    def _calc_soft_ref_traj(self, config_traj: np.ndarray, target_ind: int, n: int) -> np.ndarray:
+        q_ref = np.zeros((self.NX, self.T))
+
+        for i in range(0, self.T):
+            if target_ind + i < n:
+                q_ref[0, i] = config_traj[0, target_ind + i]
+                q_ref[1, i] = config_traj[1, target_ind + i]
+                q_ref[2, i] = config_traj[2, target_ind + i]
+                q_ref[3, i] = config_traj[3, target_ind + i]
+                q_ref[4, i] = config_traj[4, target_ind + i]
+            else:
+                q_ref[0, i] = config_traj[0, -1]
+                q_ref[1, i] = config_traj[1, -1]
+                q_ref[2, i] = config_traj[2, -1]
+                q_ref[3, i] = config_traj[3, -1]
+                q_ref[4, i] = config_traj[4, -1]
+
+        return q_ref
+    
+    def gekko_solver(self) -> None:
+        self.m = GEKKO(remote=False)
+        self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+
+        # Manipulated variables        
+        self.u1 = self.m.MV(value=0.08, lb=-0.2, ub=0.2)
+        self.u1.STATUS = 1
+
+        # State variables
+        self.k1 = self.m.SV(value=0.0)
+
+        # Params
+        # self.k_ref = self.m.Param(value=([0.0] * self.T))
+        self.k_ref = [0.0] * self.T
+
+        # Define an intermediate variable for wheel speed
+        w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
+        w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+
+        # w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
+        # w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+
+        # Equations
+        self.m.Equation(self.k1.dt() == - (self.cardioid1.var_phi / (2 * self.cardioid1.a * (1 - self.m.cos(self.cardioid1.phi_min + (1 / self.cardioid1.var_phi) * (self.k1 + np.pi / global_var.L_VSS))))) * self.u1)
+
+        # Objective
+        cost = 0
+        for i in range(self.T):
+            cost += (self.k1 - self.k_ref[i])**2
+        self.m.Obj(cost)
+        
+        # Constraints
+        self.m.Equation(w1 >= -self.MAX_SPEED)
+        self.m.Equation(w1 <= self.MAX_SPEED)
+        self.m.Equation(w1_curve >= 0)
+
+        # m.Equation(w2 >= -self.MAX_SPEED)
+        # m.Equation(w2 <= self.MAX_SPEED)
+        # m.Equation(w2_curve >= 0)
+
+        # Options
+        self.m.options.IMODE = 6  # MPC mode
+        self.m.options.SOLVER = 1
+
+    
+    def softMPC(self, agent: robot2sr.Robot, path: splines.TrajectoryShape, config_traj: np.ndarray) -> tuple[float, float]:
+        target_ind = path.getTarget(agent.config.tolist(), self.lookahead_distance)
+        q_ref = self._calc_soft_ref_traj(config_traj, target_ind, path.n) 
+
+        self.k1.VALUE = agent.k1
+        k_ref = q_ref[3, :].tolist()
+        # self.m.fix(self.k_ref, q_ref[3, :])
+        cost = 0
+        for i in range(self.T):
+            cost += (self.k1 - k_ref[i])**2
+        self.m.Obj(cost)
+
+        # Solve
+        self.m.solve(disp=False)
+        
+        return [self.u1.NEWVAL, 0]
 
 
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
@@ -491,7 +574,7 @@ class Controller:
         omega = np.round(V @ v, 3)
         v_new = np.linalg.pinv(V) @ omega
 
-        print(omega)
+        # print(omega)
         return omega, wheels, self.get_config(agent, v_new, s)
 
     def move(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> tuple[List[List[float]], List[float]]:
