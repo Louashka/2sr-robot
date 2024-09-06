@@ -14,6 +14,8 @@ class Aligner:
         self.finish = False
         self.config_list = []
 
+        self.offset = [-28, -20]
+
         try:
             with open(self.file_path, "r") as json_file:
                 data = json.load(json_file)
@@ -33,7 +35,7 @@ class Aligner:
         self.config_list.append(config)
         
     def __run(self, path: splines.TrajectoryShape, date_title: str):
-        video_path = f'Experiments/Video/path_tracking_{date_title}.mp4'
+        video_path = f'Experiments/Video/soft_mode_test_{date_title}.mp4'
 
         target_seg1 = self.__arc(path.getPoint(path.n-1), 1)
         target_seg2 = self.__arc(path.getPoint(path.n-1), 2)
@@ -44,7 +46,7 @@ class Aligner:
         cap.set(4, 720)
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1377,720))
+        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1409,720))
 
 
         while cap.isOpened():
@@ -61,6 +63,9 @@ class Aligner:
             width = int(cropped_frame.shape[1] * (height / cropped_frame.shape[0]))
             resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
 
+            cv2.polylines(resized_frame, [target_seg1], False, (0, 255, 0), 2)
+            cv2.polylines(resized_frame, [target_seg2], False, (0, 255, 0), 2)
+
             # map the trajectory to the coordinate
             for i in range(0, path.n):
                 point = np.array([path.x[i], path.y[i]])
@@ -70,9 +75,6 @@ class Aligner:
                 point = np.array(self.config_list[i][:2])
                 camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
                 cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (0, 0, 255), -1)
-            
-            cv2.polylines(resized_frame, [target_seg1], False, (0, 255, 0), 1)
-            cv2.polylines(resized_frame, [target_seg2], False, (0, 255, 0), 1)
             
             out.write(resized_frame)
             cv2.imshow("RGB camera", resized_frame)
@@ -112,7 +114,8 @@ class Aligner:
         marker_pixel_postion_x = self.data['scale_x'] * opti_position[1] + self.data['translate_x']
         marker_pixel_postion_y = self.data['scale_y'] * opti_position[0] + self.data['translate_y']
 
-        marker_pixel_postion = [int(marker_pixel_postion_x), int(marker_pixel_postion_y)]
+        marker_pixel_postion = [int(marker_pixel_postion_x) + self.offset[0], 
+                                int(marker_pixel_postion_y) + self.offset[1]]
 
         return marker_pixel_postion
     

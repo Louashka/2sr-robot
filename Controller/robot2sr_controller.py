@@ -6,14 +6,14 @@ from cvxopt import matrix, solvers
 from Model import global_var, robot2sr, splines
 import cvxpy
 from gekko import GEKKO
+from threading import Thread
 
 port_name = "COM3"
+serial_port = serial.Serial(port_name, 115200)
 
 
 class Controller:
     def __init__(self) -> None:
-        self.serial_port = serial.Serial(port_name, 115200)
-
         self.max_linear_velocity = 0.2  # Maximum desired linear velocity
         self.max_angular_velocity = 1.0  # Maximum desired angular velocity
         self.lookahead_distance = 0.15  # Adjust based on your robot's size and desired responsiveness
@@ -39,76 +39,11 @@ class Controller:
         self.MAX_SPEED = 15  # Maximum speed in rad/s
         self.MIN_SPEED = 0.5  # Minimum non-zero speed in rad/s 
 
-        self.spiral1 = splines.LogSpiral(1)
-        self.spiral2 = splines.LogSpiral(2)
+        self.sc = StiffnessController()
 
         self.cardioid1 = splines.Cardioid(1)
 
         self.gekko_solver()
-
-    # def gekko_solver(self):
-    #     k_max = math.pi /  global_var.L_VSS
-    #     self.m = GEKKO(remote=False)  # Initialize GEKKO model
-    #     self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
-
-    #     # Parameters
-    #     self.l = self.m.Param(value=global_var.L_VSS)
-    #     self.var_phi = self.m.Param(value=global_var.M[0])
-
-    #     # Manipulated variable
-    #     self.u1 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
-    #     self.u1.STATUS = 1
-    #     # self.u1.DCOST = 0.01
-
-    #     self.u2 = self.m.MV(value=0.0, lb=-0.2, ub=0.2)
-    #     self.u2.STATUS = 1
-    #     # self.u2.DCOST = 1e-2
-
-    #     # State variable
-    #     self.x, self.y, self.theta, self.k1, self.k2 = [self.m.SV() for i in range(5)]
-
-    #     self.x.FSTATUS = 1
-    #     self.y.FSTATUS = 1
-    #     self.x.FSTATUS = 1
-    #     self.x.FSTATUS = 1
-    #     self.x.FSTATUS = 1
-
-    #     self.x_, self.y_, self.theta_, self.k1_, self.k2_ = [self.m.CV() for i in range(5)]
-
-    #     # Define an intermediate variable for wheel speed
-    #     w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
-    #     w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
-
-    #     w2 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u2)
-    #     w2_curve = self.m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
-
-    #     k1_ratio = self.spiral2.get_k_dot(self.k1.VALUE) / self.spiral1.get_k_dot(self.k1.VALUE)
-    #     pos_lu2 = self.spiral1.get_pos_dot(self.theta.VALUE, self.k1.VALUE, 1, 2)
-
-    #     # Equations
-    #     self.m.Equations([self.x_ == self.x, self.y_ == self.y, self.theta_ == self.theta, 
-    #                       self.k1_ == self.k1, self.k2_ == self.k2])
-    #     self.m.Equation(self.x.dt() == k1_ratio * pos_lu2[0] * self.u2)
-    #     self.m.Equation(self.y.dt() == k1_ratio * pos_lu2[1] * self.u2)
-    #     self.m.Equation(self.theta.dt() == self.spiral2.get_th_dot(self.k1.VALUE) * self.u2)
-    #     # self.m.Equation(self.k1.dt() == -self.spiral1.get_k_dot(self.k1.VALUE) * self.u1 + self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
-    #     self.m.Equation(self.k2.dt() == 0)
-
-    #     self.m.Equation(self.k1.dt() == self.spiral2.get_k_dot(self.k1.VALUE) * self.u2)
-
-    #     # Constraints
-    #     self.m.Equation(w1 >= -self.MAX_SPEED)
-    #     self.m.Equation(w1 <= self.MAX_SPEED)
-    #     self.m.Equation(w1_curve >= 0)
-
-    #     self.m.Equation(w2 >= -self.MAX_SPEED)
-    #     self.m.Equation(w2 <= self.MAX_SPEED)
-    #     self.m.Equation(w2_curve >= 0)
-
-    #     # Options
-    #     self.m.options.IMODE = 6  # MPC mode
-    #     self.m.options.SOLVER = 1
-
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
@@ -160,19 +95,7 @@ class Controller:
                 vref[0, i] = sp[ncourse - 1]
 
         return qref, vref
-    
-    # def __predict_motion(self, agent_config: list, shape: tuple, v_list: list, omega_list: list) -> np.ndarray:
-    #     qbar = np.zeros(shape)
-    #     qbar[:, 0] = agent_config[:3]
 
-    #     agent = robot2sr.Robot(1, *agent_config)
-    #     self.update_agent(agent, agent.config)
-    #     for (i, v, omega) in zip(range(1, self.T + 1), v_list, omega_list):
-    #         q = self.get_config(agent, [0, v, omega, 0, 0], agent.stiffness)
-    #         self.update_agent(agent, q)
-    #         qbar[:, i] = agent.pose
-
-    #     return qbar
     
     def update_agent(self, agent: robot2sr.Robot, q: np.ndarray):
         agent.config = q
@@ -278,72 +201,6 @@ class Controller:
 
         return A, B
     
-    def __get_linear_model_matrix10(self, q):
-        A = np.eye(self.NX)
-
-        pos_lu2 = self.spiral2.get_pos_dot(q[2], q[3], 1, 2)
-
-        B = np.zeros((self.NX, self.NU))
-        B[0, 1] = pos_lu2[0] * self.dt 
-        B[1, 1] = pos_lu2[1] * self.dt 
-        B[2, 1] = self.spiral2.get_th_dot(q[3]) * self.dt 
-        B[3, 0] = -self.spiral1.get_k_dot(q[3]) * self.dt 
-        B[3, 1] = self.spiral2.get_k_dot(q[3]) * self.dt
-
-        return A, B
-    
-    def motionPlannerMPC10(self, agent: robot2sr.Robot, q_ref: list) -> tuple[float, float]:
-        v1, v2 = self.__linear_mpc_control10(agent.config, q_ref)
-        
-        return v1, v2
-    
-    # def __predict_motion(self, agent_config: list, shape: tuple, v: list, s: list) -> np.ndarray:
-    #     qbar = np.zeros(shape)
-    #     qbar[:, 0] = agent_config[:shape[0]]
-
-    #     agent = robot2sr.Robot(1, *agent_config)
-    #     self.update_agent(agent, agent.config)
-    #     for i in range(1, self.T + 1):
-    #         q = self.get_config(agent, v, s)
-    #         self.update_agent(agent, q)
-    #         qbar[:, i] = agent.config[:shape[0]]
-
-    #     return qbar
-    
-    def __linear_mpc_control10(self, q_current: np.ndarray, q_ref: list) -> tuple[float, float]:
-
-        Q = [10, 10, 1, 0.1, 0.1]
-        R = [0.001, 0]
-
-        self.x_.VALUE = q_ref[0]
-        self.y_.VALUE = q_ref[1]
-        self.theta_.VALUE = q_ref[2]
-        self.k1_.VALUE = q_ref[3]
-        self.k2_.VALUE = q_ref[4]
-
-        self.m.Obj(Q[0] * self.x ** 2 + Q[1] * self.y ** 2 + Q[2] * self.theta ** 2 + 
-                   Q[3] * self.k1 ** 2 + Q[4] * self.k2 ** 2 + 
-                   R[0] * self.u1**2 + R[1] * self.u2**2)
-
-        # Solve
-        self.m.solve(disp=False)
-
-        self.x.MEAS = q_current[0]
-        self.y.MEAS = q_current[1]
-        self.theta.MEAS = q_current[2]
-        self.k1.MEAS = q_current[3]
-        self.k2.MEAS = q_current[4]
-
-        # Solve
-        self.m.solve(disp=False)
-
-        if self.m.options.SOLVESTATUS == 1: 
-            v1 = self.u1.NEWVAL  
-            v2 = self.u2.NEWVAL  
-        else:
-            return None, None
-        
-        return v1, v2
     
     def mhe(self, ref_traj: splines.Trajectory, k_array: np.ndarray):
         n = len(ref_traj.x)
@@ -581,7 +438,11 @@ class Controller:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
         commands = omega.tolist() + s + [agent.id]
         self._sendCommands(commands)
-        return wheels, q
+
+        meas = self.sc.control_loop(agent.stiffness, s)
+        agent.stiffness = self.sc.states
+
+        return wheels, q, meas
 
     def stop(self, agent: robot2sr.Robot) -> None:
         commands = [0, 0, 0, 0] + agent.stiffness + [agent.id]
@@ -629,4 +490,118 @@ class Controller:
 
     def _sendCommands(self, commands: List[float]) -> None:
         msg = "s" + "".join(f"{command}\n" for command in commands)
-        self.serial_port.write(msg.encode())
+        serial_port.write(msg.encode())
+
+
+class StiffnessController:
+    def __init__(self):
+        self.states = [0, 0]  # Initial state
+
+        self.liquid_threshold = 63
+        self.solid_threshold = 57
+
+        self.temp = [0, 0]
+
+        # Initialize Kalman filters for both segments
+        self.kalman_filters = [
+            KalmanFilter(22, 0.8, 1),
+            KalmanFilter(22, 0.1, 1)
+        ]
+
+
+    def control_loop(self, current_states: list, target_states: list):
+        self.states = current_states
+
+        meas = []
+
+        while True:
+            actions = self.getActions(target_states)
+
+            if actions == (0, 0):
+                break
+
+            status = self.readTemperature()
+            if not status:
+                continue
+
+            meas.append(self.temp[0])
+
+            self.applyActions(actions)
+
+        return meas
+
+    def getActions(self, target_states):
+        actions = (self.getAction(self.states[0], target_states[0]),
+                   self.getAction(self.states[1], target_states[1]))
+        
+        return actions
+
+    def getAction(self, state, target_state):
+        if state == target_state:
+            return 0
+        elif state == 0 and target_state == 1:
+            return 1
+        else:
+            return -1
+        
+    def applyActions(self, actions):
+        for i in range(len(actions)):
+            self.applyAction(i, actions[i])
+
+    def applyAction(self, i, action):
+        if action == 1:
+            if self.temp[i] >= self.liquid_threshold:
+                self.states[i] = 1
+            else:
+                print(f'Switching segment {i+1} to soft...')
+                print(f'Current temp: {self.temp[i]}')
+                print()
+        if action == -1:
+            if self.temp[i] <= self.solid_threshold:
+                self.states[i] = 0
+            else:
+                print(f'Switching segment {i+1} to rigid...')
+                print(f'Current temp: {self.temp[i]}')
+                print()
+
+
+    def readTemperature(self) -> bool:
+            response = serial_port.readline()
+            response = response.decode('ascii', errors="ignore")
+
+            try:
+                temperature = float(response[1:])
+
+                i = -1
+                if response[0] == 'A':
+                    i = 0
+                if response[0] == 'B':
+                    i = 1
+
+                if i != -1:
+                    self.temp[i] = self.kalman_filters[i].update(temperature)
+                else:
+                    return False
+            except ValueError:
+                return False
+            
+            return True
+    
+class KalmanFilter:
+    def __init__(self, initial_temp, process_variance, measurement_variance):
+        self.estimate = initial_temp
+        self.estimate_error = 1.0
+        self.process_variance = process_variance
+        self.measurement_variance = measurement_variance
+
+    def update(self, measurement):
+        # Prediction
+        prediction = self.estimate
+        prediction_error = self.estimate_error + self.process_variance
+
+        # Update
+        kalman_gain = prediction_error / (prediction_error + self.measurement_variance)
+        self.estimate = prediction + kalman_gain * (measurement - prediction)
+        self.estimate_error = (1 - kalman_gain) * prediction_error
+
+        return self.estimate

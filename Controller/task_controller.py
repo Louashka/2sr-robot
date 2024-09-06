@@ -178,7 +178,7 @@ class Task(keyboard_controller.ActionsHandler):
             print(v)
 
             if counter > safety_margin:
-                wheels, q = self.agent_controller.move(self.agent, v, s)
+                _, q, status = self.agent_controller.move(self.agent, v, s)
                 if self.simulation:
                     self.agent_controller.update_agent(self.agent, q)
                 else:
@@ -356,11 +356,9 @@ class Task(keyboard_controller.ActionsHandler):
     #//////////////////////////////// SOFT MODE METHODS ////////////////////////////////
 
     def __softMode(self):
-        # self.simulation = True
-
         k_max = np.pi / (2 * global_var.L_VSS)
         max_values = [2.78, 1.4, 2*np.pi, k_max, k_max]
-        
+
         v = [0.08, 0.0]
         s = [1, 0]
 
@@ -371,56 +369,71 @@ class Task(keyboard_controller.ActionsHandler):
         while not self.agent: 
             self.__updateConfig()
 
-        config_traj = self._generateSoftTrajectory(v, s, 10)
-        config_traj_array = np.array(config_traj).T
+        _, _, meas1 = self.agent_controller.move(self.agent, [0] * 5, s)
+        print(f'Current stiffness {self.agent.stiffness}')
 
-        path = splines.TrajectoryShape(config_traj_array)
-        # goal = path.getPoint(len(path.x) - 1)
+        _, _, meas2 = self.agent_controller.move(self.agent, [0] * 5, [0, 0])
+        print(f'Current stiffness {self.agent.stiffness}')
 
-        # dist = splines.getDistance(self.agent.position, goal)
+        print('finished measurements')
+        meas = meas1 + meas2
+        import matplotlib.pyplot as plt
 
-        date_title = 'soft_mode_test_' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.rgb_camera.startVideo(path, self.agent.config, date_title)
+        plt.plot(meas)
+        plt.axis('equal')
+        plt.show()
 
-        print("Waiting for the video to start...")
-        while not self.rgb_camera.wait_video:
-            pass
+        # config_traj = self._generateSoftTrajectory(v, s, 10)
+        # config_traj_array = np.array(config_traj).T
 
-        print('Video started')
-        print()
+        # path = splines.TrajectoryShape(config_traj_array)
+        # # goal = path.getPoint(len(path.x) - 1)
 
-        dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+        # # dist = splines.getDistance(self.agent.position, goal)
 
-        elapsed_time = 0
-        experiment_start_time = time.perf_counter()
-        counter = 0
-        safety_margin = 2
+        # date_title = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # self.rgb_camera.startVideo(path, self.agent.config, date_title)
 
-        while elapsed_time < 5:
-            v_soft = self.agent_controller.softMPC(self.agent, path, config_traj_array)
-            v = [0] * 3 + v_soft
+        # print("Waiting for the video to start...")
+        # while not self.rgb_camera.wait_video:
+        #     pass
 
-            print(v_soft)
+        # print('Video started')
+        # print()
 
-            if counter > safety_margin:
-                wheels, q = self.agent_controller.move(self.agent, v, self.agent.stiffness)
-                if self.simulation:
-                    self.agent_controller.update_agent(self.agent, q)
-                else:
-                    self.__updateConfig()
-                self.rgb_camera.add_config(self.agent.config)   
+        # dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
 
-            # dist = splines.getDistance(self.agent.position, goal)
+        # elapsed_time = 0
+        # experiment_start_time = time.perf_counter()
+        # counter = 0
+        # safety_margin = 2
 
-            experiment_current_time = time.perf_counter()
-            elapsed_time = experiment_current_time - experiment_start_time
+        # while elapsed_time < 10:
+        #     v_soft = self.agent_controller.softMPC(self.agent, path, config_traj_array)
+        #     v = [0] * 3 + v_soft
 
-            counter += 1
+        #     print(v_soft)
 
-            dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
-            print(f'Distance: {dist}')
-            if dist < 0.03:
-                break
+        #     if counter > safety_margin:
+        #         wheels, q = self.agent_controller.move(self.agent, v, s)
+        #         self.__updateConfig()
+        #         self.rgb_camera.add_config(self.agent.config)   
+
+        #     # dist = splines.getDistance(self.agent.position, goal)
+
+        #     experiment_current_time = time.perf_counter()
+        #     elapsed_time = experiment_current_time - experiment_start_time
+
+        #     counter += 1
+
+        #     dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+        #     print(f'Distance: {dist}')
+
+        #     if dist < 0.7 or self.rgb_camera.finish:
+        #         break
+
+        # self.agent_controller.move(self.agent, [0] * 5, [0, 0])
+        # self.agent_controller.move(self.agent, [0] * 5, [0, 0])
 
         # if self.simulation:
         #     self.gui.plot_config(q_start, self.agent.stiffness, 'initial')
