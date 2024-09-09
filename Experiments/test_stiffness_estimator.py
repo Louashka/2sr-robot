@@ -1,33 +1,24 @@
 import serial
 import time
 import json
+import numpy as np
 import matplotlib.pyplot as plt
 
 port_name = "COM3"
 serial_port = serial.Serial(port_name, 115200)
+
+json_path = f'Experiments/Data/temp_estimation.json'
     
 class NonLinearTemperatureEstimator():
     def __init__(self):
         self.room_temp = 22
         self.max_alloy_temp = 70
         self.max_sensor_temp = 40
-        self.cooling_factor = 0.01
-        self.last_estimate = self.room_temp
 
-    def estimate(self, meas_temp, action):
-        # if action == 1:
-        #      # Non-linear mapping for heating phase
-        #     normalized_sensor = (meas_temp - self.room_temp) / (self.max_sensor_temp - self.room_temp)
-        #     estimated_temp = self.room_temp + normalized_sensor * (self.max_alloy_temp - self.room_temp)
-        # elif action == -1:
-        #     estimated_temp = self.last_estimate - (self.last_estimate - meas_temp) * self.cooling_factor
-        # else:
-        #     estimated_temp = meas_temp
-
+    def estimate(self, meas_temp):
         normalized_sensor = (meas_temp - self.room_temp) / (self.max_sensor_temp - self.room_temp)
         estimated_temp = self.room_temp + normalized_sensor * (self.max_alloy_temp - self.room_temp)
 
-        self.last_estimate = estimated_temp
         return round(estimated_temp, 4)
     
 class StiffnessController:
@@ -137,7 +128,7 @@ class StiffnessController:
 
                 if i != -1:
                     self.temp[i] = temperature
-                    self.temp_filtered[i] = self.temp_estimators[i].estimate(temperature, actions[i])
+                    self.temp_filtered[i] = self.temp_estimators[i].estimate(temperature)
                 else:
                     return False
             except ValueError:
@@ -145,12 +136,11 @@ class StiffnessController:
             
             return True
     
-def sendCommands( commands) -> None:
+def sendCommands(commands) -> None:
     msg = "s" + "".join(f"{command}\n" for command in commands)
     serial_port.write(msg.encode())
-    
 
-if __name__ == "__main__":
+def run_exp() -> None:
     sc = StiffnessController()
 
     s = [1, 0]
@@ -173,7 +163,6 @@ if __name__ == "__main__":
         'time': time_list
     }
 
-    json_path = f'Data/temp_estimation.json'
     with open(json_path, 'w') as f:
         json.dump(data_json, f, indent=2)
 
@@ -187,4 +176,81 @@ if __name__ == "__main__":
     plt.axis('equal')
     plt.show()
 
+ # Apply moving average filter (n = 3)
+def moving_average(data, n=3):
+    cumsum = np.cumsum(np.insert(data, 0, 0)) 
+    return (cumsum[n:] - cumsum[:-n]) / float(n)
+
+def analyse_exp() -> None:
+    data = None
+
+    try:
+        with open(json_path, "r") as json_file:
+            data = json.load(json_file)
+    except FileNotFoundError:
+        print(f"Error: {json_path} not found.")
+        return
+    
+    if data is not None:
+        meas = data['measured']
+        filtered = data['filtered']
+        elapsed_time = data['time']
+
+        measured_temp = moving_average(meas)
+        estimated_temp = moving_average(filtered)
+
+        # Adjust time list to match the length of filtered data
+        elapsed_time = elapsed_time[1:-1]
+        import seaborn as sns
+
+        # Set the style for a clean, modern look
+        plt.style.use('seaborn-v0_8-whitegrid')
+
+        # Create a custom color palette
+        colors = sns.color_palette("colorblind", 4)
+
+        # Create a figure with 2 subplots in a row
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Measured vs Estimated Temperature
+        ax1.plot(elapsed_time, measured_temp, label='Measured', color=colors[0], linewidth=2)
+        ax1.plot(elapsed_time, estimated_temp, label='Estimated', color=colors[3], linewidth=2)
+
+        # Find the first occurrence of measured temperature = 62
+        target_temp = 62
+        target_index = next((i for i, temp in enumerate(estimated_temp) if temp >= target_temp), None)
+
+        if target_index is not None:
+            target_temp = estimated_temp[target_index]
+            target_time = elapsed_time[target_index]
+            circle = plt.Circle((target_time, target_temp), 0.6, color='black', linewidth=2, label='Melting point')
+            ax1.add_artist(circle)
+            circle.set_zorder(2)
+
+        ax1.set_xlabel('Time [s]', fontsize=12)
+        ax1.set_ylabel('Temperature [°C]', fontsize=12)
+        ax1.set_title('Measured vs Estimated Temperature', fontsize=14, fontweight='bold')
+        ax1.set_aspect('equal', adjustable="datalim")
+        ax1.legend(fontsize=10)
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(axis='both', which='major', labelsize=10)
+
+        # Histogram of Errors
+        ax2.hist(estimated_temp - measured_temp, bins=20, rwidth=0.8, color=colors[0])
+
+        ax2.set_xlabel('Estimation Error', fontsize=12)
+        ax2.set_ylabel('Frequency', fontsize=12)
+        ax2.set_title('Distribution of Estimation Errors', fontsize=14, fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='both', which='major', labelsize=10)
+
+        plt.tight_layout()
+        plt.show()
+
+        fig.savefig('Experiments/Figures/temp_estimation.pdf', dpi=300, format="pdf", transparent=True, bbox_inches='tight')
+    
+
+if __name__ == "__main__":
+    # run_exp()
+    analyse_exp()
 
