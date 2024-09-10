@@ -35,7 +35,7 @@ path_x = path_x
 class Aligner():
 
     def __init__(self):
-        self.file_path = "Valens_Bugs\calibration_data.json"
+        self.file_path = "Valens_Bugs/calibration_data.json"
         self.mocap_data = None
 
         self.aruco_A_id = 10

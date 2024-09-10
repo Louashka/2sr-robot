@@ -356,10 +356,11 @@ class Task(keyboard_controller.ActionsHandler):
     #//////////////////////////////// SOFT MODE METHODS ////////////////////////////////
 
     def __softMode(self):
+        # self.simulation = True
         k_max = np.pi / (2 * global_var.L_VSS)
         max_values = [2.78, 1.4, 2*np.pi, k_max, k_max]
 
-        v = [0.08, 0.0]
+        v_soft_target = [0.05, -0.08]
         s = [1, 0]
 
         # if self.simulation:
@@ -369,74 +370,137 @@ class Task(keyboard_controller.ActionsHandler):
         while not self.agent: 
             self.__updateConfig()
 
-        _, _, meas1 = self.agent_controller.move(self.agent, [0] * 5, s)
-        print(f'Current stiffness {self.agent.stiffness}')
+        config_traj = self._generateSoftTrajectory(v_soft_target, s, 10)
+        config_traj_array = np.array(config_traj).T
 
-        _, _, meas2 = self.agent_controller.move(self.agent, [0] * 5, [0, 0])
-        print(f'Current stiffness {self.agent.stiffness}')
+        path = splines.TrajectoryShape(config_traj_array)
+        goal = path.getPoint(len(path.x) - 1)
 
-        print('finished measurements')
-        meas = meas1 + meas2
-        import matplotlib.pyplot as plt
+        dist = splines.getDistance(self.agent.position, goal)
 
-        plt.plot(meas)
-        plt.axis('equal')
-        plt.show()
+        date_title = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.rgb_camera.startVideo(path, self.agent.config, date_title)
 
-        # config_traj = self._generateSoftTrajectory(v, s, 10)
-        # config_traj_array = np.array(config_traj).T
+        print("Waiting for the video to start...")
+        while not self.rgb_camera.wait_video:
+            pass
 
-        # path = splines.TrajectoryShape(config_traj_array)
-        # # goal = path.getPoint(len(path.x) - 1)
+        print('Video started')
+        print()
 
-        # # dist = splines.getDistance(self.agent.position, goal)
+        dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
 
-        # date_title = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        # self.rgb_camera.startVideo(path, self.agent.config, date_title)
+        elapsed_time = 0
+        experiment_start_time = time.perf_counter()
+        counter = 0
+        safety_margin = 1
 
-        # print("Waiting for the video to start...")
-        # while not self.rgb_camera.wait_video:
-        #     pass
+        config_last = self.agent.config
+        last_time = experiment_start_time
+        v_prev = [0.0, 0.0]
 
-        # print('Video started')
-        # print()
+        sc_feedback = [[], []]
+        robot_tracking_data = []
 
-        # dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+        finish = False
 
-        # elapsed_time = 0
-        # experiment_start_time = time.perf_counter()
-        # counter = 0
-        # safety_margin = 2
+        while elapsed_time < 150:
+            current_time = time.perf_counter()
+            dt = current_time - last_time
+            last_time = current_time
 
-        # while elapsed_time < 10:
-        #     v_soft = self.agent_controller.softMPC(self.agent, path, config_traj_array)
-        #     v = [0] * 3 + v_soft
+            config_diff = np.array(config_last) - self.agent.config
+            velocity_global = config_diff / dt
+            velocity_body = np.linalg.pinv(self.agent.jacobian_soft(s)) @ velocity_global
 
-        #     print(v_soft)
+            config_last = self.agent.config
 
-        #     if counter > safety_margin:
-        #         wheels, q = self.agent_controller.move(self.agent, v, s)
-        #         self.__updateConfig()
-        #         self.rgb_camera.add_config(self.agent.config)   
+            if dist < 0.37 or self.rgb_camera.finish:
+                v_soft = [0, 0]
+                s = [0, 0]
+                finish = True
+            else:
+                v_soft = self.agent_controller.softMPC(self.agent, path, config_traj_array, v_soft_target)
+            
+            v = [0] * 3 + v_soft
 
-        #     # dist = splines.getDistance(self.agent.position, goal)
+            print(v_soft)
 
-        #     experiment_current_time = time.perf_counter()
-        #     elapsed_time = experiment_current_time - experiment_start_time
+            if counter >= safety_margin:
+                _, q, s_current, sc_feedback = self.agent_controller.move(self.agent, v, s)
+                if self.simulation:
+                    self.agent_controller.update_agent(self.agent, q)
+                    self.agent.stiffness = s
+                else:
+                    self.__updateConfig()
+                    self.agent.stiffness = s_current
+                self.rgb_camera.add_config(self.agent.config)   
 
-        #     counter += 1
+            # dist = splines.getDistance(self.agent.position, goal)
 
-        #     dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
-        #     print(f'Distance: {dist}')
+            dist = self.normalized_difference(self.agent.config, config_traj[-1], max_values)
+            target_point = path.getPoint(path.last_idx)
+            config_errors = [target_point[0] - self.agent.x, target_point[1] - self.agent.y, target_point[2] - self.agent.theta, 
+                             target_point[3] - self.agent.k1, target_point[4] - self.agent.k2]
+            print(f'Distance: {dist}')
 
-        #     if dist < 0.7 or self.rgb_camera.finish:
-        #         break
+            experiment_current_time = time.perf_counter()
+            elapsed_time = experiment_current_time - experiment_start_time
 
-        # self.agent_controller.move(self.agent, [0] * 5, [0, 0])
-        # self.agent_controller.move(self.agent, [0] * 5, [0, 0])
+            # Collect data in a JSON file
+
+            robot_config_data ={'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
+                              'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]}
+            robot_velocity_data = {'v_1': velocity_body[0], 'v_2': velocity_body[1]}
+            robot_pose_errors_data = {'e_x': config_errors[0], 'e_y': config_errors[1], 'e_theta': config_errors[2], 'e_k1': config_errors[3], 'e_k2': config_errors[4]}
+            robot_vel_errors_data = {'e_v_1': v_prev[0] - velocity_body[0], 'e_v_2': v_prev[1] - velocity_body[1]}
+            errors_data = {'pose_errors': robot_pose_errors_data, 
+                           'vel_errors': robot_vel_errors_data}
+            sc_data = {'temp': sc_feedback[0],
+                       'time': sc_feedback[1]}
+            
+            robot_tracking_data.append({'time': elapsed_time, 
+                                        'config': robot_config_data, 
+                                        'distance_to_target': dist,
+                                        'vel': robot_velocity_data,
+                                        'errors': errors_data,
+                                        'stiff_trans': sc_data})
+            
+            v_prev = v_soft
+            counter += 1
+
+            if finish:
+                break
+
+
+        print()
+        print(f'Recording time: {elapsed_time} seconds')
+
+        path_data = []
+        for x, y, theta, k1, k2, in zip(path.x, path.y, path.theta, path.k1, path.k2):
+            path_data.append({'x': x, 'y': y, 'theta': theta, 'k1': k1, 'k2': k2})
+
+        # Create the data structure
+        data_json = {
+            "metadata": {
+                "description": "Reaching a target configuration SMM1",
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            },
+            "path": path_data,
+            "robot_tracking": robot_tracking_data
+        }
+
+        # Write the data to a JSON file
+        json_path = f'Experiments/Data/smm1_data_{date_title}.json'
+        with open(json_path, 'w') as f:
+            json.dump(data_json, f, indent=2)
+
+        print()
+        print("JSON file 'tracking_morph_data.json' has been created.")
+
 
         # if self.simulation:
-        #     self.gui.plot_config(q_start, self.agent.stiffness, 'initial')
+        #     self.gui.plot_config(config_traj[0], self.agent.stiffness, 'initial')
         #     self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
         #     self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
         #     self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
@@ -613,11 +677,11 @@ class Task(keyboard_controller.ActionsHandler):
         #     last_dist = dist
         
         # self.gui.clear()
-        self.gui.plot_config(q_start, self.agent.stiffness, '')
-        self.gui.scatter(original_traj_x, original_traj_y, 'original traj')
-        self.gui.scatter(ref_traj_x, ref_traj_y, 'estimated traj')
-        self.gui.plot_config(target_config, self.agent.stiffness, 'target', 'target')
-        self.gui.show()
+        # self.gui.plot_config(q_start, self.agent.stiffness, '')
+        # self.gui.scatter(original_traj_x, original_traj_y, 'original traj')
+        # self.gui.scatter(ref_traj_x, ref_traj_y, 'estimated traj')
+        # self.gui.plot_config(target_config, self.agent.stiffness, 'target', 'target')
+        # self.gui.show()
 
     
     @staticmethod

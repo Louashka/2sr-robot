@@ -46,7 +46,7 @@ class Aligner:
         cap.set(4, 720)
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_path, fourcc, 8.0, (1409,720))
+        out = cv2.VideoWriter(video_path, fourcc, 16.0, (1409,720))
 
 
         while cap.isOpened():
