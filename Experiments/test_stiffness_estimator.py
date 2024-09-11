@@ -55,7 +55,7 @@ class StiffnessController:
             if actions == (0, 0):
                 break
 
-            status = self.readTemperature(actions)
+            status = self.readTemperature()
             if not status:
                 continue
 
@@ -113,7 +113,7 @@ class StiffnessController:
                 print()
 
 
-    def readTemperature(self, actions) -> bool:
+    def readTemperature(self) -> bool:
             response = serial_port.readline()
             response = response.decode('ascii', errors="ignore")
 

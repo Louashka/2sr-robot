@@ -452,9 +452,9 @@ class Task(keyboard_controller.ActionsHandler):
             robot_config_data ={'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
                               'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]}
             robot_velocity_data = {'v_1': velocity_body[0], 'v_2': velocity_body[1]}
-            robot_pose_errors_data = {'e_x': config_errors[0], 'e_y': config_errors[1], 'e_theta': config_errors[2], 'e_k1': config_errors[3], 'e_k2': config_errors[4]}
+            robot_config_errors_data = {'e_x': config_errors[0], 'e_y': config_errors[1], 'e_theta': config_errors[2], 'e_k1': config_errors[3], 'e_k2': config_errors[4]}
             robot_vel_errors_data = {'e_v_1': v_prev[0] - velocity_body[0], 'e_v_2': v_prev[1] - velocity_body[1]}
-            errors_data = {'pose_errors': robot_pose_errors_data, 
+            errors_data = {'config_errors': robot_config_errors_data, 
                            'vel_errors': robot_vel_errors_data}
             sc_data = {'temp': sc_feedback[0],
                        'time': sc_feedback[1]}
@@ -476,35 +476,35 @@ class Task(keyboard_controller.ActionsHandler):
         print()
         print(f'Recording time: {elapsed_time} seconds')
 
-        path_data = []
-        for x, y, theta, k1, k2, in zip(path.x, path.y, path.theta, path.k1, path.k2):
-            path_data.append({'x': x, 'y': y, 'theta': theta, 'k1': k1, 'k2': k2})
+        if not self.simulation:
+            path_data = []
+            for x, y, theta, k1, k2, in zip(path.x, path.y, path.theta, path.k1, path.k2):
+                path_data.append({'x': x, 'y': y, 'theta': theta, 'k1': k1, 'k2': k2})
 
-        # Create the data structure
-        data_json = {
-            "metadata": {
-                "description": "Reaching a target configuration SMM1",
-                "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            },
-            "path": path_data,
-            "robot_tracking": robot_tracking_data
-        }
+            # Create the data structure
+            data_json = {
+                "metadata": {
+                    "description": "Reaching a target configuration SMM1",
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                },
+                "path": path_data,
+                "robot_tracking": robot_tracking_data
+            }
 
-        # Write the data to a JSON file
-        json_path = f'Experiments/Data/smm1_data_{date_title}.json'
-        with open(json_path, 'w') as f:
-            json.dump(data_json, f, indent=2)
+            # Write the data to a JSON file
+            json_path = f'Experiments/Data/Tracking/SM1/sm1_data_{date_title}.json'
+            with open(json_path, 'w') as f:
+                json.dump(data_json, f, indent=2)
 
-        print()
-        print("JSON file 'tracking_morph_data.json' has been created.")
+            print()
+            print("JSON file 'tracking_morph_data.json' has been created.")
 
-
-        # if self.simulation:
-        #     self.gui.plot_config(config_traj[0], self.agent.stiffness, 'initial')
-        #     self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
-        #     self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
-        #     self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
-        #     self.gui.show()
+        else:
+            self.gui.plot_config(config_traj[0], self.agent.stiffness, 'initial')
+            self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
+            self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
+            self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
+            self.gui.show()
 
     def _generateSoftTrajectory(self, v, s, timer):
         q_start = self.agent.config

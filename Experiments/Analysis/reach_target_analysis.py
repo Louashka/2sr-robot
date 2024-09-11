@@ -319,7 +319,7 @@ def plotMotion(q, s, h, t, wheels, frames):
 
 if __name__ == "__main__":
     dirname = os.path.dirname(__file__)
-    filename = os.path.join(dirname, 'Data/reach_target.csv')
+    filename = os.path.join(dirname, 'Experiments/Data/Log files/reach_target.csv')
 
     df = pd.read_csv(filename, header=0)
 

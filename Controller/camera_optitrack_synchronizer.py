@@ -35,7 +35,7 @@ class Aligner:
         self.config_list.append(config)
         
     def __run(self, path: splines.TrajectoryShape, date_title: str):
-        video_path = f'Experiments/Video/soft_mode_test_{date_title}.mp4'
+        video_path = f'Experiments/Video/Tracking/SM1/sm1_test_{date_title}.mp4'
 
         target_seg1 = self.__arc(path.getPoint(path.n-1), 1)
         target_seg2 = self.__arc(path.getPoint(path.n-1), 2)
