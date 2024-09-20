@@ -314,7 +314,7 @@ class Controller:
         # m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
 
         # Objective
-        m.Obj(2 * (x - target[0])**2 + 2 * (y - target[1])**2 + (theta - target[2])**2 + 
+        m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
               2 * v_x**2 + 2 * v_y**2 + omega**2)
 
         # Options
@@ -392,7 +392,7 @@ class Controller:
 
         # Objective function
         Q = [1, 1, 1, 0.1]
-        R = [0.01, 0.45]
+        R = [0.01, 0.5]
 
         # m.Obj(Q[0] * x**2 + Q[1] * y**2 + Q[2] * theta**2 + Q[3] * k1**2 + 
         #       R[0] * u1**2 + R[1] * u2**2)

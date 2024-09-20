@@ -137,7 +137,7 @@ class Aligner:
         return marker_pixel_postion
     
     def __arc(self, config, seg=1):
-        th0 = config[2] - 0.0
+        th0 = config[2] + 0.1
         k = config[2+seg]
         # if seg == 2:
         #     k = 0

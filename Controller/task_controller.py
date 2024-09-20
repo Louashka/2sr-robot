@@ -378,8 +378,10 @@ class Task(keyboard_controller.ActionsHandler):
         #                 (self.agent.y - target[1])**2 + 
         #                 (self.agent.theta - target[2])**2))
         print(f'Distance: {dist}')
+        print(f'Current theta: {self.agent.theta}')
+        print(f'Target theta: {target[2]}')
 
-        if dist < 0.015:
+        if dist < 0.04:
             return True
 
         return False
@@ -393,11 +395,12 @@ class Task(keyboard_controller.ActionsHandler):
             self.__updateConfig()
 
         # ------------------------ Define target ------------------------
-        v_soft_target = [-0.032, 0.064] # Control soft velocities
+        v_soft_target = [-0.047, 0.11] # Control soft velocities
+        # v_soft_target = [0.0, 0.0]
         s = [1, 0] # Control stiffness
 
         # Target config
-        config_traj = self._generateSoftTrajectory(v_soft_target, s, 10)
+        config_traj = self._generateSoftTrajectory(v_soft_target, s, 12)
         config_target = config_traj[-1]
 
         # config_target[0] += 0.2
@@ -444,7 +447,7 @@ class Task(keyboard_controller.ActionsHandler):
                 v_soft = [0.0, 0.0]
                 s = [0, 0]
             else:
-                if abs(self.agent.k1 - config_target[3]) < 5 or self.rgb_camera.finish:
+                if abs(self.agent.k1 - config_target[3]) < 6.5 or self.rgb_camera.finish:
                     v_soft = [0.0, 0.0]
                     s = [0, 0]
                     rigid_mode = True
