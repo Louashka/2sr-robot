@@ -88,6 +88,7 @@ class Cardioid:
         self.a = gv.CARDIOID_A[n-1]
         self.phi_min = gv.CARDIOID_TH_MIN[n-1]
         self.phi_max = gv.CARDIOID_TH_MAX[n-1]
+        self.offset = gv.CARDIOID_OFFSET[n-1]
 
         self.var_phi = 2 * np.pi / (gv.L_VSS * (self.phi_max - self.phi_min))
 
@@ -104,11 +105,12 @@ class Cardioid:
         rho = self.rho(k)
 
         x = rho * np.cos(phi)
-        y = rho * np.sin(phi)
+        y = -rho * np.sin(phi)
 
         if lu == 2:
-            x = -x
-            y = -y
+            x = -x - self.offset
+        else:
+            x += self.offset
 
         return [x, y]
         

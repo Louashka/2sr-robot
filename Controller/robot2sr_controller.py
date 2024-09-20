@@ -17,7 +17,7 @@ class Controller:
     def __init__(self) -> None:
         self.max_linear_velocity = 0.2  # Maximum desired linear velocity
         self.max_angular_velocity = 1.0  # Maximum desired angular velocity
-        self.lookahead_distance = 0.15  # Adjust based on your robot's size and desired responsiveness
+        self.lookahead_distance = 0.005  # Adjust based on your robot's size and desired responsiveness
         self.kp_linear = 3  # Proportional gain for linear velocity
         self.kp_angular = 1  # Proportional gain for angular velocity
 
@@ -44,8 +44,6 @@ class Controller:
 
         self.cardioid1 = splines.Cardioid(1)
         self.cardioid2 = splines.Cardioid(2)
-
-        self.gekko_solver()
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
@@ -266,116 +264,152 @@ class Controller:
 
         return q_ref
     
-    def gekko_solver(self) -> None:
-        self.m = GEKKO(remote=False)
-        self.m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+    def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
+        head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
+        tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
+        wheels = head_wheels + tail_wheels
+
+        m = GEKKO(remote=False)
+        m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        self.u1 = self.m.MV(value=0.00, lb=-0.2, ub=0.2)
-        self.u1.STATUS = 1
+        v_x = m.MV(value=v_current[0], lb=-0.2, ub=0.2)
+        v_x.STATUS = 1
+        # v_x.DCOST = 10000
 
-        self.u2 = self.m.MV(value=0.00, lb=-0.2, ub=0.2)
-        self.u2.STATUS = 1
-        # self.u2.DCOST = 10
+        v_y = m.MV(value=v_current[1], lb=-0.2, ub=0.2)
+        v_y.STATUS = 1
+        # v_y.DCOST = 10000
 
-        # State variables
-        self.x = self.m.SV(value=[0.0] * self.T)
-        self.y = self.m.SV(value=0.0)
-        self.theta = self.m.SV(value=0.0)
-        self.k1 = self.m.SV(value=0.0)
+        omega = m.MV(value=v_current[2], lb=-0.2, ub=0.2)
+        omega.STATUS = 1
+        # omega.DCOST = 10000
 
-        # # Additional variables
-        # self.phi1 = self.m.Var()
-        # self.rho1 = self.m.Var()
+        x = m.SV(value=agent.x)
+        y = m.SV(value=agent.y)
+        theta = m.SV(value=agent.theta)
 
-        # self.phi2 = self.m.Var()
-        # self.rho2 = self.m.Var()
+        w = [m.Var(value=0.0, lb=-self.MAX_SPEED, ub=self.MAX_SPEED) for _ in range(4)]
+        z = [m.Var(integer=True, lb=0, ub=1) for _ in range(4)]
 
-        # self.spiral1_k1_dot = self.m.Var()
-        # self.spiral2_k1_dot = self.m.Var()
-        # self.coef = self.m.Var()
-
-        # self.th = self.m.Var()
-        # self.x_dot = self.m.Var()
-        # self.y_dot = self.m.Var()
+        m.Equation(x.dt() == m.cos(theta) * v_x - m.sin(theta) * v_y)
+        m.Equation(y.dt() == m.sin(theta) * v_x + m.cos(theta) * v_y)
+        m.Equation(theta.dt() == omega)
 
         # Define an intermediate variable for wheel speed
-        w1 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u1)
-        w1_curve = self.m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+        m.Equations([w[i] == (1 / global_var.WHEEL_R) * (np.cos(wheels[i][2]) * v_x +
+                                                        np.sin(wheels[i][2]) * v_y +
+                                                        (wheels[i][0] * np.sin(wheels[i][2]) - wheels[i][1] * np.cos(wheels[i][2])) * omega)
+             for i in range(4)])
 
-        w2 = self.m.Intermediate(-(1 / global_var.WHEEL_R) * self.u2)
-        w2_curve = self.m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+        # w_curve = [m.Intermediate(w[i]**4 - self.MIN_SPEED * w[i]**2) for i in range(4)]
 
-        # Equations
-        # self.m.Equation(self.phi1 == self.cardioid1.phi_min + (1 / self.cardioid1.var_phi) * (self.k1 + np.pi / global_var.L_VSS))
-        # self.m.Equation(self.rho1 == 2 * self.cardioid1.a * (1 - self.m.cos(self.phi1)))
-        # self.m.Equation(self.phi2 == self.cardioid2.phi_min + (1 / self.cardioid2.var_phi) * (self.k1 + np.pi / global_var.L_VSS))
-        # self.m.Equation(self.rho2 == 2 * self.cardioid2.a * (1 - self.m.cos(self.phi2)))
-        # self.m.Equation(self.spiral1_k1_dot == self.cardioid1.var_phi / self.rho1)
-        # self.m.Equation(self.spiral2_k1_dot == self.cardioid2.var_phi / self.rho2)
-        # self.m.Equation(self.coef == self.spiral2_k1_dot / self.spiral1_k1_dot)
-        # self.m.Equation(self.th == self.theta - self.k1 * global_var.L_VSS)
-        # self.m.Equation(self.x_dot == self.rho1 * (self.m.sin(self.phi1) - self.m.sin(2 * self.phi1)))
-        # self.m.Equation(self.y_dot == self.rho1 * (-self.m.cos(self.phi1) + self.m.cos(2 * self.phi1)))
-        
-        
-        # self.m.Equation(self.x.dt() == self.coef * (self.m.cos(self.th) * self.x_dot - self.m.sin(self.th) * self.y_dot) * self.u2)
-        # self.m.Equation(self.y.dt() == self.coef * (self.m.sin(self.th) * self.x_dot + self.m.cos(self.th) * self.y_dot) * self.u2)
-        # self.m.Equation(self.theta.dt() == (global_var.L_VSS * self.spiral2_k1_dot) * self.u2)
-        # self.m.Equation(self.k1.dt() == -self.spiral1_k1_dot * self.u1 + self.spiral2_k1_dot * self.u2)
-        k2_ratio = self.cardioid2.k_dot(self.k1.VALUE) / self.cardioid1.k_dot(self.k1.VALUE)
-        pos_lu2 = self.cardioid1.pos_dot(self.theta.VALUE, self.k1.VALUE, 1, 2)
-
-        self.m.Equation(self.x.dt() == k2_ratio * pos_lu2[0] * self.u2)
-        self.m.Equation(self.y.dt() == k2_ratio * pos_lu2[1] * self.u2)
-        self.m.Equation(self.theta.dt() == self.cardioid2.th_dot(self.k1.VALUE) * self.u2)
-        self.m.Equation(self.k1.dt() == -self.cardioid1.k_dot(self.k1.VALUE) * self.u1 + self.cardioid2.k_dot(self.k1.VALUE) * self.u2)
-        
         # Constraints
-        self.m.Equation(w1 >= -self.MAX_SPEED)
-        self.m.Equation(w1 <= self.MAX_SPEED)
-        self.m.Equation(w1_curve >= 0)
-
-        self.m.Equation(w2 >= -self.MAX_SPEED)
-        self.m.Equation(w2 <= self.MAX_SPEED)
-        self.m.Equation(w2_curve >= 0)
-
-        # Options
-        self.m.options.IMODE = 6  # MPC mode
-        self.m.options.SOLVER = 1
-
-    
-    def softMPC(self, agent: robot2sr.Robot, path: splines.TrajectoryShape, config_traj: np.ndarray, v_target: list) -> tuple[float, float]:
-        target_ind = path.getTarget(agent.config.tolist(), self.lookahead_distance)
-        q_ref = self._calc_soft_ref_traj(config_traj, target_ind, path.n) 
-
-        self.u1.VALUE = v_target[0]
-        self.u2.VALUE = v_target[1]
-
-        self.x.VALUE = [agent.x] * self.T
-        self.y.VALUE = [agent.y] * self.T
-        self.theta.VALUE = [agent.theta] * self.T
-        self.k1.VALUE = [agent.k1] * self.T
-
-        x_ref = q_ref[0, :].tolist()
-        y_ref = q_ref[1, :].tolist()
-        theta_ref = q_ref[2, :].tolist()
-        k_ref = q_ref[3, :].tolist()
+        # m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
+        # m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
+        # m.Equations([w_curve[i] >= 0 for i in range(4)])
+        # Create boolean model variables z[i] for each wheel
+        
+        # m.Equations([w[i] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[i] for i in range(4)])
+        # m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
 
         # Objective
-        cost = 0
-        for i in range(self.T):
-            cost += 10 * (self.x[i] - x_ref[i])**2
-            cost += 10 * (self.y[i] - y_ref[i])**2
-            cost += (self.theta[i] - theta_ref[i])**2
-            cost += 0.001 * (self.k1[i] - k_ref[i])**2
+        m.Obj(2 * (x - target[0])**2 + 2 * (y - target[1])**2 + (theta - target[2])**2 + 
+              2 * v_x**2 + 2 * v_y**2 + omega**2)
 
-        self.m.Obj(cost)
+        # Options
+        m.options.IMODE = 6  # MPC mode
+        m.options.SOLVER = 3
 
-        # Solve
-        self.m.solve(disp=False)
+        m.solve(disp=False)
+
+        return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL]
+    
+
+    def mpcSM1(self, agent: robot2sr.Robot, target: list, lu1_target: list, lu2_target, v_current: list):
+        m = GEKKO(remote=False)
+        m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+
+        # Manipulated variables        
+        u1 = m.MV(value=v_current[0], lb=-0.2, ub=0.2)
+        u1.STATUS = 1
+        u1.DCOST = 10000
+
+        u2 = m.MV(value=v_current[1], lb=-0.2, ub=0.2)
+        u2.STATUS = 1
+        u1.DCOST = 10000
+
+        x = m.SV(value=agent.x)
+        y = m.SV(value=agent.y)
+        theta = m.SV(value=agent.theta)
+        k1 = m.SV(value=agent.k1)
+
+        # Additional variables
+        phi1 = m.Var()
+        rho1 = m.Var()
+
+        lu2_pos = self.cardioid1.pos(agent.k2, 2)
+
+        x_lu1 = m.Var()
+        y_lu1 = m.Var()
+
+        x_lu2 = m.Var()
+        y_lu2 = m.Var()
         
-        return [self.u1.NEWVAL, self.u2.NEWVAL]
+        k2_ratio = self.cardioid2.k_dot(agent.k1) / self.cardioid1.k_dot(agent.k1)
+        pos_lu2 = self.cardioid1.pos_dot(agent.theta, agent.k1, 1, 2)
+        
+        m.Equation(x.dt() == k2_ratio * pos_lu2[0] * u2)
+        m.Equation(y.dt() == k2_ratio * pos_lu2[1] * u2)
+        m.Equation(theta.dt() == self.cardioid2.th_dot(agent.k1) * u2)
+        m.Equation(k1.dt() == -self.cardioid1.k_dot(agent.k1) * u1 + 
+                self.cardioid2.k_dot(agent.k1) * u2)
+        
+        m.Equation(phi1 == self.cardioid1.phi_min + (1 / self.cardioid1.var_phi) * (k1 + np.pi / global_var.L_VSS))
+        m.Equation(rho1 == 2 * self.cardioid1.a * (1 - m.cos(phi1)))
+
+        m.Equation(x_lu1 == m.cos(theta) * (rho1 * m.cos(phi1) + self.cardioid1.offset) + m.sin(theta) * rho1 * m.sin(phi1) + x)
+        m.Equation(y_lu1 == m.sin(theta) * (rho1 * m.cos(phi1) + self.cardioid1.offset) - m.cos(theta) * rho1 * m.sin(phi1) + y)
+
+        m.Equation(x_lu2 == m.cos(theta) * lu2_pos[0] - m.sin(theta) * lu2_pos[1] + x)
+        m.Equation(y_lu2 == m.sin(theta) * lu2_pos[0] + m.cos(theta) * lu2_pos[1] + y)
+
+        # Define an intermediate variable for wheel speed
+        w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
+        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+
+        w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
+        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+        
+        # Constraints
+        m.Equation(w1 >= -self.MAX_SPEED)
+        m.Equation(w1 <= self.MAX_SPEED)
+        m.Equation(w1_curve >= 0)
+
+        m.Equation(w2 >= -self.MAX_SPEED)
+        m.Equation(w2 <= self.MAX_SPEED)
+        m.Equation(w2_curve >= 0)
+
+        # Objective function
+        Q = [1, 1, 1, 0.1]
+        R = [0.01, 0.45]
+
+        # m.Obj(Q[0] * x**2 + Q[1] * y**2 + Q[2] * theta**2 + Q[3] * k1**2 + 
+        #       R[0] * u1**2 + R[1] * u2**2)
+        m.Obj((x - target[0])**2 + (y - target[1])**2 + (x_lu1 - lu1_target[0])**2 + 
+              (y_lu1 - lu1_target[1])**2 + (x_lu2 - lu2_target[0])**2 + (y_lu2 - lu2_target[1])**2 + 
+              R[0] * u1**2 + R[1] * u2**2)
+
+        # Options
+        m.options.IMODE = 6  # MPC mode
+        m.options.SOLVER = 3
+
+        m.solve(disp=False)
+        # cost = m.options.OBJFCNVAL
+        # print(f'Cost: {cost}')
+
+        # Return the optimal control inputs
+        return [u1.NEWVAL, u2.NEWVAL], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
 
 
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
@@ -482,7 +516,7 @@ class Controller:
         omega = np.round(V @ v, 3)
         v_new = np.linalg.pinv(V) @ omega
 
-        # print(omega)
+        print(f'Wheels\' vel: {omega}')
         return omega, wheels, self.get_config(agent, v_new, s)
 
     def move(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> tuple[List[List[float]], List[float]]:
@@ -554,7 +588,7 @@ class StiffnessController:
 
         self.temp = [0, 0]
 
-        self.send_cmd = True
+        self.send_counter = 0
 
     def control_loop(self, current_states: list, target_states: list, agent_id: int):
         self.states = current_states
@@ -570,9 +604,9 @@ class StiffnessController:
             if actions == (0, 0):
                 break
 
-            if self.send_cmd:
+            if self.send_counter < 3:
                 sendCommands([0] * 4 + target_states + [agent_id])
-                self.send_cmd = False
+                self.send_counter += 1
 
             status = self.readTemperature()
             if not status:
@@ -586,7 +620,7 @@ class StiffnessController:
 
             self.applyActions(actions)
 
-        self.send_cmd = True
+        self.send_counter = 0
 
         return [meas, time_list]
 

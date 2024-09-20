@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 import threading
 
-from Model import splines, global_var as gv
+from Model import global_var as gv
 
 class Aligner:
     def __init__(self) -> None:
@@ -14,7 +14,7 @@ class Aligner:
         self.finish = False
         self.config_list = []
 
-        self.offset = [-28, -20]
+        self.offset = [-15, -3]
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -26,31 +26,38 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def startVideo(self, path: splines.TrajectoryShape, config0, date_title):
+    def startVideo(self, config_target: list, config0, date_title):
         self.config_list.append(config0)
-        thread = threading.Thread(target=self.__run, args=(path, date_title))
+        thread = threading.Thread(target=self.__run, args=(config_target, date_title))
         thread.start()
 
     def add_config(self, config) -> None:
         self.config_list.append(config)
         
-    def __run(self, path: splines.TrajectoryShape, date_title: str):
-        video_path = f'Experiments/Video/Tracking/SM1/sm1_test_{date_title}.mp4'
+    def __run(self, config_target: list, date_title: str):
+        video_path_rgb = f'Experiments/Video/Tracking/SM1/sm1_rgb_{date_title}.mp4'
+        video_path_thermal = f'Experiments/Video/Tracking/SM1/sm1_thermal_{date_title}.mp4'
 
-        target_seg1 = self.__arc(path.getPoint(path.n-1), 1)
-        target_seg2 = self.__arc(path.getPoint(path.n-1), 2)
+        target_seg1 = self.__arc(config_target, 1)
+        target_seg2 = self.__arc(config_target, 2)
 
-        cap = cv2.VideoCapture(0)
+        cap_rgb = cv2.VideoCapture(1)
         # set the resolution to 1280x720
-        cap.set(3, 1280)
-        cap.set(4, 720)
+        cap_rgb.set(3, 1280)
+        cap_rgb.set(4, 720)
+
+        cap_thermal = cv2.VideoCapture(0)
+        # set the resolution to 1280x720
+        cap_thermal.set(3, 1280)
+        cap_thermal.set(4, 720)
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_path, fourcc, 16.0, (1409,720))
+        out_rgb = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1409,720))
+        out_thermal = cv2.VideoWriter(video_path_thermal, fourcc, 16.0, (640,512))
 
 
-        while cap.isOpened():
-            _, frame = cap.read()
+        while cap_rgb.isOpened():
+            _, frame = cap_rgb.read()
             undistort_frame = self.__undistort(frame)
             undistort_frame = cv2.rotate(undistort_frame, cv2.ROTATE_180)
 
@@ -63,29 +70,39 @@ class Aligner:
             width = int(cropped_frame.shape[1] * (height / cropped_frame.shape[0]))
             resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
 
-            cv2.polylines(resized_frame, [target_seg1], False, (0, 255, 0), 2)
-            cv2.polylines(resized_frame, [target_seg2], False, (0, 255, 0), 2)
+            cv2.polylines(resized_frame, [target_seg1], False, (255, 217, 4), 2)
+            cv2.polylines(resized_frame, [target_seg2], False, (255, 217, 4), 2)
 
             # map the trajectory to the coordinate
-            for i in range(0, path.n):
-                point = np.array([path.x[i], path.y[i]])
-                camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-                cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (0, 255, 0), -1)
-            for i in range(len(self.config_list)):
-                point = np.array(self.config_list[i][:2])
-                camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-                cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (0, 0, 255), -1)
+            # for i in range(0, path.n):
+            #     point = np.array([path.x[i], path.y[i]])
+            #     camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
+            #     cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (255, 217, 4), -1)
+            # for i in range(len(self.config_list)):
+            #     point = np.array(self.config_list[i][:2])
+            #     camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
+            #     cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (49, 49, 255), -1)
             
-            out.write(resized_frame)
+            out_rgb.write(resized_frame)
             cv2.imshow("RGB camera", resized_frame)
+
+            _, frame_thermal = cap_thermal.read()
+            frame_thermal = cv2.rotate(frame_thermal, cv2.ROTATE_180)
+            out_thermal.write(frame_thermal)
+            cv2.imshow("Thermal camera", frame_thermal)
+
             self.wait_video = True
 
             if cv2.waitKey(1) & 0xFF == ord('q') or self.finish:
                 self.finish = True
                 break
 
-        cap.release()
-        out.release()
+        cap_rgb.release()
+        out_rgb.release()
+
+        cap_thermal.release()
+        out_thermal.release()
+
         cv2.destroyAllWindows()
 
     def __read_camera_calibration_data(self):
@@ -120,16 +137,21 @@ class Aligner:
         return marker_pixel_postion
     
     def __arc(self, config, seg=1):
+        th0 = config[2] - 0.0
+        k = config[2+seg]
+        # if seg == 2:
+        #     k = 0
         l = np.linspace(0, gv.L_VSS, 10)
-        flag = -1 if seg == 1 else 1
-        theta_array = config[2] + flag * config[2+seg] * l
 
-        if config[2+seg] == 0:
-            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
-            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
+        flag = -1 if seg == 1 else 1
+        theta_array = th0 + flag * k * l
+
+        if k == 0:
+            x = np.array([0, flag * gv.L_VSS * np.cos(th0)])
+            y = np.array([0, flag * gv.L_VSS * np.sin(th0)])
         else:
-            x = np.sin(theta_array) / config[2+seg] - np.sin(config[2]) / config[2+seg]
-            y = -np.cos(theta_array) / config[2+seg] + np.cos(config[2]) / config[2+seg]
+            x = np.sin(theta_array) / k - np.sin(th0) / k
+            y = -np.cos(theta_array) / k + np.cos(th0) / k
 
         x += config[0]
         y += config[1]

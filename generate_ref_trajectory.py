@@ -7,6 +7,7 @@ from gekko import GEKKO
 
 K_MAX = np.pi / gv.L_VSS
 cardiod = splines.Cardioid(1)
+agent_controller = robot2sr_controller.Controller()
 
 def arc(theta0, k, seg=1):
     l = np.linspace(0, gv.L_VSS, 50)
@@ -51,27 +52,36 @@ def plot(q_start, q_target, original_traj, ref_traj):
 
 
 def calc_original_traj(q_start, stiff, v):
+    # Create a robotic agent
     agent = robot2sr.Robot(1, *q_start, stiffness=stiff)
-    agent_controller = robot2sr_controller.Controller()
-
     agent_controller.update_agent(agent, agent.config)
 
+    # Define agent's velocity 
     v_fk = [0, 0, 0] + v
 
+    # Define a configuration trajectory with initial config as the current agent's config
     original_traj_x = [agent.x]
     original_traj_y = [agent.y]
+    original_traj_theta = [agent.theta]
+    original_traj_k1 = [agent.k1] # Curvature of the 1st segment
+    original_traj_k2 = [agent.k2] # Curvature of the 2nd segment 
 
     timer = 0
 
-    while timer < 20:
-        _, q = agent_controller.move(agent, v_fk, agent.stiffness)
+    while timer < 12:
+        # q is the next configuration predicted by the kinematic model 
+        _, q, _, _ = agent_controller.move(agent, v_fk, agent.stiffness)
         agent_controller.update_agent(agent, q)
 
         original_traj_x.append(q[0])
         original_traj_y.append(q[1])
+        original_traj_theta.append(q[2])
+        original_traj_k1.append(q[3])
+        original_traj_k2.append(q[4])
 
         timer += 1
 
+        # Make sure that the 
         if np.abs(q[3]) >= K_MAX or np.abs(q[4]) >= K_MAX:
             print('break')
             break
@@ -99,8 +109,8 @@ def estimate_ref_trajectory(q_start, q_target, stiff, n):
     dk_dt_ = dtheta_dt / gv.L_VSS
 
     # print(dk_dt / dk_dt_)
-    print(dk_dt_ - dk_dt_ / dk_dt)
-    print(dtheta_dt)
+    # print(dk_dt_ - dk_dt_ / dk_dt)
+    # print(dtheta_dt)
 
     k_interp = []
     for i in range(n):
@@ -185,15 +195,15 @@ if __name__ == "__main__":
     q_start = [0, 0, 0, 0.0, 0]
 
     stiff = [1, 0]
-    v = [-0.03, 0]
+    v = [0.0, 0.1]
 
     # stiff = [0, 1]
     # v = [0.04, 0.0]
 
     original_traj, agent = calc_original_traj(q_start, stiff, v)
-    # ref_traj = estimate_ref_trajectory(q_start, agent.config, stiff, len(original_traj[0]))
+    ref_traj = estimate_ref_trajectory(q_start, agent.config, stiff, len(original_traj[0]))
 
-    # plot(q_start, agent.config, original_traj, ref_traj)
+    plot(q_start, agent.config, original_traj, ref_traj)
 
-    v_predicted = mpc_controller(q_start[3], agent.k1, len(original_traj[0]))
-    print(v_predicted)
+    # v_predicted = mpc_controller(q_start[3], agent.k1, len(original_traj[0]))
+    # print(v_predicted)

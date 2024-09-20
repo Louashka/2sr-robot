@@ -163,6 +163,9 @@ class GUI:
 
             plt.plot(config[0] + vss[0], config[1] + vss[1], label=label, **segment_style)
 
+    def plot(self, x, y) -> None:
+        plt.plot(x, y, '*r')
+
     def scatter(self, points_x: list, points_y: list, label:str) -> None:
         plt.plot(points_x, points_y, '.', label=label)
 

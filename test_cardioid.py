@@ -82,7 +82,6 @@ for k in k_array:
     # plt.plot(vss2[0], vss2[1], '-b')
 
     x, y = cardiod.pos(k, 2)
-    x -= 0.0085
 
     if k > 0:
         plt.plot(x, y, '.m')

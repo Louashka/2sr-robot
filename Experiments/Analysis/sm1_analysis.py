@@ -8,24 +8,31 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.animation import FFMpegWriter
 
 def parse_data(data: dict):
-    timestamps = []
-    temperature = []
-    stiffness = []
-
-    config_x_errors = []
-    config_y_errors = []
-    config_theta_errors = []
-    config_k1_errors = []
-    config_k2_errors = []
-
-    vel1_errors = []
-    vel2_errors = []
-
-    distance_to_target = []
-
-    last_temp = 22
-
     robot_tracking = data['robot_tracking']
+
+    timestamps = [0.0]
+    temperature = [22.0]
+    stiffness = [0]
+
+    config_x_errors = [0.0]
+    config_y_errors = [0.0]
+    config_theta_errors = [0.0]
+    config_k1_errors = [0.0]
+    config_k2_errors = [0.0]
+
+    target_x_errors = [robot_tracking[0]['errors']['target_errors']['e_x']]
+    target_y_errors = [robot_tracking[0]['errors']['target_errors']['e_y']]
+    target_theta_errors = [robot_tracking[0]['errors']['target_errors']['e_theta']]
+    target_k1_errors = [robot_tracking[0]['errors']['target_errors']['e_k1']]
+    target_k2_errors = [robot_tracking[0]['errors']['target_errors']['e_k2']]
+
+    vel_v_errors = [0.0]
+    vel_u_errors = [0.0]
+    vel_omega_errors = [0.0]
+    vel_1_errors = [0.0]
+    vel_2_errors = [0.0]
+
+    last_temp = temperature[0]
 
     for data_entry in robot_tracking:
         stiff_trans_data = data_entry['stiff_trans']
@@ -41,11 +48,18 @@ def parse_data(data: dict):
             config_theta_errors += [config_theta_errors[-1]] * time_n
             config_k1_errors += [config_k1_errors[-1]] * time_n
             config_k2_errors += [config_k2_errors[-1]] * time_n
-            
-            vel1_errors += [vel1_errors[-1]] * time_n
-            vel2_errors += [vel2_errors[-1]] * time_n
 
-            distance_to_target += [distance_to_target[-1]] * time_n
+            target_x_errors += [target_x_errors[-1]] * time_n
+            target_y_errors += [target_y_errors[-1]] * time_n
+            target_theta_errors += [target_theta_errors[-1]] * time_n
+            target_k1_errors += [target_k1_errors[-1]] * time_n
+            target_k2_errors += [target_k2_errors[-1]] * time_n
+            
+            vel_v_errors += [vel_v_errors[-1]] * time_n
+            vel_u_errors += [vel_u_errors[-1]] * time_n
+            vel_omega_errors += [vel_omega_errors[-1]] * time_n
+            vel_1_errors += [vel_1_errors[-1]] * time_n
+            vel_2_errors += [vel_2_errors[-1]] * time_n
 
             last_temp = temperature[-1]
 
@@ -53,23 +67,33 @@ def parse_data(data: dict):
         temperature.append(last_temp)
         stiffness.append(data_entry['config']['stiff1'])
 
-        config_x_errors.append(data_entry['errors']['pose_errors']['e_x'])
-        config_y_errors.append(data_entry['errors']['pose_errors']['e_y'])
-        config_theta_errors.append(data_entry['errors']['pose_errors']['e_theta'])
-        config_k1_errors.append(data_entry['errors']['pose_errors']['e_k1'])
-        config_k2_errors.append(data_entry['errors']['pose_errors']['e_k2'])
+        config_x_errors.append(data_entry['errors']['config_errors']['e_x'])
+        config_y_errors.append(data_entry['errors']['config_errors']['e_y'])
+        config_theta_errors.append(data_entry['errors']['config_errors']['e_theta'])
+        config_k1_errors.append(data_entry['errors']['config_errors']['e_k1'])
+        config_k2_errors.append(data_entry['errors']['config_errors']['e_k2'])
 
-        vel1_errors.append(data_entry['errors']['vel_errors']['e_v_1']) 
-        vel2_errors.append(data_entry['errors']['vel_errors']['e_v_2'])
+        target_x_errors.append(data_entry['errors']['target_errors']['e_x'])
+        target_y_errors.append(data_entry['errors']['target_errors']['e_y'])
+        target_theta_errors.append(data_entry['errors']['target_errors']['e_theta'])
+        target_k1_errors.append(data_entry['errors']['target_errors']['e_k1'])
+        target_k2_errors.append(data_entry['errors']['target_errors']['e_k2'])
 
-        distance_to_target.append(data_entry['distance_to_target'])
+        vel_v_errors.append(data_entry['errors']['vel_errors']['e_v_x']) 
+        vel_u_errors.append(data_entry['errors']['vel_errors']['e_v_y'])
+        vel_omega_errors.append(data_entry['errors']['vel_errors']['e_omega'])
+        vel_1_errors.append(data_entry['errors']['vel_errors']['e_v_1'])
+        vel_2_errors.append(data_entry['errors']['vel_errors']['e_v_2'])
 
     return (timestamps, temperature, stiffness, 
             {'e_x': config_x_errors, 'e_y': config_y_errors, 
              'e_theta': config_theta_errors, 'e_k1': config_k1_errors, 
              'e_k2': config_k2_errors},
-            {'e_v_1': vel1_errors, 'e_v_2': vel2_errors},
-            distance_to_target)
+            {'Delta_x': target_x_errors, 'Delta_y': target_y_errors, 
+             'Delta_theta': target_theta_errors, 'Delta_k1': target_k1_errors, 
+             'Delta_k2': target_k2_errors},
+            {'e_v_x': vel_v_errors, 'e_v_y': vel_u_errors, 'e_omega': vel_omega_errors,
+             'e_v_1': vel_1_errors, 'e_v_2': vel_2_errors})
 
 
 def animate(data):
@@ -105,7 +129,7 @@ def animate(data):
             ax.grid(False)
 
     # Unpack the data
-    timestamps, temperature, stiffness, config_errors, vel_errors, distance_to_target = data
+    timestamps, temperature, stiffness, config_errors, target_errors, vel_errors = data
 
     # Create the figure and subplots
     fig = plt.figure(figsize=(15, 10))
@@ -121,27 +145,27 @@ def animate(data):
     # Create subplots for config errors
     ax2_sub = [ax2.inset_axes([0, i*0.2, 1, 0.17]) for i in range(5)]
 
+    # Create subplots for target errors
+    ax3_sub = [ax3.inset_axes([0, i*0.2, 1, 0.17]) for i in range(5)]
+
     # Create subplots for velocity errors
-    ax3_sub = [ax3.inset_axes([0, i*0.52, 1, 0.48]) for i in range(2)]
+    ax4_sub = [ax4.inset_axes([0, i*0.2, 1, 0.17]) for i in range(5)]
 
     # Remove ticks and labels from main ax2 and ax3
     ax2.axis('off')
     ax3.axis('off')
+    ax4.axis('off')
 
     ax1_twin.spines[:].set_visible(False)
     style_axis(ax1_twin, '', grid_status=False)
     ax1_twin.set_yticks([0, 1])
-    # ax3_sub[1].set_xticks([])
-
-    # for i in range(1, len(ax2_sub)):
-    #     ax2_sub[i].set_xticks([])
 
     # Initialize empty lines
     line1, = ax1.plot([], [], color=colors[0], label='Temperature')
     line1_twin, = ax1_twin.plot([], [], lw=1, color=colors[1], label='Stiffness', linestyle='--')
     lines2 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax2_sub)]
     lines3 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax3_sub)]
-    line4, = ax4.plot([], [], color=colors[0])
+    lines4 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax4_sub)]
 
     # Set titles and labels
     style_axis(ax1, 'Temperature and Stiffness Change')
@@ -152,12 +176,11 @@ def animate(data):
     style_axis(ax2, 'Configuration Errors', grid_status=False)
     ax2_sub[0].set_xlabel('Time [s]')
 
-    style_axis(ax3, 'Velocity Errors', grid_status=False)
+    style_axis(ax3, 'Distance to Target', grid_status=False)
     ax3_sub[0].set_xlabel('Time [s]')
 
-    style_axis(ax4, 'Distance to Target')
-    ax4.set_xlabel('Time [s]')
-    ax4.set_ylabel('Normalized Distance')
+    style_axis(ax4, 'Velocity Errors', grid_status=False)
+    ax4_sub[0].set_xlabel('Time [s]')
 
     # Set axis labels for config error subplots
     for ax, label in zip(ax2_sub, [r'$e_x$', r'$e_y$', r'$e_{\theta}$', r'$e_{k_1}$', r'$e_{k_2}$']):
@@ -167,10 +190,18 @@ def animate(data):
         else:
             style_axis(ax, '', x_ticks_status=False)
 
-    # Set axis labels for velocity error subplots
-    for ax, label in zip(ax3_sub, [r'$e_{v_1}$', r'$e_{v_2}$']):
+    # Set axis labels for config error subplots
+    for ax, label in zip(ax3_sub, [r'$\Delta x$', r'$\Delta y$', r'$\Delta \theta$', r'$\Delta k_1$', r'$\Delta k_2$']):
         ax.set_ylabel(label)
-        if label == r'$e_{v_1}$':
+        if label == r'$\Delta x$':
+            style_axis(ax, '')
+        else:
+            style_axis(ax, '', x_ticks_status=False)
+
+    # Set axis labels for velocity error subplots
+    for ax, label in zip(ax4_sub, [r'$e_{v_x}$', r'$e_{v_y}$', r'$e_{\omega}$', r'$e_{v_1}$', r'$e_{v_2}$']):
+        ax.set_ylabel(label)
+        if label == r'$e_{v_x}$':
             style_axis(ax, '')
         else:
             style_axis(ax, '', x_ticks_status=False)
@@ -181,16 +212,17 @@ def animate(data):
     ax1.legend(lines, labels, loc='upper left')
 
     def init():
-        for ax in [ax1, ax4] + ax2_sub + ax3_sub:
+        for ax in [ax1] + ax2_sub + ax3_sub + ax4_sub:
             ax.set_xlim(min(timestamps), max(timestamps))
         ax1.set_ylim(min(temperature), max(temperature)+2)
         ax1_twin.set_ylim(-0.1, 1.2)  # Set y-limits for stiffness
         for ax, errors in zip(ax2_sub, config_errors.values()):
             ax.set_ylim(min(errors)-0.015, max(errors)+0.015)
-        for ax, errors in zip(ax3_sub, vel_errors.values()):
+        for ax, errors in zip(ax3_sub, target_errors.values()):
+            ax.set_ylim(min(errors)-0.015, max(errors)+0.015)
+        for ax, errors in zip(ax4_sub, vel_errors.values()):
             ax.set_ylim(min(errors)-0.01, max(errors)+0.01)
-        ax4.set_ylim(min(distance_to_target)-0.1, max(distance_to_target)+0.1)
-        return [line1, line1_twin] + lines2 + lines3 + [line4]
+        return [line1, line1_twin] + lines2 + lines3 + lines4
 
     def update(frame):
         # Update temperature
@@ -203,14 +235,16 @@ def animate(data):
         for line, errors in zip(lines2, config_errors.values()):
             line.set_data(timestamps[:frame], errors[:frame])
 
-        # Update velocity errors
-        for line, errors in zip(lines3, vel_errors.values()):
+        # Update target errors
+        for line, errors in zip(lines3, target_errors.values()):
             line.set_data(timestamps[:frame], errors[:frame])
 
-        # Update distance to target
-        line4.set_data(timestamps[:frame], distance_to_target[:frame])
+        # Update velocity errors
+        for line, errors in zip(lines4, vel_errors.values()):
+            line.set_data(timestamps[:frame], errors[:frame])
 
-        return [line1, line1_twin] + lines2 + lines3 + [line4]
+
+        return [line1, line1_twin] + lines2 + lines3 + lines4
 
     # Calculate frame interval based on timestamps
     frame_interval = (timestamps[-1] - timestamps[0]) / len(timestamps) * 1000  # in milliseconds
@@ -236,7 +270,8 @@ if __name__ == "__main__":
         t = parsed_data[0][-1]
         n = len(parsed_data[0])
 
-        mywriter = FFMpegWriter(fps=int(n/t))
-        anim.save(f'Experiments/Video/Animation/sm1_anim_{i}.mp4', writer=mywriter, dpi=300)
+        # mywriter = FFMpegWriter(fps=int(n/t))
+        # anim.save(f'Experiments/Video/Animation/sm1_anim_{i}.mp4', writer=mywriter, dpi=300)
 
+        plt.show()
         i += 1
