@@ -112,7 +112,9 @@ def animate(data):
     })
 
     # Define a color-blind friendly palette
-    colors = ['#0b81a2', '#e25759', '#7f7f7f', '#e377c2', '#8c564b', '#9467bd']
+    # colors = ['#476C9B', '#984447', '#81BFE4', '#468C98', '#101419', '#101419']
+    # colors = ['#004E98', '#984447', '#101419', '#FF6700', '#666565']
+    colors = ['#476C9B', '#D64933', '#2B303A']
 
     # Function to style axes
     def style_axis(ax, title, x_ticks_status=True, grid_status=True):
@@ -163,9 +165,12 @@ def animate(data):
     # Initialize empty lines
     line1, = ax1.plot([], [], color=colors[0], label='Temperature')
     line1_twin, = ax1_twin.plot([], [], lw=1, color=colors[1], label='Stiffness', linestyle='--')
-    lines2 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax2_sub)]
-    lines3 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax3_sub)]
-    lines4 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax4_sub)]
+    # lines2 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax2_sub)]
+    # lines3 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax3_sub)]
+    # lines4 = [ax.plot([], [], color=colors[i % len(colors)])[0] for i, ax in enumerate(ax4_sub)]
+    lines2 = [ax.plot([], [], color=colors[2])[0] for i, ax in enumerate(ax2_sub)]
+    lines3 = [ax.plot([], [], color=colors[2])[0] for i, ax in enumerate(ax3_sub)]
+    lines4 = [ax.plot([], [], color=colors[2])[0] for i, ax in enumerate(ax4_sub)]
 
     # Set titles and labels
     style_axis(ax1, 'Temperature and Stiffness Change')
@@ -270,8 +275,9 @@ if __name__ == "__main__":
         t = parsed_data[0][-1]
         n = len(parsed_data[0])
 
-        # mywriter = FFMpegWriter(fps=int(n/t))
-        # anim.save(f'Experiments/Video/Animation/sm1_anim_{i}.mp4', writer=mywriter, dpi=300)
+        mywriter = FFMpegWriter(fps=int(n/t))
+        anim.save(f'Experiments/Video/Animation/sm1_anim_{i}.mp4', writer=mywriter, dpi=300)
+        print(f'Animation {i} is saved')
 
-        plt.show()
+        # plt.show()
         i += 1

@@ -275,11 +275,11 @@ class Controller:
         # Manipulated variables        
         v_x = m.MV(value=v_current[0], lb=-0.2, ub=0.2)
         v_x.STATUS = 1
-        # v_x.DCOST = 10000
+        # v_x.DCOST = 10
 
         v_y = m.MV(value=v_current[1], lb=-0.2, ub=0.2)
         v_y.STATUS = 1
-        # v_y.DCOST = 10000
+        # v_y.DCOST = 10
 
         omega = m.MV(value=v_current[2], lb=-0.2, ub=0.2)
         omega.STATUS = 1
@@ -315,13 +315,14 @@ class Controller:
 
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              2 * v_x**2 + 2 * v_y**2 + omega**2)
+              1 * v_x**2 + 1 * v_y**2 + omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
         m.options.SOLVER = 3
 
         m.solve(disp=False)
+        print(v_x.VALUE)
 
         return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL]
     
@@ -357,10 +358,10 @@ class Controller:
         y_lu2 = m.Var()
         
         k2_ratio = self.cardioid2.k_dot(agent.k1) / self.cardioid1.k_dot(agent.k1)
-        pos_lu2 = self.cardioid1.pos_dot(agent.theta, agent.k1, 1, 2)
+        pos = self.cardioid1.pos_dot(agent.theta, agent.k1, 1, 2)
         
-        m.Equation(x.dt() == k2_ratio * pos_lu2[0] * u2)
-        m.Equation(y.dt() == k2_ratio * pos_lu2[1] * u2)
+        m.Equation(x.dt() == k2_ratio * pos[0] * u2)
+        m.Equation(y.dt() == k2_ratio * pos[1] * u2)
         m.Equation(theta.dt() == self.cardioid2.th_dot(agent.k1) * u2)
         m.Equation(k1.dt() == -self.cardioid1.k_dot(agent.k1) * u1 + 
                 self.cardioid2.k_dot(agent.k1) * u2)
@@ -410,6 +411,104 @@ class Controller:
 
         # Return the optimal control inputs
         return [u1.NEWVAL, u2.NEWVAL], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
+    
+    def mpcSM2(self, agent: robot2sr.Robot, target: list, lu1_target: list, lu2_target, v_current: list):
+        m = GEKKO(remote=False)
+        m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+
+        # Manipulated variables        
+        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
+        u1.STATUS = 1
+        u1.DCOST = 100
+
+        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
+        u2.STATUS = 1
+        u1.DCOST = 100
+
+        x = m.SV(value=agent.x)
+        y = m.SV(value=agent.y)
+        theta = m.SV(value=agent.theta)
+        k2 = m.SV(value=agent.k2)
+
+        # Additional variables
+        phi2 = m.Var()
+        rho2 = m.Var()
+
+        lu1_pos = self.cardioid1.pos(agent.k1)
+
+        x_lu1 = m.Var()
+        y_lu1 = m.Var()
+
+        x_lu2 = m.Var()
+        y_lu2 = m.Var()
+        
+        k1_ratio = self.cardioid2.k_dot(agent.k2) / self.cardioid1.k_dot(agent.k2)
+        pos = self.cardioid1.pos_dot(agent.theta, agent.k2, 2, 1)
+        
+        m.Equation(x.dt() == k1_ratio * pos[0] * u1)
+        m.Equation(y.dt() == k1_ratio * pos[1] * u1)
+        m.Equation(theta.dt() == self.cardioid2.th_dot(agent.k2) * u1)
+        m.Equation(k2.dt() == -self.cardioid2.k_dot(agent.k2) * u1 + 
+                self.cardioid1.k_dot(agent.k2) * u2)
+        
+        m.Equation(phi2 == self.cardioid1.phi_min + (1 / self.cardioid1.var_phi) * (k2 + np.pi / global_var.L_VSS))
+        m.Equation(rho2 == 2 * self.cardioid1.a * (1 - m.cos(phi2)))
+
+        m.Equation(x_lu1 == m.cos(theta) * lu1_pos[0] - m.sin(theta) * lu1_pos[1] + x)
+        m.Equation(y_lu1 == m.sin(theta) * lu1_pos[0] + m.cos(theta) * lu1_pos[1] + y)
+
+        m.Equation(x_lu2 == m.cos(theta) * (-rho2 * m.cos(phi2) - self.cardioid1.offset) + m.sin(theta) * rho2 * m.sin(phi2) + x)
+        m.Equation(y_lu2 == m.sin(theta) * (-rho2 * m.cos(phi2) - self.cardioid1.offset) - m.cos(theta) * rho2 * m.sin(phi2) + y)
+
+        # Define an intermediate variable for wheel speed
+        w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
+        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+
+        w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
+        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+        
+        # Constraints
+        m.Equation(w1 >= -self.MAX_SPEED)
+        m.Equation(w1 <= self.MAX_SPEED)
+        m.Equation(w1_curve >= 0)
+
+        m.Equation(w2 >= -self.MAX_SPEED)
+        m.Equation(w2 <= self.MAX_SPEED)
+        m.Equation(w2_curve >= 0)
+
+        # Objective function
+        # Q = 1
+        Q = [15, 15, 15, 0.05]
+        R = [10, 3000]
+
+        # m.Obj(Q[0] * x**2 + Q[1] * y**2 + Q[2] * theta**2 + Q[3] * k1**2 + 
+        #       R[0] * u1**2 + R[1] * u2**2)
+
+        m.Obj(Q[0] * (x - target[0])**2 + 
+              Q[1] * (y - target[1])**2 + 
+              Q[2] * (theta - target[2])**2 + 
+              Q[3] * (k2 - target[4])**2 +  
+              R[0] * u1**2 + R[1] * u2**2)
+        
+        # m.Obj(Q * (x - target[0])**2 + 
+        #       Q * (y - target[1])**2 + 
+        #       Q * (x_lu1 - lu1_target[0])**2 + 
+        #       Q * (y_lu1 - lu1_target[1])**2 + 
+        #       Q * (x_lu2 - lu2_target[0])**2 + 
+        #       Q * (y_lu2 - lu2_target[1])**2)
+
+        # Options
+        m.options.IMODE = 6  # MPC mode
+        m.options.SOLVER = 3
+
+        m.solve(disp=False)
+        # cost = m.options.OBJFCNVAL
+        # print(f'Cost: {cost}')
+        # print(u1.VALUE)
+        # print(u2.VALUE)
+
+        # Return the optimal control inputs
+        return [u1.NEWVAL, u2.NEWVAL], [x.VALUE[1], y.VALUE[1]], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
 
 
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
@@ -512,7 +611,7 @@ class Controller:
         wheels = head_wheels + tail_wheels
         wheels_global = head_wheels_global + tail_wheels_global
 
-        V = self._wheelsConfigMatrix(wheels, s)
+        V = self._wheelsConfigMatrix(wheels, v, s)
         omega = np.round(V @ v, 3)
         v_new = np.linalg.pinv(V) @ omega
 
@@ -562,15 +661,24 @@ class Controller:
         return w
     
     @staticmethod
-    def _wheelsConfigMatrix(wheels: List[List[float]], s: List[bool]) -> np.ndarray:
+    def _wheelsConfigMatrix(wheels: List[List[float]], v: List[float], s: List[bool]) -> np.ndarray:
         flag_rigid = int(not any(s))
         flag_soft = int(any(s))
 
         V = np.zeros((4, 5))
         for i, w in enumerate(wheels):
             tau = w[0] * np.sin(w[2]) - w[1] * np.cos(w[2])
+
+            coef1 = 0.2
+            coef2 = 0.2
+            # if v[0] > 0:
+            #     coef1 = 0.05
+            # if v[1] < 0:
+            #     coef2 = 0.0
+
             V[i, :] = [flag_rigid * np.cos(w[2]), flag_rigid * np.sin(w[2]), flag_rigid * tau,
-                       -flag_soft * (i == 0), -flag_soft * (i == 2)]
+                       -flag_soft * (i == 0) or coef1 * -flag_soft * (i == 1), 
+                       -flag_soft * (i == 2) or coef2 * -flag_soft * (i == 3)]
 
         return 1 / global_var.WHEEL_R * V
 
@@ -615,7 +723,7 @@ class StiffnessController:
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
             
-            meas.append(self.temp[0])
+            meas.append(self.temp[1])
             time_list.append(elapsed_time)
 
             self.applyActions(actions)

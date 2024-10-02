@@ -1,6 +1,6 @@
 import sys
 from Motive import nat_net_client as nnc, mo_cap_data
-from Model import global_var, manipulandum, robot2sr
+from Model import global_var
 import numpy as np
 import pandas as pd
 from typing import List
@@ -102,40 +102,43 @@ class MocapReader:
     :return: dict, agent's generalized coordinates; dict, markers' id and coordinates
     """
 
-    def getAgentConfig(self) -> tuple[dict, dict, str]:
+    def getAgentConfig(self, agents_exp_n = 1, manip_exp_n = 0) -> tuple[dict, dict, dict, str]:
         agent = {}
+        manip = {}
 
         # Parse Motive data
         markers, rigid_bodies = self.__unpackData()
         # markers, rigid_bodies = self.__simulateData()
 
         if markers is None or rigid_bodies is None:
-            return {}, {}, 'No data is received from Motive!'
+            return {}, {}, {}, 'No data is received from Motive!'
         
         if not markers or not rigid_bodies:
-            return {}, {}, 'No markers or rigid bodies are detected!'
+            return {}, {}, {}, 'No markers or rigid bodies are detected!'
 
         # Convert values from the Motive frame to the global frame
         self.__convertData(markers, rigid_bodies)
 
-        if len(rigid_bodies) == 1 and len(markers) == 9:
-            rb = list(rigid_bodies.values())[0]
+        exp_n = agents_exp_n + manip_exp_n
 
-            agent['id'] = rb['id']
+        if len(rigid_bodies) == exp_n and len(markers) == 9 * agents_exp_n + 3 * manip_exp_n:
+            rb_agent = rigid_bodies[1]
+
+            agent['id'] = rb_agent['id']
 
             # Calculate the pose of the head LU
-            head_markers = [marker for marker in markers.values() if marker['model_id'] == rb['id']]
+            head_markers = [marker for marker in markers.values() if marker['model_id'] == rb_agent['id']]
             if len(head_markers) != 3:
-                return {}, {}, 'Problem with the model id!'
+                return {}, {}, {}, 'Problem with the agent\'s model id!'
             
-            head_pose = self.__calcHeadPose(rb, head_markers)
+            head_pose = self.__calcRbPose(rb_agent, head_markers)
             agent['head'] = head_pose
 
             # Sort markers to within the VSF
             ranked_markers = self.__rankPoints(markers, head_pose[:-1])
             # If some markers are missing we ignore the robot
             if len(ranked_markers) != 6:
-                return {}, {}, 'Not enough markers in VSF!'
+                return {}, {}, {}, 'Not enough markers in VSF!'
             
             if len(self.__markers_id) == 0:
                 for marker in markers.values():
@@ -159,10 +162,24 @@ class MocapReader:
 
             # print(agent)
 
-        else:
-            return {}, {}, 'Wrong number of the markers or rigid bodies!'
+            if manip_exp_n == 1:
+                rb_manip = rigid_bodies[2]
 
-        return agent, markers, 'Configuration successfully extracted.'
+                manip['id'] = rb_manip['id']
+
+                manip_markers = [marker for marker in markers.values() if marker['model_id'] == rb_manip['id']]
+                if len(manip_markers) != 3:
+                    return {}, {}, {}, 'Problem with the manipulandum\'s model id!'
+            
+                manip_pose = self.__calcRbPose(rb_manip, manip_markers)
+
+                manip['x'] = manip_pose[0]
+                manip['y'] = manip_pose[1]
+                manip['theta'] = manip_pose[2]
+        else:
+            return {}, {}, {}, 'Wrong number of the markers or rigid bodies!'
+
+        return agent, manip, markers, 'Configuration successfully extracted.'
     
     
     def __unpackData(self) -> tuple[dict, dict]:
@@ -184,11 +201,11 @@ class MocapReader:
             if len(self.__markers_id) != 0 and marker_id not in self.__markers_id:
                 continue
             marker = {'model_id': model_id, 'marker_id': marker_id,
-                        'marker_x': marker.pos[0], 'marker_y': marker.pos[1], 'marker_z': marker.pos[2]}
+                        'marker_x': -marker.pos[0], 'marker_y': marker.pos[2], 'marker_z': marker.pos[1]}
             markers[str(model_id) + '.' + str(marker_id)] = marker
 
         for rigid_body in rigid_body_list:
-            rigid_body = {'id': int(rigid_body.id_num), 'x': rigid_body.pos[0], 'y': rigid_body.pos[1], 'z': rigid_body.pos[2], 'a': rigid_body.rot[0],
+            rigid_body = {'id': int(rigid_body.id_num), 'x': -rigid_body.pos[0], 'y': rigid_body.pos[2], 'z': rigid_body.pos[1], 'a': rigid_body.rot[0],
                             'b': rigid_body.rot[1], 'c': rigid_body.rot[2], 'd': rigid_body.rot[3]}
             rigid_bodies[int(rigid_body['id'])] = rigid_body    
 
@@ -223,15 +240,15 @@ class MocapReader:
     
 
     def __convertData(self, markers: dict, rigid_bodies: dict):
-        for marker in markers.values():
-            new_pos = self.__positionToGlobal([marker.get(coord) for coord in m_pos])
-            for i in range(3):
-                marker[m_pos[i]] = new_pos[i]
+        # for marker in markers.values():
+            # new_pos = self.__positionToGlobal([marker.get(coord) for coord in m_pos])
+            # for i in range(3):
+            #     marker[m_pos[i]] = new_pos[i]
 
         for rigid_body in rigid_bodies.values():
-            new_pos = self.__positionToGlobal([rigid_body.get(coord) for coord in rb_pos])
-            for i in range(3):
-                rigid_body[rb_pos[i]] = new_pos[i]
+            # new_pos = self.__positionToGlobal([rigid_body.get(coord) for coord in rb_pos])
+            # for i in range(3):
+            #     rigid_body[rb_pos[i]] = new_pos[i]
 
             new_params = self.__quaternionToGlobal([rigid_body.get(param) for param in rb_params])
             for i in range(4):
@@ -268,7 +285,7 @@ class MocapReader:
 
         return [roll_x, pitch_y, yaw_z]  # in radians
     
-    def __calcHeadPose(self, rb, markers) -> List[float]:
+    def __calcRbPose(self, rb, markers, tp='head') -> List[float]:
         points = []
 
         for marker in markers:
@@ -287,8 +304,12 @@ class MocapReader:
         theta = np.arctan2(delta[1], delta[0])
         # theta = theta  % (2 * np.pi)
         
-        x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
-        y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
+        if tp == 'head':
+            x = rb['x'] + global_var.HEAD_CENTER_R * np.cos(theta + global_var.HEAD_CENTER_ANGLE)
+            y = rb['y'] + global_var.HEAD_CENTER_R * np.sin(theta + global_var.HEAD_CENTER_ANGLE)
+        elif tp == 'manip':
+            x = rb['x']
+            y = rb['y']
 
         return [x, y, theta]
     

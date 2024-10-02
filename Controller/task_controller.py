@@ -370,18 +370,19 @@ class Task(keyboard_controller.ActionsHandler):
         return lu_pos
     
     def __close_to_target(self, target: list) -> bool:
-        current = np.array(self.agent.pose)
-        target_pose = np.array(target[:3])
+        target_arc1 = self.gui.arc(target)
+        target_arc2 = self.gui.arc(target, 2)
 
-        dist = np.linalg.norm(current - target_pose)
-        # dist = np.sqrt(((self.agent.x - target[0])**2 + 
-        #                 (self.agent.y - target[1])**2 + 
-        #                 (self.agent.theta - target[2])**2))
-        print(f'Distance: {dist}')
-        print(f'Current theta: {self.agent.theta}')
-        print(f'Target theta: {target[2]}')
+        current_arc1 = self.gui.arc(self.agent.config)
+        current_arc2 = self.gui.arc(self.agent.config, 2)
 
-        if dist < 0.04:
+        mse_arc1 = np.mean((target_arc1[0] - current_arc1[0])**2 + (target_arc1[1] - current_arc1[1])**2)
+        mse_arc2 = np.mean((target_arc2[0] - current_arc2[0])**2 + (target_arc2[1] - current_arc2[1])**2)
+        total_mse = 10e5 * (mse_arc1 + mse_arc2)
+
+        print(total_mse)
+
+        if total_mse < 10:
             return True
 
         return False
@@ -395,16 +396,13 @@ class Task(keyboard_controller.ActionsHandler):
             self.__updateConfig()
 
         # ------------------------ Define target ------------------------
-        v_soft_target = [-0.047, 0.11] # Control soft velocities
-        # v_soft_target = [0.0, 0.0]
-        s = [1, 0] # Control stiffness
+        # v_soft_target = [-0.057, 0.039] # Control soft velocities
+        v_soft_target = [0.0, 0.08]
+        s = [0, 1] # Control stiffness
 
         # Target config
         config_traj = self._generateSoftTrajectory(v_soft_target, s, 12)
         config_target = config_traj[-1]
-
-        # config_target[0] += 0.2
-        # config_target[1] += 0.3
 
         lu1_target = self.__get_lu_pos(config_target)
         lu2_target = self.__get_lu_pos(config_target, 2)
@@ -412,14 +410,15 @@ class Task(keyboard_controller.ActionsHandler):
 
         # ------------------------ Start a video ------------------------
         date_title = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.rgb_camera.startVideo(config_target, self.agent.config, date_title)
+        if not self.simulation:
+            self.rgb_camera.startVideo(config_target, self.agent.config, date_title)
 
-        print("Waiting for the video to start...")
-        while not self.rgb_camera.wait_video:
-            pass
+            print("Waiting for the video to start...")
+            while not self.rgb_camera.wait_video:
+                pass
 
-        print('Video started')
-        print()
+            print('Video started')
+            print()
         # ---------------------------------------------------------------
 
         elapsed_time = 0
@@ -430,6 +429,13 @@ class Task(keyboard_controller.ActionsHandler):
         v_prev = [0.0] * 3 + v_soft_target
 
         robot_tracking_data = []
+
+        pos_x_data = []
+        pos_y_data = []
+        lu1_x_data = []
+        lu1_y_data = []
+        lu2_x_data = []
+        lu2_y_data = []
 
         rigid_mode = False
         finish = False
@@ -447,13 +453,24 @@ class Task(keyboard_controller.ActionsHandler):
                 v_soft = [0.0, 0.0]
                 s = [0, 0]
             else:
-                if abs(self.agent.k1 - config_target[3]) < 6.5 or self.rgb_camera.finish:
+                # config_diff = self.normalized_difference(self.agent.config, config_target)
+                print(f'Curvature diff: {abs(self.agent.k2 - config_target[4])}')
+                print(f'Theta diff: {abs(self.agent.theta - config_target[2])}')
+                if abs(self.agent.k2 - config_target[4]) < 7 and abs(self.agent.theta - config_target[2]) < 0.3 or self.rgb_camera.finish:
+                # if config_diff < 0.1 or self.rgb_camera.finish:
                     v_soft = [0.0, 0.0]
                     s = [0, 0]
                     rigid_mode = True
                 else:
-                    v_soft, lu1, lu2 = self.agent_controller.mpcSM1(self.agent, config_target, lu1_target, lu2_target, v_prev[3:])
-                    s = [1, 0]
+                    v_soft, pos, lu1, lu2 = self.agent_controller.mpcSM2(self.agent, config_target, lu1_target, lu2_target, v_prev[3:])
+                    s = [0, 1]
+
+                    pos_x_data.append(pos[0])
+                    pos_y_data.append(pos[1])
+                    lu1_x_data.append(lu1[0])
+                    lu1_y_data.append(lu1[1])
+                    lu2_x_data.append(lu2[0])
+                    lu2_y_data.append(lu2[1])
 
                 v_rigid = [0.0] * 3
 
@@ -491,24 +508,24 @@ class Task(keyboard_controller.ActionsHandler):
             elapsed_time = time_current - time_start
 
             # Collect data in dictionaries
-            robot_config_data ={'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
-                              'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]}
-            robot_velocity_data = {'v_x': velocity_body[0], 'v_y': velocity_body[1], 'omega': velocity_body[2], 'v_1': velocity_body[3], 'v_2': velocity_body[4]}
-            robot_config_errors_data = {'e_x': config_errors[0], 'e_y': config_errors[1], 'e_theta': config_errors[2], 'e_k1': config_errors[3], 'e_k2': config_errors[4]}
-            robot_target_errors_data = {'e_x': target_errors[0], 'e_y': target_errors[1], 'e_theta': target_errors[2], 'e_k1': target_errors[3], 'e_k2': target_errors[4]}
-            robot_vel_errors_data = {'e_v_x': v[0] - velocity_body[0], 'e_v_y': v[1] - velocity_body[1], 'e_omega': v[2] - velocity_body[2], 
-                                     'e_v_1': v[3] - velocity_body[3], 'e_v_2': v[4] - velocity_body[4]}
-            errors_data = {'config_errors': robot_config_errors_data, 
-                           'target_errors': robot_target_errors_data,
-                           'vel_errors': robot_vel_errors_data}
-            sc_data = {'temp': sc_feedback[0],
-                       'time': sc_feedback[1]}
+            # robot_config_data ={'x': self.agent.x, 'y': self.agent.y, 'theta': self.agent.theta, 'k1': self.agent.k1, 
+            #                   'k2': self.agent.k2, 'stiff1': self.agent.stiffness[0], 'stiff2': self.agent.stiffness[1]}
+            # robot_velocity_data = {'v_x': velocity_body[0], 'v_y': velocity_body[1], 'omega': velocity_body[2], 'v_1': velocity_body[3], 'v_2': velocity_body[4]}
+            # robot_config_errors_data = {'e_x': config_errors[0], 'e_y': config_errors[1], 'e_theta': config_errors[2], 'e_k1': config_errors[3], 'e_k2': config_errors[4]}
+            # robot_target_errors_data = {'e_x': target_errors[0], 'e_y': target_errors[1], 'e_theta': target_errors[2], 'e_k1': target_errors[3], 'e_k2': target_errors[4]}
+            # robot_vel_errors_data = {'e_v_x': v[0] - velocity_body[0], 'e_v_y': v[1] - velocity_body[1], 'e_omega': v[2] - velocity_body[2], 
+            #                          'e_v_1': v[3] - velocity_body[3], 'e_v_2': v[4] - velocity_body[4]}
+            # errors_data = {'config_errors': robot_config_errors_data, 
+            #                'target_errors': robot_target_errors_data,
+            #                'vel_errors': robot_vel_errors_data}
+            # sc_data = {'temp': sc_feedback[0],
+            #            'time': sc_feedback[1]}
             
-            robot_tracking_data.append({'time': elapsed_time, 
-                                        'config': robot_config_data, 
-                                        'vel': robot_velocity_data,
-                                        'errors': errors_data,
-                                        'stiff_trans': sc_data})
+            # robot_tracking_data.append({'time': elapsed_time, 
+            #                             'config': robot_config_data, 
+            #                             'vel': robot_velocity_data,
+            #                             'errors': errors_data,
+            #                             'stiff_trans': sc_data})
             
             # Update prev vars
             config_prev = self.agent.config
@@ -528,26 +545,53 @@ class Task(keyboard_controller.ActionsHandler):
                 "description": "Reaching a target configuration SMM1",
                 "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             },
-            "robot_tracking": robot_tracking_data
+            # "robot_tracking": robot_tracking_data
+            'target pos': {
+                'x': config_target[0],
+                'y': config_target[1],
+            },
+            'target lu1': {
+                'x': lu1_target[0],
+                'y': lu1_target[1]
+            },
+            'target lu2': {
+                'x': lu2_target[0],
+                'y': lu2_target[1]
+            },
+            'tracking': {
+                'pos': {
+                    'x': pos_x_data,
+                    'y': pos_y_data
+                },
+                'lu1': {
+                    'x': lu1_x_data,
+                    'y': lu1_y_data
+                },
+                'lu2': {
+                    'x': lu2_x_data,
+                    'y': lu2_y_data
+                }
+            }
         }
 
         # Save data to a JSON file
-        json_path = f'Experiments/Data/Tracking/SM1/sm1_data_{date_title}.json'
-        with open(json_path, 'w') as f:
-            json.dump(data_json, f, indent=2)
+        if not self.simulation:
+            json_path = f'Experiments/Data/Tracking/SM2/sm2_data_{date_title}.json'
+            with open(json_path, 'w') as f:
+                json.dump(data_json, f, indent=2)
 
-        print()
-        print("JSON file 'tracking_morph_data.json' has been created.")
-
-        # self.gui.plot_config(config_traj[0], self.agent.stiffness, 'initial')
-        # # self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
-        # self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
-        # self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
-        # # self.gui.plot(*lu1_target)
-        # # self.gui.plot(*lu2_target)
-        # # self.gui.plot(*lu1)
-        # # self.gui.plot(*lu2)
-        # self.gui.show()
+            print()
+            print("JSON file has been created.")
+        else:
+            self.gui.plot_config(config_traj[0], self.agent.stiffness, 'initial')
+            # self.gui.scatter(config_traj_array[0,:], config_traj_array[1,:], 'original traj')
+            self.gui.plot_config(config_traj[-1], self.agent.stiffness, 'target', 'target')
+            self.gui.plot_config(self.agent.config, self.agent.stiffness, 'result')
+            # self.gui.plot(*lu1_target)
+            # self.gui.plot(*lu2_target)
+            self.gui.plot(*lu1)
+            self.gui.plot(*lu2)
+            self.gui.show()
 
     def _generateSoftTrajectory(self, v, s, timer):
         q_start = self.agent.config

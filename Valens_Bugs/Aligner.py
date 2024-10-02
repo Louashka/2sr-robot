@@ -141,16 +141,18 @@ class Aligner():
             # cv2.imshow("result", resized_frame)
 
             # map the trajectory to the coordinate
-            for i in range (0, len(path_x)):
-                point = np.array([path_x[i], path_y[i]])
-                camera_position = self.convert_opti_coordinate_to_camera_coordinate(point, transformation)
-                cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 255, 0), -1)
+            # for i in range (0, len(path_x)):
+            #     point = np.array([path_x[i], path_y[i]])
+            #     camera_position = self.convert_opti_coordinate_to_camera_coordinate(point, transformation)
+            #     cv2.circle(resized_frame, (int(camera_position[0]), int(camera_position[1])), 3, (0, 255, 0), -1)
             cv2.imshow("result", resized_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 new_data = {}
 
                 new_data['camera'] = self.data['camera']
+                new_data['K'] = self.data['K']
+                new_data['D'] = self.data['D']
 
                 new_data['roi_x'] = roi_x
                 new_data['roi_y'] = roi_y
@@ -176,8 +178,10 @@ class Aligner():
     # For undistorting the image
     def undistort(self, frame):
         h, w = frame.shape[:2]
-        mapx, mapy = cv2.initUndistortRectifyMap(self.cameraMatrix, self.dist, None, self.cameraMatrix, (w, h), 5)
-        return cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
+        # mapx, mapy = cv2.initUndistortRectifyMap(self.cameraMatrix, self.dist, None, self.cameraMatrix, (w, h), 5)
+        # return cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
+        map1, map2 = cv2.fisheye.initUndistortRectifyMap(self.cameraMatrix, self.dist, np.eye(3), self.cameraMatrix, (w, h), cv2.CV_16SC2)
+        return cv2.remap(frame, map1, map2, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
 
     # For ArUco
     def DetectArucoPose(self, frame):
@@ -280,22 +284,12 @@ class Aligner():
         return workspace_position
 
     def read_camera_calibration_data(self):
-        camera_data = self.data["camera"]
+        self.cameraMatrix = np.zeros((3, 3))
 
-        fx = camera_data["fx"]
-        fy = camera_data["fy"]
-        cx = camera_data["cx"]
-        cy = camera_data["cy"]
-        k1 = camera_data["k1"]
-        k2 = camera_data["k2"]
-        p1 = camera_data["p1"]
-        p2 = camera_data["p2"]
-        k3 = camera_data["k3"]
+        for i in range(3):
+            self.cameraMatrix[i,:] = self.data["K"][f"{i+1}"]
 
-        self.cameraMatrix = np.array([[fx, 0, cx],
-                                 [0, fy, cy],
-                                 [0, 0, 1]])
-        self.dist = np.array([k1, k2, p1, p2, k3])
+        self.dist = np.array(self.data["D"]).reshape(4, 1)
 
 
 class NumpyEncoder(json.JSONEncoder):
