@@ -10,6 +10,8 @@ import motive_client, robot2sr_controller as rsr_ctrl, camera_optitrack_synchron
 import pandas as pd
 import threading
 from datetime import datetime
+import numpy as np
+import pandas as pd
 
 mocap = motive_client.MocapReader()
 rgb_camera = cos.Aligner()
@@ -22,8 +24,8 @@ manip: manipulandum.Shape = None
 
 def extractManipShape(path) -> list:
     contour_df = pd.read_csv(path)
-    contour_r = contour_df['distance'].tolist()
-    contour_theta = contour_df['phase'].tolist()
+    contour_r = contour_df['radius'].tolist()
+    contour_theta = contour_df['phase_angle'].tolist()
 
     manip_contour_params = [contour_r, contour_theta]
 
@@ -88,6 +90,40 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------
     
     while True:
-        rgb_camera.manip_contour = manip.contour
         rgb_camera.current_config = agent.config
         rgb_camera.markers = markers
+
+    #     # Convert cheescake_contour to phase angles and radiuses with respect to manip.pose
+    #     if rgb_camera.cheescake_contour and manip:
+    #         manip_x, manip_y, manip_theta = manip.pose
+    #         phase_angles = []
+    #         radiuses = []
+            
+    #         for point in rgb_camera.cheescake_contour:
+    #             # Translate the point relative to manip's position
+    #             dx = point[0] - manip_x
+    #             dy = point[1] - manip_y
+                
+    #             # Rotate the point to align with manip's orientation
+    #             rotated_x = dx * np.cos(-manip_theta) - dy * np.sin(-manip_theta)
+    #             rotated_y = dx * np.sin(-manip_theta) + dy * np.cos(-manip_theta)
+                
+    #             # Calculate phase angle and radius
+    #             phase_angle = np.arctan2(rotated_y, rotated_x)
+    #             radius = np.sqrt(rotated_x**2 + rotated_y**2)
+                
+    #             phase_angles.append(phase_angle)
+    #             radiuses.append(radius)
+
+    #         # Save phase angles and radiuses to CSV file
+    #         csv_file_path = 'Experiments/Data/Contours/cheescake_contour.csv'
+    #         # Create a DataFrame from the phase angles and radiuses
+    #         df = pd.DataFrame({'phase_angle': phase_angles, 'radius': radiuses})
+
+    #         # Save the DataFrame to a CSV file
+    #         df.to_csv(csv_file_path, index=False)
+    #         print(f"Cheesecake contour data saved to {csv_file_path}")
+
+    #         break
+
+            

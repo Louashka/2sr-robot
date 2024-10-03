@@ -14,11 +14,10 @@ class Aligner:
         self.finish = False
 
         self.config_list = []
+        
         self.current_config = None
-
-        self.manip_contour = None
-        self.circle_shape = None
         self.markers = None
+        self.cheescake_contour = None
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -54,27 +53,15 @@ class Aligner:
         cap_rgb.set(3, 1280)
         cap_rgb.set(4, 720)
 
+        cheescake_pos = (0, 0)
+        cheescake_r = 0
+
         while cap_rgb.isOpened():
             _, frame = cap_rgb.read()
             frame = cv2.rotate(frame, cv2.ROTATE_180)
             h, w = frame.shape[:2]
             self.new_camera_matrix, _ = cv2.getOptimalNewCameraMatrix(self.camera_matrix, self.dist, (w,h), 1, (w,h))
             undistorted_frame = cv2.undistort(frame, self.camera_matrix, self.dist, None, self.new_camera_matrix)
-
-            # # Crop the frame using the calculated ROI
-            # cropped_frame = undistorted_frame[self.data['roi_y']:self.data['roi_y'] + self.data['roi_height'], 
-            #                                 self.data['roi_x']:self.data['roi_x'] + self.data['roi_width']]
-
-            # # Resize the cropped frame while maintaining the aspect ratio
-            # height = 720
-            # width = int(cropped_frame.shape[1] * (height / cropped_frame.shape[0]))
-            # resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
-
-            # if self.manip_contour is not None:
-            #     for i in range(0, self.manip_contour.shape[1]):
-            #         point = self.manip_contour[:,i]
-            #         camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-            #         cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (255, 217, 4), -1)
 
             gray = cv2.cvtColor(undistorted_frame, cv2.COLOR_BGR2GRAY)
             circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.2, 100)
@@ -84,20 +71,35 @@ class Aligner:
             if self.circle_shape is not None:
                 for (x, y, r) in self.circle_shape:
                     cv2.circle(undistorted_frame, (x, y), r, (255, 217, 4), 2)
+                    cheescake_pos = (x, y)
+                    cheescake_r = r
 
             mean_z = 0
+            # cheescake_depth = 0
 
             if self.markers is not None:
                 z_values = [marker['marker_z'] for marker in self.markers.values()]
                 mean_z = sum(z_values) / len(z_values)
 
-                for marker in self.markers.values():
-                    global_point = np.array([marker['marker_x'], marker['marker_y'], marker['marker_z']]) 
-                    camera_point = self.globalToCamera(global_point)
-                    image_point = self.cameraToImage(camera_point)
+                # depth_list = []
 
+                # for marker in self.markers.values():
+                #     image_point, depth = self.globalToImage(marker['marker_x'], marker['marker_y'], marker['marker_z'])
+                    # depth_list.append(depth)
                     # Draw the point on the image
-                    cv2.circle(undistorted_frame, image_point, 3, (0, 0, 255), -1)
+                    # cv2.circle(undistorted_frame, image_point, 3, (0, 0, 255), -1)
+
+                # cheescake_depth = sum(depth_list) / len(depth_list)
+
+                # self.cheescake_pos_global = self.imageToGlobal(cheescake_pos, cheescake_depth)
+                # self.cheescake_contour = []
+
+                # theta = np.linspace(0, 2*np.pi, 30)
+                # cheescake_x = cheescake_pos[0] + cheescake_r * np.cos(theta)
+                # cheescake_y = cheescake_pos[1] + cheescake_r * np.sin(theta)
+
+                # for x, y in zip(cheescake_x, cheescake_y):
+                #     self.cheescake_contour.append(self.imageToGlobal((x, y), cheescake_depth))
 
             if self.current_config is not None:
                 seg1 = self.__arc(self.current_config, mean_z, 1)
@@ -106,16 +108,12 @@ class Aligner:
                 cv2.polylines(undistorted_frame, [seg1], False, (255, 217, 4), 2)
                 cv2.polylines(undistorted_frame, [seg2], False, (255, 217, 4), 2)
 
-            # if self.current_config is not None:
-            #     global_point = np.array([self.current_config[0], self.current_config[1], mean_z]) 
-            #     camera_point = self.globalToCamera(global_point)
-            #     image_point = self.cameraToImage(camera_point)
+            # Crop undistorted_frame from all sides
+            h, w = undistorted_frame.shape[:2]
+            crop_margin = 100  # Adjust this value to increase or decrease the crop amount
+            cropped_frame = undistorted_frame[crop_margin:h-crop_margin, crop_margin:w-crop_margin]
 
-            #     # Draw the point on the image
-            #     cv2.circle(undistorted_frame, image_point, 3, (255, 217, 4), -1)
-
-
-            cv2.imshow("RGB camera", undistorted_frame)
+            cv2.imshow("RGB camera", cropped_frame)
 
             self.wait_video = True
 
@@ -228,7 +226,57 @@ class Aligner:
         x, y, z = point_camera
         u = self.new_camera_matrix[0, 0] * x / z + self.new_camera_matrix[0, 2]
         v = self.new_camera_matrix[1, 1] * y / z + self.new_camera_matrix[1, 2]
-        return (int(u), int(v))
+        return (int(u), int(v)), z
+    
+    def globalToImage(self, x, y, z):
+        global_point = np.array([x, y, z]) 
+        camera_point = self.globalToCamera(global_point)
+        image_point, z = self.cameraToImage(camera_point)
+
+        return image_point, z
+    
+    def imageToCamera(self, image_point, depth):
+        """
+        Convert image coordinates to camera coordinates.
+        
+        :param image_point: (u, v) coordinates in the image
+        :param depth: The depth (Z coordinate) of the point in camera space
+        :return: 3D point in camera coordinates
+        """
+        u, v = image_point
+        fx = self.new_camera_matrix[0, 0]
+        fy = self.new_camera_matrix[1, 1]
+        cx = self.new_camera_matrix[0, 2]
+        cy = self.new_camera_matrix[1, 2]
+
+        x = (u - cx) * depth / fx
+        y = (v - cy) * depth / fy
+        z = depth
+
+        return np.array([x, y, z])
+
+    def cameraToGlobal(self, point_camera):
+        """
+        Convert camera coordinates to global coordinates.
+        
+        :param point_camera: 3D point in camera coordinates
+        :return: 3D point in global coordinates
+        """
+        point_camera = np.array(point_camera).reshape(3, 1)
+        point_global = np.linalg.inv(self.R) @ (point_camera - self.tvec)
+        return point_global.flatten()
+    
+    def imageToGlobal(self, image_point, depth):
+        """
+        Convert image coordinates to global coordinates.
+        
+        :param image_point: (u, v) coordinates in the image
+        :param depth: The depth (Z coordinate) of the point in camera space
+        :return: 3D point in global coordinates
+        """
+        point_camera = self.imageToCamera(image_point, depth)
+        point_global = self.cameraToGlobal(point_camera)
+        return point_global
     
     def __arc(self, config, z, seg=1):
         th0 = config[2]
@@ -252,9 +300,7 @@ class Aligner:
 
         points = []
         for x_i, y_i in zip(x, y):
-            camera_point = self.globalToCamera([x_i, y_i, z])
-            image_point = self.cameraToImage(camera_point)
-            points.append(image_point)
+            points.append(self.globalToImage(x_i, y_i, z)[0])
 
         points = np.array(points).reshape((-1, 1, 2))
 
