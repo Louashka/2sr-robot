@@ -2,6 +2,7 @@ import json
 import numpy as np
 import cv2
 import threading
+import time
 
 from Model import global_var as gv
 
@@ -17,7 +18,9 @@ class Aligner:
         
         self.current_config = None
         self.markers = None
+        self.circle_shape = None
         self.cheescake_contour = None
+        self.contact_point = None
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -44,10 +47,15 @@ class Aligner:
             thread = threading.Thread(target=self.__run, args=(config_target, date_title))
             thread.start()
         elif task == 'object_handling':
-            thread = threading.Thread(target=self.__runOH)
+            thread = threading.Thread(target=self.__runOH, args=(date_title,))
             thread.start()
 
-    def __runOH(self):
+    def __runOH(self, date_title: str):
+        video_path_rgb = f'Experiments/Video/Grasping/grasp_{date_title}.mp4'
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
+
         cap_rgb = cv2.VideoCapture(0)
         # set the resolution to 1280x720
         cap_rgb.set(3, 1280)
@@ -55,6 +63,10 @@ class Aligner:
 
         cheescake_pos = (0, 0)
         cheescake_r = 0
+
+        start_timer = False
+        time_start = time.perf_counter()
+        elapsed_time = 0
 
         while cap_rgb.isOpened():
             _, frame = cap_rgb.read()
@@ -108,20 +120,35 @@ class Aligner:
                 cv2.polylines(undistorted_frame, [seg1], False, (255, 217, 4), 2)
                 cv2.polylines(undistorted_frame, [seg2], False, (255, 217, 4), 2)
 
+            if self.contact_point is not None:
+                cp_image, _ = self.globalToImage(*self.contact_point, mean_z)
+                cv2.circle(undistorted_frame, cp_image, 3, (0, 0, 255), -1)
+
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]
             crop_margin = 100  # Adjust this value to increase or decrease the crop amount
             cropped_frame = undistorted_frame[crop_margin:h-crop_margin, crop_margin:w-crop_margin]
 
             cv2.imshow("RGB camera", cropped_frame)
+            out.write(cropped_frame)
 
             self.wait_video = True
 
             if cv2.waitKey(1) & 0xFF == ord('q') or self.finish:
                 self.finish = True
-                break
+                if not start_timer:
+                    time_start = time.perf_counter()
+                start_timer = True
+
+            if start_timer:
+                if elapsed_time > 3:
+                    break
+
+                elapsed_time = time.perf_counter() - time_start
+
 
         cap_rgb.release()
+        out.release()
 
         cv2.destroyAllWindows()
 

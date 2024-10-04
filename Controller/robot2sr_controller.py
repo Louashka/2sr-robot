@@ -289,7 +289,7 @@ class Controller:
         y = m.SV(value=agent.y)
         theta = m.SV(value=agent.theta)
 
-        w = [m.Var(value=0.0, lb=-self.MAX_SPEED, ub=self.MAX_SPEED) for _ in range(4)]
+        w = [m.Var(value=0.0) for _ in range(4)]
         z = [m.Var(integer=True, lb=0, ub=1) for _ in range(4)]
 
         m.Equation(x.dt() == m.cos(theta) * v_x - m.sin(theta) * v_y)
@@ -310,19 +310,18 @@ class Controller:
         # m.Equations([w_curve[i] >= 0 for i in range(4)])
         # Create boolean model variables z[i] for each wheel
         
-        # m.Equations([w[i] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[i] for i in range(4)])
-        # m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
+        m.Equations([w[i] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[i] for i in range(4)])
+        m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
 
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              1 * v_x**2 + 1 * v_y**2 + omega**2)
+              50 * v_x**2 + 40 * v_y**2 + 0.01 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
         m.options.SOLVER = 3
 
         m.solve(disp=False)
-        print(v_x.VALUE)
 
         return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL]
     

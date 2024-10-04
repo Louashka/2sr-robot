@@ -63,6 +63,62 @@ def updateConfigLoop():
     while True:
         updateConfig()
 
+def updateContour():
+    global rgb_camera, manip
+    # Convert cheescake_contour to phase angles and radiuses with respect to manip.pose
+    if rgb_camera.cheescake_contour and manip:
+        manip_x, manip_y, manip_theta = manip.pose
+        phase_angles = []
+        radiuses = []
+        
+        for point in rgb_camera.cheescake_contour:
+            # Translate the point relative to manip's position
+            dx = point[0] - manip_x
+            dy = point[1] - manip_y
+            
+            # Rotate the point to align with manip's orientation
+            rotated_x = dx * np.cos(-manip_theta) - dy * np.sin(-manip_theta)
+            rotated_y = dx * np.sin(-manip_theta) + dy * np.cos(-manip_theta)
+            
+            # Calculate phase angle and radius
+            phase_angle = np.arctan2(rotated_y, rotated_x)
+            radius = np.sqrt(rotated_x**2 + rotated_y**2)
+            
+            phase_angles.append(phase_angle)
+            radiuses.append(radius)
+
+        # Save phase angles and radiuses to CSV file
+        csv_file_path = 'Experiments/Data/Contours/cheescake_contour.csv'
+        # Create a DataFrame from the phase angles and radiuses
+        df = pd.DataFrame({'phase_angle': phase_angles, 'radius': radiuses})
+
+        # Save the DataFrame to a CSV file
+        df.to_csv(csv_file_path, index=False)
+        print(f"Cheesecake contour data saved to {csv_file_path}")
+
+def closeToGoal(current, target):
+    status = True
+
+    # Calculate Euclidean distance between current and target (x, y)
+    distance = np.linalg.norm(np.array(current[:2]) - np.array(target[:2]))
+    
+    # Calculate absolute difference between current and target theta
+    theta_difference = abs(current[2] - target[2])
+    
+    # Define thresholds for position and orientation
+    distance_threshold = 0.05  # 5 cm
+    theta_threshold = 0.2  # about 5.7 degrees
+    
+    # Check if both position and orientation are within thresholds
+    if distance > distance_threshold or theta_difference > theta_threshold:
+        status = False
+    
+    print(f"Distance to goal: {distance:.3f} m")
+    print(f"Orientation difference: {theta_difference:.3f} rad")
+    print()
+
+    return status
+
 
 if __name__ == "__main__":
     cheescake_contour = extractManipShape('Experiments/Data/Contours/cheescake_contour.csv')
@@ -89,41 +145,52 @@ if __name__ == "__main__":
     print()
     # ---------------------------------------------------------------
     
+    v_prev = [0.0] * 3
+    s = [0, 0]
+
+    finish = False
+    
     while True:
         rgb_camera.current_config = agent.config
         rgb_camera.markers = markers
 
-    #     # Convert cheescake_contour to phase angles and radiuses with respect to manip.pose
-    #     if rgb_camera.cheescake_contour and manip:
-    #         manip_x, manip_y, manip_theta = manip.pose
-    #         phase_angles = []
-    #         radiuses = []
+        # Find the closest point on manip.contour to agent.position
+        agent_pos = np.array(agent.position)  # Only consider x and y coordinates
+        # manip_contour = manip.parametric_contour.T  # Transpose to get a list of [x, y] points
+        s_array, manip_contour = manip.parametric_contour
+        manip_contour = manip_contour.T
+        
+        # Calculate distances from agent to all points on the contour
+        distances = np.linalg.norm(manip_contour - agent_pos, axis=1)
+        
+        # Find the index of the minimum distance
+        closest_point_index = np.argmin(distances)
+        
+        # Get the closest point
+        closest_point = manip_contour[closest_point_index]
+        orientation = manip.getTangent(s_array[closest_point_index])
+        target_pose = [closest_point[0], closest_point[1], orientation]
+        
+        # rgb_camera.contact_point = closest_point
+        rgb_camera.contact_point = closest_point
+
+        if closeToGoal(agent.pose, target_pose) or rgb_camera.finish:
+            v_rigid = [0.0] * 3
+            finish = True
+        else:
+            v_rigid = agent_controller.mpcRM(agent, target_pose, v_prev)
             
-    #         for point in rgb_camera.cheescake_contour:
-    #             # Translate the point relative to manip's position
-    #             dx = point[0] - manip_x
-    #             dy = point[1] - manip_y
-                
-    #             # Rotate the point to align with manip's orientation
-    #             rotated_x = dx * np.cos(-manip_theta) - dy * np.sin(-manip_theta)
-    #             rotated_y = dx * np.sin(-manip_theta) + dy * np.cos(-manip_theta)
-                
-    #             # Calculate phase angle and radius
-    #             phase_angle = np.arctan2(rotated_y, rotated_x)
-    #             radius = np.sqrt(rotated_x**2 + rotated_y**2)
-                
-    #             phase_angles.append(phase_angle)
-    #             radiuses.append(radius)
+        v = v_rigid + [0.0] * 2
+        print(v)
+        _, q, s_current, _ = agent_controller.move(agent, v, s)
+        
+        v_prev = v_rigid
+            
+        if finish:
+            rgb_camera.finish = True
+            break
+        
 
-    #         # Save phase angles and radiuses to CSV file
-    #         csv_file_path = 'Experiments/Data/Contours/cheescake_contour.csv'
-    #         # Create a DataFrame from the phase angles and radiuses
-    #         df = pd.DataFrame({'phase_angle': phase_angles, 'radius': radiuses})
-
-    #         # Save the DataFrame to a CSV file
-    #         df.to_csv(csv_file_path, index=False)
-    #         print(f"Cheesecake contour data saved to {csv_file_path}")
-
-    #         break
+        
 
             

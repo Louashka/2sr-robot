@@ -95,15 +95,16 @@ class Shape(Frame):
         return ctr
     
     @property
-    def parametric_contour(self) -> np.ndarray:
+    def parametric_contour(self) -> tuple[np.ndarray, np.ndarray]:
         ctr = []
-        for s in np.linspace(0, 1):
+        s_array = np.linspace(0, 1)
+        for s in s_array:
             pos_target = self.getPoint(s)
             ctr.append(pos_target)
 
         ctr = np.array(ctr).T
 
-        return ctr
+        return s_array, ctr
     
     def getPoint(self, s: float) -> List[float]:
         coords = []
@@ -139,7 +140,7 @@ class Shape(Frame):
             dx += coef[0] * exp[0] + coef[1] * exp[1]
             dy += coef[2] * exp[0] + coef[3] * exp[1]
 
-        theta = np.arctan(dy/dx)
+        theta = np.arctan(dy/dx) + self.theta
 
         return theta
     
