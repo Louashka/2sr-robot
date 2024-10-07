@@ -21,6 +21,8 @@ class Aligner:
         self.circle_shape = None
         self.cheescake_contour = None
         self.contact_point = None
+        self.manip_target_pos = None
+        self.target_contact_point = None
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -91,7 +93,8 @@ class Aligner:
 
             if self.markers is not None:
                 z_values = [marker['marker_z'] for marker in self.markers.values()]
-                mean_z = sum(z_values) / len(z_values)
+                if len(z_values) != 0:
+                    mean_z = sum(z_values) / len(z_values)
 
                 # depth_list = []
 
@@ -122,7 +125,15 @@ class Aligner:
 
             if self.contact_point is not None:
                 cp_image, _ = self.globalToImage(*self.contact_point, mean_z)
-                cv2.circle(undistorted_frame, cp_image, 3, (0, 0, 255), -1)
+                cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
+
+            if self.manip_target_pos is not None:
+                (x, y), _ = self.globalToImage(*self.manip_target_pos, mean_z)
+                cv2.circle(undistorted_frame, (x, y), cheescake_r, (51, 87, 255), 2)
+
+            if self.target_contact_point is not None:
+                cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
+                cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
 
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]

@@ -16,11 +16,17 @@ import pandas as pd
 mocap = motive_client.MocapReader()
 rgb_camera = cos.Aligner()
 
+markers = None
+
 agent: rsr.Robot = None
 agent_controller = rsr_ctrl.Controller()
 
 cheescake_contour = None
 manip: manipulandum.Shape = None
+manip_target: manipulandum.Shape = None
+
+target_manip_pos = [0.25, 1.04]
+closest_s_index = None
 
 def extractManipShape(path) -> list:
     contour_df = pd.read_csv(path)
@@ -60,9 +66,41 @@ def updateConfig():
         print('Agent and/or manipulandum is not detected! ' + msg)
 
 def updateConfigLoop():
+    global rgb_camera, agent, markers
     while True:
         updateConfig()
+        if rgb_camera is not None and agent is not None and manip_target is not None:
+            rgb_camera.current_config = agent.config
+            rgb_camera.markers = markers
 
+            nearest_point = getNearestPoint()
+            rgb_camera.contact_point = nearest_point[:2]
+            rgb_camera.manip_target_pos = manip_target.position
+            rgb_camera.target_contact_point = manip_target.getPoint(closest_s_index)
+
+def getNearestPoint():
+    global closest_s_index
+    # Find the closest point on manip.contour to agent.position
+    agent_pos = np.array(agent.position)  # Only consider x and y coordinates
+    # manip_contour = manip.parametric_contour.T  # Transpose to get a list of [x, y] points
+    s_array, manip_contour = manip.parametric_contour
+    manip_contour = manip_contour.T
+    
+    # Calculate distances from agent to all points on the contour
+    distances = np.linalg.norm(manip_contour - agent_pos, axis=1)
+    
+    # Find the index of the minimum distance
+    closest_point_index = np.argmin(distances)
+    closest_s_index = s_array[closest_point_index]
+    
+    # Get the closest point
+    closest_point = manip_contour[closest_point_index]
+    orientation = manip.getTangent(s_array[closest_point_index])
+    target_pose = [closest_point[0], closest_point[1], orientation]
+
+    return target_pose + [14, 14]
+    
+    
 def updateContour():
     global rgb_camera, manip
     # Convert cheescake_contour to phase angles and radiuses with respect to manip.pose
@@ -106,8 +144,8 @@ def closeToGoal(current, target):
     theta_difference = abs(current[2] - target[2])
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.05  # 5 cm
-    theta_threshold = 0.2  # about 5.7 degrees
+    distance_threshold = 0.02  # 5 cm
+    theta_threshold = 0.1  # about 5.7 degrees
     
     # Check if both position and orientation are within thresholds
     if distance > distance_threshold or theta_difference > theta_threshold:
@@ -119,11 +157,99 @@ def closeToGoal(current, target):
 
     return status
 
+def closeToShape(current_k, target_k):
+    status = True
+
+    k1_diff = abs(current_k[0] - target_k[0])
+    k2_diff = abs(current_k[1] - target_k[1])
+
+    if k1_diff > 5 or k2_diff > 5:
+        status = False
+
+    return status
+
+def goToPoint(point, v_prev):
+    s = [0, 0]
+    finish = False
+
+    if closeToGoal(agent.pose, point) or rgb_camera.finish:
+        v_rigid = [0.0] * 3
+        finish = True
+    else:
+        v_rigid = agent_controller.mpcRM(agent, point, v_prev)
+        
+    v = v_rigid + [0.0] * 2
+    print(v)
+    agent_controller.move(agent, v, s)
+
+    return v_rigid, finish
+
+def approach():
+    v_prev = [0.0] * 3
+
+    while True:
+        target_pose = getNearestPoint()
+        v_prev, finish = goToPoint(target_pose, v_prev)
+            
+        if finish:
+            break
+
+def grasp():
+    global agent
+
+    v_prev = [0.0] * 2
+    s = [1, 1]
+
+    finish = False
+
+    while True:
+        target_config = getNearestPoint()
+        # target_pose = target_pose[:2] + [agent.theta] + [14, 14]
+        if closeToShape(agent.curvature, target_config[3:]) or rgb_camera.finish:
+            v_soft = [0.0] * 2
+            s = [0, 0]
+            finish = True
+        else:
+            v_soft = agent_controller.mpcSM3(agent, target_config, v_prev)
+
+        v = [0.0] * 3 + v_soft
+        print(v)
+        _, _, s_current, _ = agent_controller.move(agent, v, s)
+        agent.stiffness = s_current
+        
+        v_prev = v_soft
+            
+        if finish:
+            break
+
+def transport():
+    v_prev = [0.0] * 3
+
+    target_pos = manip_target.getPoint(closest_s_index)
+    orientation = manip_target.getTangent(closest_s_index)
+    target_pose = target_pos + [orientation]
+
+    while True:
+        v_prev, finish = goToPoint(target_pose, v_prev)
+        # print(f'Current th: {agent.theta}')
+        # print(f'Target th: {orientation}')
+            
+        if finish:
+            break
+
+def release():
+    pass
+
+def goHome():
+    pass
+
 
 if __name__ == "__main__":
+
+    # ------------------------ Start tracking -----------------------
     cheescake_contour = extractManipShape('Experiments/Data/Contours/cheescake_contour.csv')
 
-    print('Start Motive streaming')
+    print('Start Motive streaming....')
     mocap.startDataListener() 
     
     update_thread = threading.Thread(target=updateConfigLoop)
@@ -133,62 +259,36 @@ if __name__ == "__main__":
     while not agent or not manip:
         pass
 
+    target_manip_pose = target_manip_pos + [manip.theta-np.pi/4]
+    manip_target = manipulandum.Shape(2, target_manip_pose, cheescake_contour)
+    # ---------------------------------------------------------------
+
     # ------------------------ Start a video ------------------------
-    date_title = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     rgb_camera.startVideo(date_title, task='object_handling')
 
-    print("Waiting for the video to start...")
+    print('Waiting for the video to start...')
     while not rgb_camera.wait_video:
         pass
 
     print('Video started')
     print()
     # ---------------------------------------------------------------
+
+    # ------------------------- Execute task ------------------------
+    approach()
+    grasp()
+    transport()
+    release()
+    goHome()
+
+    rgb_camera.finish = True
+    # ---------------------------------------------------------------
+
     
-    v_prev = [0.0] * 3
-    s = [0, 0]
 
-    finish = False
-    
-    while True:
-        rgb_camera.current_config = agent.config
-        rgb_camera.markers = markers
 
-        # Find the closest point on manip.contour to agent.position
-        agent_pos = np.array(agent.position)  # Only consider x and y coordinates
-        # manip_contour = manip.parametric_contour.T  # Transpose to get a list of [x, y] points
-        s_array, manip_contour = manip.parametric_contour
-        manip_contour = manip_contour.T
-        
-        # Calculate distances from agent to all points on the contour
-        distances = np.linalg.norm(manip_contour - agent_pos, axis=1)
-        
-        # Find the index of the minimum distance
-        closest_point_index = np.argmin(distances)
-        
-        # Get the closest point
-        closest_point = manip_contour[closest_point_index]
-        orientation = manip.getTangent(s_array[closest_point_index])
-        target_pose = [closest_point[0], closest_point[1], orientation]
-        
-        # rgb_camera.contact_point = closest_point
-        rgb_camera.contact_point = closest_point
 
-        if closeToGoal(agent.pose, target_pose) or rgb_camera.finish:
-            v_rigid = [0.0] * 3
-            finish = True
-        else:
-            v_rigid = agent_controller.mpcRM(agent, target_pose, v_prev)
-            
-        v = v_rigid + [0.0] * 2
-        print(v)
-        _, q, s_current, _ = agent_controller.move(agent, v, s)
-        
-        v_prev = v_rigid
-            
-        if finish:
-            rgb_camera.finish = True
-            break
         
 
         

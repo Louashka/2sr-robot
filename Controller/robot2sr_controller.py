@@ -44,6 +44,7 @@ class Controller:
 
         self.cardioid1 = splines.Cardioid(1)
         self.cardioid2 = splines.Cardioid(2)
+        self.cardioid3 = splines.Cardioid(3)
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
@@ -315,7 +316,7 @@ class Controller:
 
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              50 * v_x**2 + 40 * v_y**2 + 0.01 * omega**2)
+              40 * v_x**2 + 30 * v_y**2 + 0.005 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -510,6 +511,76 @@ class Controller:
         return [u1.NEWVAL, u2.NEWVAL], [x.VALUE[1], y.VALUE[1]], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
 
 
+    def mpcSM3(self, agent: robot2sr.Robot, target: list, v_current: list):
+        m = GEKKO(remote=False)
+        m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
+
+        # Manipulated variables        
+        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
+        u1.STATUS = 1
+        u1.DCOST = 100
+
+        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
+        u2.STATUS = 1
+        u1.DCOST = 100
+
+        x = m.SV(value=agent.x)
+        y = m.SV(value=agent.y)
+        theta = m.SV(value=agent.theta)
+        k1 = m.SV(value=agent.k2)
+        k2 = m.SV(value=agent.k2)
+
+        k1_ratio = self.cardioid3.k_dot(agent.k2) / self.cardioid1.k_dot(agent.k2)
+        pos1 = self.cardioid1.pos_dot(agent.theta, agent.k2, 2, 1)
+
+        k2_ratio = self.cardioid3.k_dot(agent.k1) / self.cardioid1.k_dot(agent.k1)
+        pos2 = self.cardioid1.pos_dot(agent.theta, agent.k1, 1, 2)
+
+        m.Equation(x.dt() == k1_ratio * pos1[0] * u1 + k2_ratio * pos2[0] * u2)
+        m.Equation(y.dt() == k1_ratio * pos1[1] * u1 + k2_ratio * pos2[1] * u2)
+        m.Equation(theta.dt() == self.cardioid3.th_dot(agent.k2) * u1 + 
+                   self.cardioid3.th_dot(agent.k1) * u2)
+        m.Equation(k1.dt() == -self.cardioid3.k_dot(agent.k1) * u1 + 
+                self.cardioid3.k_dot(agent.k1) * u2)
+        m.Equation(k2.dt() == -self.cardioid3.k_dot(agent.k2) * u1 + 
+                self.cardioid3.k_dot(agent.k2) * u2)
+        
+        # Define an intermediate variable for wheel speed
+        w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
+        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+
+        w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
+        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+        
+        # Constraints
+        m.Equation(w1 >= -self.MAX_SPEED)
+        m.Equation(w1 <= self.MAX_SPEED)
+        # m.Equation(w1_curve >= 0)
+
+        m.Equation(w2 >= -self.MAX_SPEED)
+        m.Equation(w2 <= self.MAX_SPEED)
+        # m.Equation(w2_curve >= 0)
+
+        Q = [3, 3, 1, 0.05, 0.05]
+        R = [10, 200]
+
+        m.Obj(Q[0] * (x - target[0])**2 + 
+              Q[1] * (y - target[1])**2 + 
+              Q[2] * (theta - target[2])**2 + 
+              Q[3] * (k1 - target[3])**2 +
+              Q[3] * (k2 - target[4])**2 +  
+              R[0] * u1**2 + R[1] * u2**2)
+        
+        # Options
+        m.options.IMODE = 6  # MPC mode
+        m.options.SOLVER = 3
+
+        m.solve(disp=False)
+
+        # Return the optimal control inputs
+        return [u1.NEWVAL, u2.NEWVAL]
+
+    
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
         flag = False
 
