@@ -1,7 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import sys
-sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
+# sys.path.append('/Users/lytaura/Documents/PolyU/Research/2SR/Version 1/Multi agent/Control/2sr-swarm-control')
+sys.path.append('D:/Robot 2SR/2sr-swarm-control')
 from Model import manipulandum as mp, global_var as gv, robot2sr
 from grasping_controller import Grasp as grasp, Force
 import path
@@ -328,7 +329,7 @@ def func(var, *args):
 
 if __name__ == "__main__":
     # Define the manipulandum shape
-    heart_df = pd.read_csv('./Data/heart_contour.csv')[['distance', 'phase']].dropna()
+    heart_df = pd.read_csv('Experiments/Data/Contours/heart_contour.csv')[['distance', 'phase']].dropna()
     heart_r = heart_df['distance'].tolist()
     heart_theta = heart_df['phase'].tolist()
     heart = mp.Shape(11, [0.4, 0.32, 0.0 * np.pi], [heart_r, heart_theta])
@@ -370,7 +371,7 @@ if __name__ == "__main__":
     force_model = Force(heart, s)
 
     # Initialise a robot
-    robot2sr = robot2sr.Robot(1, [0.75, 0, 0])
+    robot = robot2sr.Robot(1, 0.75, 0, 0)
 
     # Execute the object's manipulation
     
@@ -398,12 +399,12 @@ if __name__ == "__main__":
 
         robot_target = [cp[1][0], cp[1][1], robot_target_theta, 0, 0]
 
-        robot_dist = path.distance(cp[1], robot2sr.position)
+        robot_dist = path.distance(cp[1], robot.position)
         # print(robot_dist)
         if robot_dist > 0.01:
-            q_tilda = (np.array(robot_target) - robot2sr.config) * dt
-            v_robot = 40 * np.matmul(np.linalg.pinv(robot2sr.jacobain), q_tilda)
-            robot2sr.update(v_robot, dt)
+            q_tilda = (np.array(robot_target) - robot.config) * dt
+            v_robot = 40 * np.matmul(np.linalg.pinv(robot.jacobian_rigid()), q_tilda)
+            robot.update(v_robot, dt)
         else:
             # Find next target pose
             target_pos = trajectory.targetPoint(heart.position, GOAL_RADIUS)
@@ -449,8 +450,8 @@ if __name__ == "__main__":
         # Determine the robot's velocities
         # q_robot_dot = ...
         
-        # robot2sr.update(q_robot_dot + [0, 0])
-        # print(robot2sr.config)
+        # robot.update(q_robot_dot + [0, 0])
+        # print(robot.config)
 
         i = 0
         plt.cla()

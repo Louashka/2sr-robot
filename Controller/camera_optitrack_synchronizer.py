@@ -23,6 +23,7 @@ class Aligner:
         self.contact_point = None
         self.manip_target_pos = None
         self.target_contact_point = None
+        self.object_trajectory = []
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -36,6 +37,9 @@ class Aligner:
 
     def add_config(self, config) -> None:
         self.config_list.append(config)
+
+    def add_to_traj(self, pose) -> None:
+        self.object_trajectory.append(pose)
     
     # def startVideo(self, config_target: list, config0, date_title):
     #     self.config_list.append(config0)
@@ -134,6 +138,10 @@ class Aligner:
             if self.target_contact_point is not None:
                 cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
                 cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
+
+            for i in range(len(self.object_trajectory)):
+                (x, y), _ = self.globalToImage(*self.object_trajectory[i], mean_z)
+                cv2.circle(undistorted_frame, (x, y), 3, (49, 49, 255), -1)
 
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]

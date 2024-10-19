@@ -58,7 +58,8 @@ def updateConfig():
 
         manip_pose = [manip_config['x'], manip_config['y'], manip_config['theta']]
         if manip:
-            manip.pose = manip_pose
+            # manip.pose = manip_pose
+            pass
         else:
             manip = manipulandum.Shape(manip_config['id'], manip_pose, cheescake_contour)
         # print(f'Manip\'s pose: {manip.pose}')
@@ -222,20 +223,59 @@ def grasp():
         if finish:
             break
 
+# def transport():
+#     v_prev = [0.0] * 3
+
+#     target_pos = manip_target.getPoint(closest_s_index)
+#     orientation = manip_target.getTangent(closest_s_index)
+#     target_pose = target_pos + [orientation]
+
+#     while True:
+#         v_prev, finish = goToPoint(target_pose, v_prev)
+#         # print(f'Current th: {agent.theta}')
+#         # print(f'Target th: {orientation}')
+            
+#         if finish:
+#             break
+
 def transport():
     v_prev = [0.0] * 3
+    finish = False
 
-    target_pos = manip_target.getPoint(closest_s_index)
-    orientation = manip_target.getTangent(closest_s_index)
-    target_pose = target_pos + [orientation]
+    rgb_camera.add_to_traj(manip.position)
 
     while True:
-        v_prev, finish = goToPoint(target_pose, v_prev)
-        # print(f'Current th: {agent.theta}')
-        # print(f'Target th: {orientation}')
-            
+        if closeToGoal(manip.pose, manip_target.pose) or rgb_camera.finish:
+            v_rigid = [0.0] * 3
+            finish = True
+        else:
+            v_object, q = simple_control(manip.pose, manip_target.pose)
+            manip.pose =  q
+            rgb_camera.add_to_traj(manip.position)
+            print(v_object)
+
         if finish:
             break
+
+    
+def simple_control(current, target):
+    q = np.array(current)
+    q_t = np.array(target)
+
+    coef = 0.1
+    q_tilda = (q_t - q) * coef
+
+    rot = np.array([[np.cos(q[2]), -np.sin(q[2]), 0],
+                    [np.sin(q[2]), np.cos(q[2]), 0],
+                    [0, 0, 1]])
+    
+    v = np.linalg.inv(rot).dot(q_tilda)
+
+    q_dot = rot.dot(v)
+    q_new = q + q_dot * gv.DT
+
+    return v, q_new
+
 
 def release():
     pass
@@ -276,8 +316,8 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------
 
     # ------------------------- Execute task ------------------------
-    approach()
-    grasp()
+    # approach()
+    # grasp()
     transport()
     release()
     goHome()
