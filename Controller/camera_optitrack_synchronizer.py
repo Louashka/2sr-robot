@@ -25,6 +25,12 @@ class Aligner:
         self.target_contact_point = None
         self.object_trajectory = []
 
+        self.object_center = None
+        self.contact_points = []
+        self.c_dot = []
+
+        self.path = None
+
         try:
             with open(self.file_path, "r") as json_file:
                 data = json.load(json_file)
@@ -120,6 +126,14 @@ class Aligner:
                 # for x, y in zip(cheescake_x, cheescake_y):
                 #     self.cheescake_contour.append(self.imageToGlobal((x, y), cheescake_depth))
 
+            if self.path is not None:
+                points = []
+                for p in self.path:
+                    points.append(self.globalToImage(*p, mean_z)[0])
+                
+                path = np.array(points).reshape((-1, 1, 2))
+                cv2.polylines(undistorted_frame, [path], False, (255, 217, 4), 1)
+            
             if self.current_config is not None:
                 seg1 = self.__arc(self.current_config, mean_z, 1)
                 seg2 = self.__arc(self.current_config, mean_z, 2)
@@ -139,9 +153,35 @@ class Aligner:
                 cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
                 cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
 
-            for i in range(len(self.object_trajectory)):
-                (x, y), _ = self.globalToImage(*self.object_trajectory[i], mean_z)
-                cv2.circle(undistorted_frame, (x, y), 3, (49, 49, 255), -1)
+            # for i in range(len(self.object_trajectory)):
+                # (x, y), _ = self.globalToImage(*self.object_trajectory[i], mean_z)
+                # cv2.circle(undistorted_frame, (x, y), 3, (49, 49, 255), -1)
+
+            if self.object_center is not None:
+                (x, y), _ = self.globalToImage(*self.object_center, mean_z)
+                cv2.circle(undistorted_frame, (x, y), 3, (255, 217, 4), -1)
+
+            if len(self.contact_points) == len(self.c_dot):
+                for cp, c_dot_i in zip(self.contact_points, self.c_dot):
+                    (x, y), _ = self.globalToImage(*cp[:-1], mean_z)
+                    cv2.circle(undistorted_frame, (x, y), 3, (0, 255, 0), -1)
+
+                    # Draw vectors for contact points
+                    # Calculate end point of the vector
+                    # vector_length = 0.08  # Adjust this value to change the length of the vector
+                    # end_x_global = cp[0] + vector_length * np.cos(cp[2])
+                    # end_y_global = cp[1] + vector_length * np.sin(cp[2])
+
+                    dt = 3
+                    end_x_global = cp[0] + c_dot_i[0] * dt
+                    end_y_global = cp[1] + c_dot_i[1] * dt
+
+                    (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+                    
+                    # Draw the vector
+                    cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), (0, 0, 255), 2)
+
+                
 
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]

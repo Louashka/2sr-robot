@@ -53,14 +53,14 @@ class Shape(Frame):
 
             points.append([x, y])
 
-        geom_centre = self.__geomCentre(points)
+        geom_centre = self.geomCentre(points)
         default_contour = np.array(points).T - np.array([geom_centre]).T
 
         perimeter = self.__calcPerimeter(points)
 
         return default_contour, perimeter
     
-    def __geomCentre(self, points) -> list:
+    def geomCentre(self, points) -> list:
         ctr = np.array(points).reshape((-1,1,2))
         ctr = (10000.0 * ctr).astype(np.int32)
 
@@ -68,14 +68,14 @@ class Shape(Frame):
         cX = int(M["m10"] / M["m00"]) / 10000.0
         cY = int(M["m01"] / M["m00"]) / 10000.0
 
-        r = math.hypot(cX, cY)
-        phi = math.atan2(cY, cX)
+        self.r = math.hypot(cX, cY)
+        self.phi = math.atan2(cY, cX)
 
-        x = r * np.cos(phi)
-        y = r * np.sin(phi)
+        x = self.r * np.cos(self.phi)
+        y = self.r * np.sin(self.phi)
 
-        self.x += r * np.cos(self.theta + phi)
-        self.y += r * np.sin(self.theta + phi)
+        # self.x += r * np.cos(self.theta + phi)
+        # self.y += r * np.sin(self.theta + phi)
 
         return [x, y]
     
@@ -141,7 +141,25 @@ class Shape(Frame):
             dy += coef[2] * exp[0] + coef[3] * exp[1]
 
         theta = np.arctan(dy/dx) + self.theta
+        # Ensure the tangent points in the positive direction of traversing the contour
+        # Calculate the vector perpendicular to the tangent
+        perp_vector = np.array([np.cos(theta + np.pi/2), np.sin(theta + np.pi/2)])
+        
+        # Get a point slightly ahead on the contour
+        s_ahead = (s + 0.01) % 1  # Ensure we wrap around if s is close to 1
+        point_ahead = np.array(self.getPoint(s_ahead))
+        
+        # Calculate vector from current point to point ahead
+        current_point = np.array(self.getPoint(s))
+        direction_vector = point_ahead - current_point
+        
+        # Check if perpendicular vector points outwards
+        if np.dot(perp_vector, direction_vector) < 0:
+            theta += np.pi  # Add 180 degrees if pointing outwards
 
+        
+        # Normalize theta to be between 0 and 2π
+        theta = theta % (2 * np.pi)
         return theta
     
     # def update(self, q_dot: list, dt: float):

@@ -5,13 +5,15 @@
 
 import sys
 sys.path.append('D:/Robot 2SR/2sr-swarm-control')
-from Model import global_var as gv, robot2sr as rsr, manipulandum
+from Model import global_var as gv, robot2sr as rsr, manipulandum, splines
 import motive_client, robot2sr_controller as rsr_ctrl, camera_optitrack_synchronizer as cos
 import pandas as pd
 import threading
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import time
+import json
 
 mocap = motive_client.MocapReader()
 rgb_camera = cos.Aligner()
@@ -25,8 +27,19 @@ cheescake_contour = None
 manip: manipulandum.Shape = None
 manip_target: manipulandum.Shape = None
 
-target_manip_pos = [0.25, 1.04]
+# target_manip_pos = [0.25, 1.04]
+# target_manip_pos = [-0.1345, 1.04]
+target_manip_pos = [0.27, 0.826]
+traj = None
 closest_s_index = None
+
+s_frames = []
+c_frames = []
+
+c_dot = []
+frames_index = []
+
+simulation = True
 
 def extractManipShape(path) -> list:
     contour_df = pd.read_csv(path)
@@ -36,7 +49,6 @@ def extractManipShape(path) -> list:
     manip_contour_params = [contour_r, contour_theta]
 
     return manip_contour_params
-
 
 def updateConfig():
     global agent, manip, markers
@@ -56,10 +68,15 @@ def updateConfig():
 
         # print(f'Agent\'s pose: {agent.pose}')
 
+        
         manip_pose = [manip_config['x'], manip_config['y'], manip_config['theta']]
         if manip:
-            # manip.pose = manip_pose
-            pass
+            if not simulation:
+                # manip_pose[0] += manip.r * np.cos(manip.theta + manip.phi)
+                # manip_pose[1] += manip.r * np.sin(manip.theta + manip.phi)
+                manip.pose = manip_pose
+            else:
+                pass
         else:
             manip = manipulandum.Shape(manip_config['id'], manip_pose, cheescake_contour)
         # print(f'Manip\'s pose: {manip.pose}')
@@ -67,40 +84,92 @@ def updateConfig():
         print('Agent and/or manipulandum is not detected! ' + msg)
 
 def updateConfigLoop():
-    global rgb_camera, agent, markers
+    global rgb_camera, agent, markers, s_frames, c_frames, frames_index
+
     while True:
         updateConfig()
         if rgb_camera is not None and agent is not None and manip_target is not None:
             rgb_camera.current_config = agent.config
             rgb_camera.markers = markers
 
-            nearest_point = getNearestPoint()
-            rgb_camera.contact_point = nearest_point[:2]
+            # nearest_point = getNearestPoint(agent.position)
+            # rgb_camera.contact_point = nearest_point[:2]
             rgb_camera.manip_target_pos = manip_target.position
-            rgb_camera.target_contact_point = manip_target.getPoint(closest_s_index)
+            # rgb_camera.target_contact_point = manip_target.getPoint(closest_s_index)
+            
+            rgb_camera.object_center = manip.position
 
-def getNearestPoint():
-    global closest_s_index
+            s_frames = [arc_endpoints(), agent.pose, arc_endpoints(2)]
+
+            if simulation:
+                if len(frames_index) == 3:
+                    c_frames = [getPoint(index) for index in frames_index]
+                else:
+                    c_frames = [getNearestPoint(s_frame[:-1]) for s_frame in s_frames]
+            else:
+                c_frames = [getNearestPoint(s_frame[:-1]) for s_frame in s_frames]
+            rgb_camera.contact_points = c_frames
+
+            rgb_camera.c_dot = c_dot
+
+def arc_endpoints(seg=1):
+    global agent
+
+    if seg == 1:
+        flag = -1
+        k = agent.k1
+    else:
+        flag = 1
+        k = agent.k2
+
+    theta = agent.theta + flag * k * gv.L_VSS
+
+    if k == 0:
+        x = flag * gv.L_VSS * np.cos(agent.theta)
+        y = flag * gv.L_VSS * np.sin(agent.theta)
+    else:
+        x = np.sin(theta) / k - np.sin(agent.theta) / k
+        y = -np.cos(theta) / k + np.cos(agent.theta) / k
+
+    x += agent.x
+    y += agent.y
+        
+    return [x, y, theta]
+
+def getNearestPoint(point):
+    global closest_s_index, frames_index
     # Find the closest point on manip.contour to agent.position
-    agent_pos = np.array(agent.position)  # Only consider x and y coordinates
+    pos = np.array(point)  # Only consider x and y coordinates
     # manip_contour = manip.parametric_contour.T  # Transpose to get a list of [x, y] points
     s_array, manip_contour = manip.parametric_contour
     manip_contour = manip_contour.T
     
     # Calculate distances from agent to all points on the contour
-    distances = np.linalg.norm(manip_contour - agent_pos, axis=1)
+    distances = np.linalg.norm(manip_contour - pos, axis=1)
     
     # Find the index of the minimum distance
     closest_point_index = np.argmin(distances)
     closest_s_index = s_array[closest_point_index]
+
+    if len(frames_index) < 3:
+        frames_index.append(closest_point_index)
     
     # Get the closest point
     closest_point = manip_contour[closest_point_index]
     orientation = manip.getTangent(s_array[closest_point_index])
     target_pose = [closest_point[0], closest_point[1], orientation]
 
-    return target_pose + [14, 14]
-    
+    return target_pose
+
+def getPoint(index):
+    s_array, manip_contour = manip.parametric_contour
+    manip_contour = manip_contour.T
+
+    pos = manip_contour[index]
+    orientation = manip.getTangent(s_array[index])
+    point = [pos[0], pos[1], orientation]
+
+    return point
     
 def updateContour():
     global rgb_camera, manip
@@ -185,6 +254,38 @@ def goToPoint(point, v_prev):
 
     return v_rigid, finish
 
+def bezier_curve(t, p0, p1, p2, p3):
+        return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
+
+def generatePath():
+    global manip, manip_target, traj
+
+    # Start and end points
+    start = np.array(manip.position)
+    end = np.array(manip_target.position)
+
+    # Calculate control points for smooth exit and entrance
+    exit_distance = 0.5  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.5  # Adjust this value to control the "smoothness" of the entrance
+
+    p0 = start
+    p1 = start + exit_distance * np.array([np.cos(manip.theta), np.sin(manip.theta)])
+    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta - np.pi/2), np.sin(manip_target.theta - np.pi/2)])
+    p3 = end
+
+    # Generate path points
+    num_points = 100  # Adjust this value to control the density of points
+    points = []
+    for i in range(num_points):
+        t = i / (num_points - 1)
+        point = bezier_curve(t, p0, p1, p2, p3)
+        points.append(point.tolist())
+
+    path = np.array(points)
+    traj = splines.Trajectory(path[:,0], path[:,1])
+
+    return points
+
 def approach():
     v_prev = [0.0] * 3
 
@@ -223,46 +324,94 @@ def grasp():
         if finish:
             break
 
-# def transport():
-#     v_prev = [0.0] * 3
+def transport(date_title):
+    global c_frames, c_dot 
 
-#     target_pos = manip_target.getPoint(closest_s_index)
-#     orientation = manip_target.getTangent(closest_s_index)
-#     target_pose = target_pos + [orientation]
-
-#     while True:
-#         v_prev, finish = goToPoint(target_pose, v_prev)
-#         # print(f'Current th: {agent.theta}')
-#         # print(f'Target th: {orientation}')
-            
-#         if finish:
-#             break
-
-def transport():
-    v_prev = [0.0] * 3
+    v_r = [0.0] * 3
     finish = False
-
+# 
     rgb_camera.add_to_traj(manip.position)
 
+    directory = "Experiments/Data/Tracking/Object_transport"
+    filename = f"{directory}/velocities_{date_title}.json"
+
+    tracking_data = []
+    elapsed_time = 0
+    start_time = time.perf_counter()
+    
     while True:
         if closeToGoal(manip.pose, manip_target.pose) or rgb_camera.finish:
-            v_rigid = [0.0] * 3
+            v_r = np.array([0.0] * 3)
             finish = True
         else:
-            v_object, q = simple_control(manip.pose, manip_target.pose)
-            manip.pose =  q
+            v_o, q = simple_control(manip.pose, manip_target.pose)
+            if simulation:
+                manip.pose = q
             rgb_camera.add_to_traj(manip.position)
-            print(v_object)
+            print(f'V_o: {v_o}')
+
+            v_c = cp_velocities(v_o)
+            print(f'V_c: {v_c}')
+
+            v_c_list = [v_c[3*i:3*i+3].tolist() for i in range(int(len(v_c)/3))]
+            c_dot_new = []
+
+            for c_i, v_c_i in zip(c_frames, v_c_list):
+                J = np.array([[np.cos(c_i[-1]), -np.sin(c_i[-1]), 0],
+                              [np.sin(c_i[-1]), np.cos(c_i[-1]), 0],
+                              [0, 0, 1]])
+                
+                c_i_dot = J.dot(v_c_i)
+                c_dot_new.append(c_i_dot.tolist())
+
+            c_dot = c_dot_new
+
+            v_r = robot_velocities(v_c)
+            print(f'V_r: {v_r}')
+
+            current_time = time.perf_counter()
+            elapsed_time = current_time - start_time
+
+            tracking_data.append({'time': elapsed_time,
+                                  'v_o': v_o.tolist(),
+                                  'v_c': v_c.tolist(),
+                                  'v_r': v_r.tolist()})
+
+        v = v_r.tolist() + [0.0] * 2
+        agent_controller.move(agent, v, [0, 0])
 
         if finish:
             break
 
+    # Prepare data to be written
+    data_json = {
+        "metadata": {
+            "description": "Object manipulation",
+            "date": date_title
+        },
+        "tracking": tracking_data
+    }
+
+    # Write data to JSON file
+    with open(filename, 'w') as f:
+        json.dump(data_json, f, indent=2)
+
+    print(f"Velocities written to {filename}")
+
+def map_to_pi_range(angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
     
 def simple_control(current, target):
     q = np.array(current)
-    q_t = np.array(target)
+    q_t = np.array(target)    
 
-    coef = 0.1
+    q[-1] = map_to_pi_range(q[-1])
+    q_t[-1] = map_to_pi_range(q_t[-1])
+
+    print(f'Current angle: {q[-1]}')
+    print(f'Target angle: {q_t[-1]}')
+
+    coef = 0.075
     q_tilda = (q_t - q) * coef
 
     rot = np.array([[np.cos(q[2]), -np.sin(q[2]), 0],
@@ -275,6 +424,74 @@ def simple_control(current, target):
     q_new = q + q_dot * gv.DT
 
     return v, q_new
+
+def cp_velocities(v_o):
+    global c_frames
+
+    rot_ow = np.array([[np.cos(-manip.theta), -np.sin(-manip.theta)],
+                       [np.sin(-manip.theta), np.cos(-manip.theta)]])
+    # B_c = np.array([[1, 0], [0, 1], [0, 0]])
+    B_c = np.identity(3)
+    G_T_list = []
+    v_c = None
+
+    for c_i in c_frames:
+        dist = np.array([c_i[0] - manip.x, c_i[1] - manip.y]).reshape(2,1)
+        
+        pos = rot_ow.dot(dist)
+        theta = c_i[2] - manip.theta
+
+        rot_oc = np.array([[np.cos(theta), -np.sin(theta)],
+                           [np.sin(theta), np.cos(theta)]])
+        
+        Ad_oc_inv = np.block([[rot_oc.T, rot_oc.T.dot(np.array([[-pos[1,0]], [pos[0,0]]]))], 
+                              [np.zeros((1, 2)), 1]])
+        
+        G_T_i = B_c.T.dot(Ad_oc_inv)
+        G_T_list.append(G_T_i)
+
+    if G_T_list:
+        G_T = np.vstack(G_T_list)
+        v_c = G_T.dot(v_o)
+
+    return v_c
+
+def robot_velocities(v_c):
+    global c_frames
+
+    rot_rw = np.array([[np.cos(-agent.theta), -np.sin(-agent.theta)],
+                       [np.sin(-agent.theta), np.cos(-agent.theta)]])
+    # B_c = np.array([[1, 0], [0, 1], [0, 0]])
+    B_c = np.identity(3)
+    G_list = []
+    v_r = None
+
+    for c_i in c_frames:
+        dist = np.array([c_i[0] - agent.x, c_i[1] - agent.y]).reshape(2,1)
+        
+        pos = rot_rw.dot(dist)
+        theta = c_i[2] - agent.theta
+
+        rot_rc = np.array([[np.cos(theta), -np.sin(theta)],
+                           [np.sin(theta), np.cos(theta)]])
+
+        # rot_rc = np.array([[0, 0],
+        #                    [np.sin(theta), np.cos(theta)]])
+        
+        Ad_rc_inv_T = np.block([[rot_rc, np.zeros((2, 1))], 
+                                [np.array([[-pos[1,0], pos[0,0]]]).dot(rot_rc), 1]])
+        
+        G_i = Ad_rc_inv_T.dot(B_c)
+        G_list.append(G_i)
+
+    if G_list:
+        G = np.block(G_list)
+        v_r = G.dot(v_c)
+
+    # Amplify the rotation
+    # v_r[-1] *= 50
+
+    return v_r
 
 
 def release():
@@ -299,7 +516,8 @@ if __name__ == "__main__":
     while not agent or not manip:
         pass
 
-    target_manip_pose = target_manip_pos + [manip.theta-np.pi/4]
+    # target_manip_pose = target_manip_pos + [manip.theta-np.pi/4]
+    target_manip_pose = target_manip_pos + [manip.theta]
     manip_target = manipulandum.Shape(2, target_manip_pose, cheescake_contour)
     # ---------------------------------------------------------------
 
@@ -313,12 +531,14 @@ if __name__ == "__main__":
 
     print('Video started')
     print()
+
+    rgb_camera.path = generatePath()
     # ---------------------------------------------------------------
 
     # ------------------------- Execute task ------------------------
     # approach()
     # grasp()
-    transport()
+    transport(date_title)
     release()
     goHome()
 
