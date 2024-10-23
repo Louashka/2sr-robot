@@ -191,7 +191,8 @@ class Trajectory:
         
         yaw_list = []
         for i in range(len(traj_x)):
-            yaw = self.getSlopeAngle(i) - np.pi/2
+            # yaw = self.getSlopeAngle(i) - np.pi/2
+            yaw = self.getSlopeAngle(i)
             yaw_list.append(yaw)
 
         self.yaw = np.unwrap(np.array(yaw_list)).tolist()

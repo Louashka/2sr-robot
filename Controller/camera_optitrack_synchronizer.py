@@ -94,7 +94,7 @@ class Aligner:
                 self.circle_shape = circles
             if self.circle_shape is not None:
                 for (x, y, r) in self.circle_shape:
-                    cv2.circle(undistorted_frame, (x, y), r, (255, 217, 4), 2)
+                    cv2.circle(undistorted_frame, (x, y), r, (51, 87, 255), 2)
                     cheescake_pos = (x, y)
                     cheescake_r = r
 
@@ -133,25 +133,30 @@ class Aligner:
                 
                 path = np.array(points).reshape((-1, 1, 2))
                 cv2.polylines(undistorted_frame, [path], False, (255, 217, 4), 1)
+
+            for p in self.object_trajectory:
+                pos, _ = self.globalToImage(*p, mean_z)
+                cv2.circle(undistorted_frame, pos, 2, (51, 87, 255), -1)
+
             
-            if self.current_config is not None:
-                seg1 = self.__arc(self.current_config, mean_z, 1)
-                seg2 = self.__arc(self.current_config, mean_z, 2)
+            # if self.current_config is not None:
+            #     seg1 = self.__arc(self.current_config, mean_z, 1)
+            #     seg2 = self.__arc(self.current_config, mean_z, 2)
 
-                cv2.polylines(undistorted_frame, [seg1], False, (255, 217, 4), 2)
-                cv2.polylines(undistorted_frame, [seg2], False, (255, 217, 4), 2)
+            #     cv2.polylines(undistorted_frame, [seg1], False, (255, 217, 4), 2)
+            #     cv2.polylines(undistorted_frame, [seg2], False, (255, 217, 4), 2)
 
-            if self.contact_point is not None:
-                cp_image, _ = self.globalToImage(*self.contact_point, mean_z)
-                cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
+            # if self.contact_point is not None:
+            #     cp_image, _ = self.globalToImage(*self.contact_point, mean_z)
+            #     cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
 
             if self.manip_target_pos is not None:
                 (x, y), _ = self.globalToImage(*self.manip_target_pos, mean_z)
-                cv2.circle(undistorted_frame, (x, y), cheescake_r, (51, 87, 255), 2)
+                cv2.circle(undistorted_frame, (x, y), cheescake_r, (255, 217, 4), 2)
 
-            if self.target_contact_point is not None:
-                cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
-                cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
+            # if self.target_contact_point is not None:
+            #     cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
+            #     cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
 
             # for i in range(len(self.object_trajectory)):
                 # (x, y), _ = self.globalToImage(*self.object_trajectory[i], mean_z)
@@ -159,12 +164,12 @@ class Aligner:
 
             if self.object_center is not None:
                 (x, y), _ = self.globalToImage(*self.object_center, mean_z)
-                cv2.circle(undistorted_frame, (x, y), 3, (255, 217, 4), -1)
+                cv2.circle(undistorted_frame, (x, y), 3, (51, 87, 255), -1)
 
             if len(self.contact_points) == len(self.c_dot):
                 for cp, c_dot_i in zip(self.contact_points, self.c_dot):
                     (x, y), _ = self.globalToImage(*cp[:-1], mean_z)
-                    cv2.circle(undistorted_frame, (x, y), 3, (0, 255, 0), -1)
+                    cv2.circle(undistorted_frame, (x, y), 3, (255, 0, 255), -1)
 
                     # Draw vectors for contact points
                     # Calculate end point of the vector
@@ -179,7 +184,7 @@ class Aligner:
                     (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
                     
                     # Draw the vector
-                    cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), (0, 0, 255), 2)
+                    cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), (255, 0, 255), 2)
 
                 
 

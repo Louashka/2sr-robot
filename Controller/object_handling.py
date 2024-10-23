@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import time
 import json
+import cvxpy
 
 mocap = motive_client.MocapReader()
 rgb_camera = cos.Aligner()
@@ -29,7 +30,10 @@ manip_target: manipulandum.Shape = None
 
 # target_manip_pos = [0.25, 1.04]
 # target_manip_pos = [-0.1345, 1.04]
-target_manip_pos = [0.27, 0.826]
+# target_manip_pos = [0.27, 0.826]
+# target_manip_pos = [-0.385, 0.723]
+# target_manip_pos = [0.149, 0.84]
+target_manip_pos = [-0.415, -0.3]
 traj = None
 closest_s_index = None
 
@@ -39,7 +43,21 @@ c_frames = []
 c_dot = []
 frames_index = []
 
-simulation = True
+simulation = False
+
+T = 20
+NX = 3
+NU = 3
+
+# mpc parameters
+R = np.diag([10000, 1, 0.003])  # input cost matrix
+Q = np.diag([10, 10, 0.0])  # cost matrix
+Qf = Q # final matrix
+Rd = np.diag([10, 10000, 0.001])
+
+sp = None
+TARGET_SPEED = 0.05
+lookahead_distance = 0.03
 
 def extractManipShape(path) -> list:
     contour_df = pd.read_csv(path)
@@ -214,11 +232,14 @@ def closeToGoal(current, target):
     theta_difference = abs(current[2] - target[2])
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.02  # 5 cm
+    distance_threshold = 0.037  # 5 cm
     theta_threshold = 0.1  # about 5.7 degrees
     
     # Check if both position and orientation are within thresholds
-    if distance > distance_threshold or theta_difference > theta_threshold:
+    # if distance > distance_threshold or theta_difference > theta_threshold:
+    #     status = False
+
+    if distance > distance_threshold:
         status = False
     
     print(f"Distance to goal: {distance:.3f} m")
@@ -265,12 +286,14 @@ def generatePath():
     end = np.array(manip_target.position)
 
     # Calculate control points for smooth exit and entrance
-    exit_distance = 0.5  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.5  # Adjust this value to control the "smoothness" of the entrance
+    exit_distance = 0.55  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.55  # Adjust this value to control the "smoothness" of the entrance
 
     p0 = start
     p1 = start + exit_distance * np.array([np.cos(manip.theta), np.sin(manip.theta)])
-    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta - np.pi/2), np.sin(manip_target.theta - np.pi/2)])
+    # p2 = end - entrance_distance * np.array([np.cos(manip_target.theta - np.pi/2), np.sin(manip_target.theta - np.pi/2)])
+    # p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + np.pi/3), np.sin(manip_target.theta + np.pi/3)])
+    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + 7 * np.pi/8), np.sin(manip_target.theta + 7 * np.pi/8)])
     p3 = end
 
     # Generate path points
@@ -325,9 +348,10 @@ def grasp():
             break
 
 def transport(date_title):
-    global c_frames, c_dot 
+    global c_frames, c_dot, sp
 
     v_r = [0.0] * 3
+    v_o = [0.0] * 3
     finish = False
 # 
     rgb_camera.add_to_traj(manip.position)
@@ -344,11 +368,25 @@ def transport(date_title):
             v_r = np.array([0.0] * 3)
             finish = True
         else:
-            v_o, q = simple_control(manip.pose, manip_target.pose)
+            # v_o, q = simple_control(manip.pose, manip_target.pose)
+
+            cx, cy, cyaw, s = traj.params
+
+            if sp is None:
+                sp = []
+                for i in range(1, len(cx)):
+                    sp.append(TARGET_SPEED * (1 - traj.curvature[i]/(max(traj.curvature) + 5)))
+                sp.append(0)
+
+            target_ind = traj.getTarget(manip.position, lookahead_distance)
+            qref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, target_ind, v_o[1]) 
+
+            v_o, q = mpc(qref, vref)
+            print(f'V_o: {v_o}')
+            
             if simulation:
                 manip.pose = q
             rgb_camera.add_to_traj(manip.position)
-            print(f'V_o: {v_o}')
 
             v_c = cp_velocities(v_o)
             print(f'V_c: {v_c}')
@@ -373,7 +411,7 @@ def transport(date_title):
             elapsed_time = current_time - start_time
 
             tracking_data.append({'time': elapsed_time,
-                                  'v_o': v_o.tolist(),
+                                  'v_o': v_o,
                                   'v_c': v_c.tolist(),
                                   'v_r': v_r.tolist()})
 
@@ -393,10 +431,11 @@ def transport(date_title):
     }
 
     # Write data to JSON file
-    with open(filename, 'w') as f:
-        json.dump(data_json, f, indent=2)
+    if not simulation:
+        with open(filename, 'w') as f:
+            json.dump(data_json, f, indent=2)
 
-    print(f"Velocities written to {filename}")
+        print(f"Velocities written to {filename}")
 
 def map_to_pi_range(angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -463,20 +502,18 @@ def robot_velocities(v_c):
                        [np.sin(-agent.theta), np.cos(-agent.theta)]])
     # B_c = np.array([[1, 0], [0, 1], [0, 0]])
     B_c = np.identity(3)
+    angles_offset = [0, -np.pi/2, np.pi/2]
     G_list = []
     v_r = None
 
-    for c_i in c_frames:
+    for c_i, angle_offset in zip(c_frames, angles_offset):
         dist = np.array([c_i[0] - agent.x, c_i[1] - agent.y]).reshape(2,1)
         
         pos = rot_rw.dot(dist)
-        theta = c_i[2] - agent.theta
+        theta = c_i[2] - agent.theta + angle_offset
 
         rot_rc = np.array([[np.cos(theta), -np.sin(theta)],
                            [np.sin(theta), np.cos(theta)]])
-
-        # rot_rc = np.array([[0, 0],
-        #                    [np.sin(theta), np.cos(theta)]])
         
         Ad_rc_inv_T = np.block([[rot_rc, np.zeros((2, 1))], 
                                 [np.array([[-pos[1,0], pos[0,0]]]).dot(rot_rc), 1]])
@@ -488,11 +525,90 @@ def robot_velocities(v_c):
         G = np.block(G_list)
         v_r = G.dot(v_c)
 
-    # Amplify the rotation
-    # v_r[-1] *= 50
-
     return v_r
 
+def calc_ref_trajectory(cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
+    qref = np.zeros((NX, T + 1))
+    vref = np.zeros((1, T + 1))
+    ncourse = len(cx)
+
+    qref[0, 0] = cx[ind]
+    qref[1, 0] = cy[ind]
+    qref[2, 0] = cyaw[ind]
+    vref[0, 0] = sp[ind]
+    travel = 0.0
+
+    for i in range(1, T + 1):
+        travel += abs(v) * gv.DT
+        dind = int(round(travel / lookahead_distance))
+        if (ind + dind) < ncourse:
+            qref[0, i] = cx[ind + dind]
+            qref[1, i] = cy[ind + dind]
+            qref[2, i] = cyaw[ind + dind]
+            vref[0, i] = sp[ind + dind]
+        else:
+            qref[0, i] = cx[ncourse - 1]
+            qref[1, i] = cy[ncourse - 1]
+            qref[2, i] = cyaw[ncourse - 1]
+            vref[0, i] = sp[ncourse - 1]
+
+    return qref, vref
+
+def mpc(qref, vref):
+    q = cvxpy.Variable((NX, T + 1))
+    u = cvxpy.Variable((NU, T))
+
+    cost = 0.0
+    constraints = []
+
+    constraints += [q[:, 0] == manip.pose - qref[:,0]]  
+
+    for t in range(T):
+        cost += cvxpy.quad_form(u[:, t], R)
+        if t != 0:
+            cost += cvxpy.quad_form(q[:, t], Q)        
+        A, B = get_linear_model_matrix(vref[0, t], qref[2, t])  
+
+        constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  
+
+    cost += cvxpy.quad_form(q[:, T], Qf)  
+    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
+    prob.solve(solver=cvxpy.ECOS_BB, verbose=False)
+
+    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
+        vx = u.value[0, 0] + vref[0, 1]
+        vy = u.value[1, 0]
+        omega = u.value[2, 0]
+
+        rot = np.array([[np.cos(manip.theta), -np.sin(manip.theta), 0],
+                        [np.sin(manip.theta), np.cos(manip.theta), 0],
+                        [0, 0, 1]])
+
+        q_dot = rot.dot([vx, vy, omega])
+        q_new = np.array(manip.pose) + q_dot * gv.DT
+    else:
+        print("Error: Cannot solve mpc..")
+        vx, vy, omega = None, None, None
+        q_new = None
+
+    return [vx, vy, omega], q_new
+
+def get_linear_model_matrix(vref, phi):
+    A = np.zeros((NX, NX))
+    A[0, 0] = 1.0
+    A[0, 2] = -vref * np.sin(phi) * gv.DT
+    A[1, 1] = 1.0
+    A[1, 2] = vref * np.cos(phi) * gv.DT
+    A[2, 2] = 1.0
+
+    B = np.zeros((NX, NU))
+    B[0, 0] = gv.DT * np.cos(phi)
+    B[0, 1] = -gv.DT * np.sin(phi)
+    B[1, 0] = gv.DT * np.sin(phi)
+    B[1, 1] = gv.DT * np.cos(phi)
+    B[2, 2] = gv.DT
+
+    return A, B
 
 def release():
     pass

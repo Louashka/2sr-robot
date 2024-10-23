@@ -179,10 +179,10 @@ def process():
 
     print(f"Detected {len(contours)} red dots")
 
-    # cv2.circle(snapshot, image_points[10], 2, (0, 255, 0), 2)
+    # cv2.circle(snapshot, red_dots[10], 2, (0, 255, 0), 2)
 
-    id_order = ['0.50262', '0.50152', '0.50108', '2.2', '0.50236', '2.3',
-                '2.1', '0.50237', '0.50249', '1.1', '1.2', '1.3']
+    id_order = ['2.2', '0.50001', '2.3', '2.1', '0.50002', '0.50005',
+                '0.50006', '0.50007', '0.50008', '1.1', '1.2', '1.3']
     
     object_points = []
     image_points = []
