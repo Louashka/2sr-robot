@@ -53,8 +53,8 @@ class Shape(Frame):
 
             points.append([x, y])
 
-        geom_centre = self.geomCentre(points)
-        default_contour = np.array(points).T - np.array([geom_centre]).T
+        # geom_centre = self.geomCentre(points)
+        default_contour = np.array(points).T 
 
         perimeter = self.__calcPerimeter(points)
 

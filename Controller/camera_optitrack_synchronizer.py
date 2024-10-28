@@ -3,8 +3,20 @@ import numpy as np
 import cv2
 import threading
 import time
-
+from scipy.interpolate import splprep, splev
+from enum import Enum
 from Model import global_var as gv
+
+neon_red = (51, 87, 255)
+neon_blue = (255, 217, 4)
+neon_yellow = (31, 240, 255)
+yellow = (28, 188, 244)
+neon_orange = (8, 178, 249)
+
+class Shape(Enum):
+    CIRCLE = 1
+    ELLIPSE = 2
+    OTHER = 3
 
 class Aligner:
     def __init__(self) -> None:
@@ -14,20 +26,16 @@ class Aligner:
         self.wait_video = False
         self.finish = False
 
-        self.config_list = []
+        self.current_shape = Shape.OTHER
+        self.detected_object_contour = None
         
-        self.current_config = None
         self.markers = None
-        self.circle_shape = None
-        self.cheescake_contour = None
-        self.contact_point = None
-        self.manip_target_pos = None
-        self.target_contact_point = None
-        self.object_trajectory = []
 
-        self.object_center = None
-        self.contact_points = []
-        self.c_dot = []
+        self.contour = None
+        self.manip_center = None
+
+        self.manip_target_contour = None
+        self.manip_trajectory = []
 
         self.path = None
 
@@ -41,29 +49,21 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def add_config(self, config) -> None:
-        self.config_list.append(config)
-
     def add_to_traj(self, pose) -> None:
-        self.object_trajectory.append(pose)
-    
-    # def startVideo(self, config_target: list, config0, date_title):
-    #     self.config_list.append(config0)
-    #     thread = threading.Thread(target=self.__run, args=(config_target, date_title))
-    #     thread.start()
+        self.manip_trajectory.append(pose)
 
     def startVideo(self, date_title: str, task: str, args=[]):
         if task == 'soft_modes':
             config_target, config0 = args
             self.config_list.append(config0)
-            thread = threading.Thread(target=self.__run, args=(config_target, date_title))
+            thread = threading.Thread(target=self.__run_old, args=(config_target, date_title))
             thread.start()
         elif task == 'object_handling':
-            thread = threading.Thread(target=self.__runOH, args=(date_title,))
+            thread = threading.Thread(target=self.__run, args=(date_title,))
             thread.start()
 
-    def __runOH(self, date_title: str):
-        video_path_rgb = f'Experiments/Video/Grasping/grasp_{date_title}.mp4'
+    def __run(self, date_title: str):
+        video_path_rgb = f'Experiments/Video/Grasping/transport_heart_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
@@ -72,9 +72,6 @@ class Aligner:
         # set the resolution to 1280x720
         cap_rgb.set(3, 1280)
         cap_rgb.set(4, 720)
-
-        cheescake_pos = (0, 0)
-        cheescake_r = 0
 
         start_timer = False
         time_start = time.perf_counter()
@@ -87,105 +84,59 @@ class Aligner:
             self.new_camera_matrix, _ = cv2.getOptimalNewCameraMatrix(self.camera_matrix, self.dist, (w,h), 1, (w,h))
             undistorted_frame = cv2.undistort(frame, self.camera_matrix, self.dist, None, self.new_camera_matrix)
 
-            gray = cv2.cvtColor(undistorted_frame, cv2.COLOR_BGR2GRAY)
-            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1.2, 100)
-            if circles is not None:
-                circles = np.round(circles[0, :]).astype("int")
-                self.circle_shape = circles
-            if self.circle_shape is not None:
-                for (x, y, r) in self.circle_shape:
-                    cv2.circle(undistorted_frame, (x, y), r, (51, 87, 255), 2)
-                    cheescake_pos = (x, y)
-                    cheescake_r = r
-
             mean_z = 0
-            # cheescake_depth = 0
 
             if self.markers is not None:
                 z_values = [marker['marker_z'] for marker in self.markers.values()]
                 if len(z_values) != 0:
                     mean_z = sum(z_values) / len(z_values)
 
-                # depth_list = []
+                depth_list = []
 
-                # for marker in self.markers.values():
-                #     image_point, depth = self.globalToImage(marker['marker_x'], marker['marker_y'], marker['marker_z'])
-                    # depth_list.append(depth)
-                    # Draw the point on the image
-                    # cv2.circle(undistorted_frame, image_point, 3, (0, 0, 255), -1)
+                for marker in self.markers.values():
+                    _, depth = self.globalToImage(marker['marker_x'], marker['marker_y'], marker['marker_z'])
+                    depth_list.append(depth)
 
-                # cheescake_depth = sum(depth_list) / len(depth_list)
-
-                # self.cheescake_pos_global = self.imageToGlobal(cheescake_pos, cheescake_depth)
-                # self.cheescake_contour = []
-
-                # theta = np.linspace(0, 2*np.pi, 30)
-                # cheescake_x = cheescake_pos[0] + cheescake_r * np.cos(theta)
-                # cheescake_y = cheescake_pos[1] + cheescake_r * np.sin(theta)
-
-                # for x, y in zip(cheescake_x, cheescake_y):
-                #     self.cheescake_contour.append(self.imageToGlobal((x, y), cheescake_depth))
-
+                depth = sum(depth_list) / len(depth_list)
+                # self.detect_shape(undistorted_frame, depth)
+                
+            
             if self.path is not None:
                 points = []
                 for p in self.path:
                     points.append(self.globalToImage(*p, mean_z)[0])
                 
                 path = np.array(points).reshape((-1, 1, 2))
-                cv2.polylines(undistorted_frame, [path], False, (255, 217, 4), 1)
-
-            for p in self.object_trajectory:
-                pos, _ = self.globalToImage(*p, mean_z)
-                cv2.circle(undistorted_frame, pos, 2, (51, 87, 255), -1)
-
+                cv2.polylines(undistorted_frame, [path], False, neon_blue, 1)
             
-            # if self.current_config is not None:
-            #     seg1 = self.__arc(self.current_config, mean_z, 1)
-            #     seg2 = self.__arc(self.current_config, mean_z, 2)
+            contour_points = []
+            if self.contour is not None:
+                for i in range(self.contour.shape[1]):
+                    p, _ = self.globalToImage(*self.contour[:,i], mean_z)
+                    contour_points.append(p)
+            contour_array = np.array(contour_points).reshape((-1, 1, 2))
+            cv2.polylines(undistorted_frame, [contour_array], True, neon_blue, 2)
 
-            #     cv2.polylines(undistorted_frame, [seg1], False, (255, 217, 4), 2)
-            #     cv2.polylines(undistorted_frame, [seg2], False, (255, 217, 4), 2)
+            tracked_points = []
+            for p in self.manip_trajectory:
+                pos, _ = self.globalToImage(*p, mean_z)
+                tracked_points.append(pos)
+                # cv2.circle(undistorted_frame, pos, 2, neon_red, -1)
 
-            # if self.contact_point is not None:
-            #     cp_image, _ = self.globalToImage(*self.contact_point, mean_z)
-            #     cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
+            tracked_traj = np.array(tracked_points).reshape((-1, 1, 2))
+            cv2.polylines(undistorted_frame, [tracked_traj], False, neon_orange, 2)
 
-            if self.manip_target_pos is not None:
-                (x, y), _ = self.globalToImage(*self.manip_target_pos, mean_z)
-                cv2.circle(undistorted_frame, (x, y), cheescake_r, (255, 217, 4), 2)
+            if self.manip_center is not None:
+                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
+                cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)
 
-            # if self.target_contact_point is not None:
-            #     cp_image, _ = self.globalToImage(*self.target_contact_point, mean_z)
-            #     cv2.circle(undistorted_frame, cp_image, 3, (0, 255, 0), -1)
-
-            # for i in range(len(self.object_trajectory)):
-                # (x, y), _ = self.globalToImage(*self.object_trajectory[i], mean_z)
-                # cv2.circle(undistorted_frame, (x, y), 3, (49, 49, 255), -1)
-
-            if self.object_center is not None:
-                (x, y), _ = self.globalToImage(*self.object_center, mean_z)
-                cv2.circle(undistorted_frame, (x, y), 3, (51, 87, 255), -1)
-
-            if len(self.contact_points) == len(self.c_dot):
-                for cp, c_dot_i in zip(self.contact_points, self.c_dot):
-                    (x, y), _ = self.globalToImage(*cp[:-1], mean_z)
-                    cv2.circle(undistorted_frame, (x, y), 3, (255, 0, 255), -1)
-
-                    # Draw vectors for contact points
-                    # Calculate end point of the vector
-                    # vector_length = 0.08  # Adjust this value to change the length of the vector
-                    # end_x_global = cp[0] + vector_length * np.cos(cp[2])
-                    # end_y_global = cp[1] + vector_length * np.sin(cp[2])
-
-                    dt = 3
-                    end_x_global = cp[0] + c_dot_i[0] * dt
-                    end_y_global = cp[1] + c_dot_i[1] * dt
-
-                    (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
-                    
-                    # Draw the vector
-                    cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), (255, 0, 255), 2)
-
+            target_contour_points = []
+            if self.manip_target_contour is not None:
+                for i in range(self.manip_target_contour.shape[1]):
+                    p, _ = self.globalToImage(*self.manip_target_contour[:,i], mean_z)
+                    target_contour_points.append(p)
+            target_contour_array = np.array(target_contour_points).reshape((-1, 1, 2))
+            cv2.polylines(undistorted_frame, [target_contour_array], True, neon_blue, 2)
                 
 
             # Crop undistorted_frame from all sides
@@ -215,9 +166,75 @@ class Aligner:
         out.release()
 
         cv2.destroyAllWindows()
+    
+    def detect_shape(self, frame, depth):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+
+        edges = cv2.Canny(blurred, 50, 200)
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if contours:
+            largest_contour = max(contours, key=cv2.contourArea)
+            largest_contour = largest_contour.reshape(-1, 1, 2)
+
+            curve_points = []
+
+            if self.current_shape == Shape.CIRCLE and len(largest_contour) >= 5:
+                # Fit a circle to the largest contour
+                center, radius = cv2.minEnclosingCircle(largest_contour)
+                # Draw the circle on the frame
+                cv2.circle(frame, center, int(radius), (0, 255, 0), 2)  
+
+                theta = np.linspace(0, 2 * np.pi, 50)
+                circle_points = np.array([center[0] + radius * np.cos(theta), 
+                                          center[1] + radius * np.sin(theta)]).T
+                curve_points.extend(circle_points.reshape((-1, 1, 2)).astype(np.int32))
+
+            if self.current_shape == Shape.ELLIPSE and len(largest_contour) >= 5:  
+                ellipse = cv2.fitEllipse(largest_contour)
+                cv2.ellipse(frame, ellipse, (0, 255, 0), 2)  
+
+                center = ellipse[0] 
+                a = ellipse[1][0] / 2
+                b = ellipse[1][1] / 2
+                angle = np.radians(ellipse[2])
+
+                theta = np.linspace(0, 2 * np.pi, 50)
+                ellipse_points = np.array([center[0] + a * np.cos(theta) * np.cos(angle) - b * np.sin(theta) * np.sin(angle),
+                                           center[1] + a * np.cos(theta) * np.sin(angle) + b * np.sin(theta) * np.cos(angle)]).T
+                curve_points = np.round(ellipse_points.reshape((-1, 1, 2))).astype(np.int32)
+
+            if self.current_shape == Shape.OTHER:
+                # Draw the contour on the frame
+                cv2.drawContours(frame, [largest_contour], 0, (0, 255, 0), 2)
+
+                # Create a smooth curve from the largest contour using spline interpolation
+                contour_points = largest_contour[:, 0, :]  # Extract points from the contour
+                tck, u = splprep(contour_points.T, s=48)  # Spline representation
+                smooth_points = np.array(splev(np.linspace(0, 1, 110), tck)).T  # Evaluate spline
+
+                # Draw the smooth curve on the frame
+                curve_points = smooth_points.reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(frame, [curve_points], isClosed=True, color=(0, 255, 0), thickness=2)
+
+            self.detected_object_contour = []
+            
+            for point in curve_points:
+                x, y = point[0][0], point[0][1]
+                self.detected_object_contour.append(self.imageToGlobal((x, y), depth))
+
+            window = 5  # Define the window size
+            if len(self.detected_object_contour) >= window:
+                self.detected_object_contour = [
+                    np.mean(self.detected_object_contour[i - window // 2:i + window // 2 + 1], axis=0).tolist()
+                    for i in range(window // 2, len(self.detected_object_contour) - window // 2)
+                ]
+
+            
 
         
-    def __run(self, config_target: list, date_title: str):
+    def __run_old(self, config_target: list, date_title: str):
         video_path_rgb = f'Experiments/Video/Tracking/SM2/sm2_rgb_{date_title}.mp4'
         video_path_thermal = f'Experiments/Video/Tracking/SM2/sm2_thermal_{date_title}.mp4'
 

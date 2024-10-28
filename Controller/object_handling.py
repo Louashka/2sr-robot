@@ -24,17 +24,22 @@ markers = None
 agent: rsr.Robot = None
 agent_controller = rsr_ctrl.Controller()
 
-cheescake_contour = None
+contour = None
 manip: manipulandum.Shape = None
 manip_target: manipulandum.Shape = None
+
+cheescake_targets = [[[0.270,  0.826], -np.pi/2],
+                     [[-0.385, 0.723], np.pi/3],
+                     [[0.149,  0.840], -np.pi/6]]
+target_i = 2
 
 # target_manip_pos = [0.25, 1.04]
 # target_manip_pos = [-0.1345, 1.04]
 # target_manip_pos = [0.27, 0.826]
 # target_manip_pos = [-0.385, 0.723]
 # target_manip_pos = [0.149, 0.84]
-target_manip_pos = [-0.415, -0.3]
-traj = None
+# target_manip_pos = [-0.415, -0.3]
+traj: splines.Trajectory = None
 closest_s_index = None
 
 s_frames = []
@@ -42,22 +47,24 @@ c_frames = []
 
 c_dot = []
 frames_index = []
+cp_object_s = [0] * 3
 
-simulation = False
+simulation = True
+# simulation = False
 
 T = 20
 NX = 3
 NU = 3
 
 # mpc parameters
-R = np.diag([10000, 1, 0.003])  # input cost matrix
+R = np.diag([10000, 1, 0.0028])  # input cost matrix
 Q = np.diag([10, 10, 0.0])  # cost matrix
 Qf = Q # final matrix
 Rd = np.diag([10, 10000, 0.001])
 
 sp = None
-TARGET_SPEED = 0.05
-lookahead_distance = 0.03
+TARGET_SPEED = 0.053
+lookahead_distance = 0.04
 
 def extractManipShape(path) -> list:
     contour_df = pd.read_csv(path)
@@ -85,7 +92,6 @@ def updateConfig():
         agent.tail.pose = agent_config['tail']
 
         # print(f'Agent\'s pose: {agent.pose}')
-
         
         manip_pose = [manip_config['x'], manip_config['y'], manip_config['theta']]
         if manip:
@@ -96,27 +102,21 @@ def updateConfig():
             else:
                 pass
         else:
-            manip = manipulandum.Shape(manip_config['id'], manip_pose, cheescake_contour)
+            manip = manipulandum.Shape(manip_config['id'], manip_pose, contour)
         # print(f'Manip\'s pose: {manip.pose}')
     else:
         print('Agent and/or manipulandum is not detected! ' + msg)
 
 def updateConfigLoop():
-    global rgb_camera, agent, markers, s_frames, c_frames, frames_index
+    global rgb_camera, agent, markers, s_frames, c_frames, frames_index, cp_object_s
 
     while True:
         updateConfig()
         if rgb_camera is not None and agent is not None and manip_target is not None:
-            rgb_camera.current_config = agent.config
             rgb_camera.markers = markers
-
-            # nearest_point = getNearestPoint(agent.position)
-            # rgb_camera.contact_point = nearest_point[:2]
-            rgb_camera.manip_target_pos = manip_target.position
-            # rgb_camera.target_contact_point = manip_target.getPoint(closest_s_index)
-            
-            rgb_camera.object_center = manip.position
-
+            rgb_camera.manip_center = manip.pose
+            rgb_camera.manip_target_contour = manip_target.contour
+        
             s_frames = [arc_endpoints(), agent.pose, arc_endpoints(2)]
 
             if simulation:
@@ -125,10 +125,15 @@ def updateConfigLoop():
                 else:
                     c_frames = [getNearestPoint(s_frame[:-1]) for s_frame in s_frames]
             else:
-                c_frames = [getNearestPoint(s_frame[:-1]) for s_frame in s_frames]
-            rgb_camera.contact_points = c_frames
+                frames = [0] * 3
+                for i in range(3):
+                    frames[i] = getNearestPoint(s_frames[i][:-1])
+                    cp_object_s[i] = closest_s_index
+                c_frames = frames
+            
+            # rgb_camera.contact_points = c_frames
 
-            rgb_camera.c_dot = c_dot
+            # rgb_camera.c_dot = c_dot
 
 def arc_endpoints(seg=1):
     global agent
@@ -192,12 +197,12 @@ def getPoint(index):
 def updateContour():
     global rgb_camera, manip
     # Convert cheescake_contour to phase angles and radiuses with respect to manip.pose
-    if rgb_camera.cheescake_contour and manip:
+    if rgb_camera.detected_object_contour is not None and manip is not None:
         manip_x, manip_y, manip_theta = manip.pose
         phase_angles = []
         radiuses = []
         
-        for point in rgb_camera.cheescake_contour:
+        for point in rgb_camera.detected_object_contour:
             # Translate the point relative to manip's position
             dx = point[0] - manip_x
             dy = point[1] - manip_y
@@ -213,14 +218,14 @@ def updateContour():
             phase_angles.append(phase_angle)
             radiuses.append(radius)
 
-        # Save phase angles and radiuses to CSV file
-        csv_file_path = 'Experiments/Data/Contours/cheescake_contour.csv'
-        # Create a DataFrame from the phase angles and radiuses
+        # Save phase angles, radiuses, and manip pose to CSV file
+        csv_file_path = 'Experiments/Data/Contours/bean_contour.csv'
+        # Create a DataFrame from the phase angles, radiuses, and manip pose
         df = pd.DataFrame({'phase_angle': phase_angles, 'radius': radiuses})
 
         # Save the DataFrame to a CSV file
         df.to_csv(csv_file_path, index=False)
-        print(f"Cheesecake contour data saved to {csv_file_path}")
+        print(f"Object contour data saved to {csv_file_path}")
 
 def closeToGoal(current, target):
     status = True
@@ -232,8 +237,8 @@ def closeToGoal(current, target):
     theta_difference = abs(current[2] - target[2])
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.037  # 5 cm
-    theta_threshold = 0.1  # about 5.7 degrees
+    distance_threshold = 0.011  
+    theta_threshold = 0.1  
     
     # Check if both position and orientation are within thresholds
     # if distance > distance_threshold or theta_difference > theta_threshold:
@@ -286,14 +291,13 @@ def generatePath():
     end = np.array(manip_target.position)
 
     # Calculate control points for smooth exit and entrance
-    exit_distance = 0.55  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.55  # Adjust this value to control the "smoothness" of the entrance
+    exit_distance = 0.85  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.85  # Adjust this value to control the "smoothness" of the entrance
 
     p0 = start
     p1 = start + exit_distance * np.array([np.cos(manip.theta), np.sin(manip.theta)])
-    # p2 = end - entrance_distance * np.array([np.cos(manip_target.theta - np.pi/2), np.sin(manip_target.theta - np.pi/2)])
-    # p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + np.pi/3), np.sin(manip_target.theta + np.pi/3)])
-    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + 7 * np.pi/8), np.sin(manip_target.theta + 7 * np.pi/8)])
+    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + cheescake_targets[target_i][1]), 
+                                             np.sin(manip_target.theta + cheescake_targets[target_i][1])])
     p3 = end
 
     # Generate path points
@@ -357,7 +361,7 @@ def transport(date_title):
     rgb_camera.add_to_traj(manip.position)
 
     directory = "Experiments/Data/Tracking/Object_transport"
-    filename = f"{directory}/velocities_{date_title}.json"
+    filename = f"{directory}/heart_{date_title}.json"
 
     tracking_data = []
     elapsed_time = 0
@@ -375,8 +379,8 @@ def transport(date_title):
             if sp is None:
                 sp = []
                 for i in range(1, len(cx)):
-                    sp.append(TARGET_SPEED * (1 - traj.curvature[i]/(max(traj.curvature) + 5)))
-                sp.append(0)
+                    sp.append(TARGET_SPEED * (1 - traj.curvature[i]/(max(traj.curvature) + 6)))
+                sp.append(2 * sp[-1]/3)
 
             target_ind = traj.getTarget(manip.position, lookahead_distance)
             qref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, target_ind, v_o[1]) 
@@ -410,10 +414,15 @@ def transport(date_title):
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
 
+            object_data = {'pose' : manip.pose,
+                           'target_velocity': v_o}
+            robot_data = {'pose' : agent.pose,
+                          'target_velocity': v_r.tolist()}
+
             tracking_data.append({'time': elapsed_time,
-                                  'v_o': v_o,
-                                  'v_c': v_c.tolist(),
-                                  'v_r': v_r.tolist()})
+                                  'object': object_data,
+                                  'robot': robot_data,
+                                  'cp': cp_object_s})
 
         v = v_r.tolist() + [0.0] * 2
         agent_controller.move(agent, v, [0, 0])
@@ -421,12 +430,20 @@ def transport(date_title):
         if finish:
             break
 
+    print()
+    print(f'Recording time: {elapsed_time} seconds')
+
+    path_data = []
+    for x, y, yaw, in zip(traj.x, traj.y, traj.yaw):
+        path_data.append({'x': x, 'y': y, 'yaw': yaw})
+
     # Prepare data to be written
     data_json = {
         "metadata": {
             "description": "Object manipulation",
             "date": date_title
         },
+        'path': path_data,
         "tracking": tracking_data
     }
 
@@ -435,7 +452,7 @@ def transport(date_title):
         with open(filename, 'w') as f:
             json.dump(data_json, f, indent=2)
 
-        print(f"Velocities written to {filename}")
+        print(f"Data written to {filename}")
 
 def map_to_pi_range(angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -620,7 +637,7 @@ def goHome():
 if __name__ == "__main__":
 
     # ------------------------ Start tracking -----------------------
-    cheescake_contour = extractManipShape('Experiments/Data/Contours/cheescake_contour.csv')
+    contour = extractManipShape('Experiments/Data/Contours/bean_contour.csv')
 
     print('Start Motive streaming....')
     mocap.startDataListener() 
@@ -632,10 +649,12 @@ if __name__ == "__main__":
     while not agent or not manip:
         pass
 
-    # target_manip_pose = target_manip_pos + [manip.theta-np.pi/4]
-    target_manip_pose = target_manip_pos + [manip.theta]
-    manip_target = manipulandum.Shape(2, target_manip_pose, cheescake_contour)
+    target_manip_pose = cheescake_targets[target_i][0] + [manip.theta]
+    manip_target = manipulandum.Shape(2, target_manip_pose, contour)
     # ---------------------------------------------------------------
+
+    rgb_camera.path = generatePath()
+    manip_target.theta = traj.yaw[-1]
 
     # ------------------------ Start a video ------------------------
     date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -647,16 +666,16 @@ if __name__ == "__main__":
 
     print('Video started')
     print()
-
-    rgb_camera.path = generatePath()
     # ---------------------------------------------------------------
 
     # ------------------------- Execute task ------------------------
     # approach()
     # grasp()
-    transport(date_title)
+    # transport(date_title)
+    rgb_camera.contour = manip.contour
     release()
     goHome()
+    # updateContour()
 
     rgb_camera.finish = True
     # ---------------------------------------------------------------
