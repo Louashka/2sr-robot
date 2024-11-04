@@ -9,6 +9,7 @@ from Model import global_var as gv
 
 neon_red = (51, 87, 255)
 neon_blue = (255, 217, 4)
+neon_green = (20, 255, 57)
 neon_yellow = (31, 240, 255)
 yellow = (28, 188, 244)
 neon_orange = (8, 178, 249)
@@ -26,7 +27,7 @@ class Aligner:
         self.wait_video = False
         self.finish = False
 
-        self.current_shape = Shape.OTHER
+        self.current_shape = Shape.ELLIPSE
         self.detected_object_contour = None
         
         self.markers = None
@@ -38,6 +39,9 @@ class Aligner:
         self.manip_trajectory = []
 
         self.path = None
+
+        self.contact_points = []
+        self.c_dot = []
 
         try:
             with open(self.file_path, "r") as json_file:
@@ -63,7 +67,7 @@ class Aligner:
             thread.start()
 
     def __run(self, date_title: str):
-        video_path_rgb = f'Experiments/Video/Grasping/transport_heart_{date_title}.mp4'
+        video_path_rgb = f'Experiments/Video/Grasping/transport_bean_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
@@ -97,7 +101,7 @@ class Aligner:
                     _, depth = self.globalToImage(marker['marker_x'], marker['marker_y'], marker['marker_z'])
                     depth_list.append(depth)
 
-                depth = sum(depth_list) / len(depth_list)
+                # depth = sum(depth_list) / len(depth_list)
                 # self.detect_shape(undistorted_frame, depth)
                 
             
@@ -124,11 +128,29 @@ class Aligner:
                 # cv2.circle(undistorted_frame, pos, 2, neon_red, -1)
 
             tracked_traj = np.array(tracked_points).reshape((-1, 1, 2))
-            cv2.polylines(undistorted_frame, [tracked_traj], False, neon_orange, 2)
+            cv2.polylines(undistorted_frame, [tracked_traj], False, neon_green, 2)
 
             if self.manip_center is not None:
                 (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
                 cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)
+
+            if self.manip_center is not None:
+                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
+                cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)
+
+            # if len(self.contact_points) == len(self.c_dot):
+            #     for cp, c_dot_i in zip(self.contact_points, self.c_dot):
+            #         (x, y), _ = self.globalToImage(*cp[:-1], mean_z)
+            #         cv2.circle(undistorted_frame, (x, y), 3, (255, 0, 255), -1)
+
+            #         dt = 3
+            #         end_x_global = cp[0] + c_dot_i[0] * dt
+            #         end_y_global = cp[1] + c_dot_i[1] * dt
+
+            #         (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+
+            #         # Draw the vector
+            #         cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), (255, 0, 255), 2)
 
             target_contour_points = []
             if self.manip_target_contour is not None:

@@ -31,14 +31,19 @@ manip_target: manipulandum.Shape = None
 cheescake_targets = [[[0.270,  0.826], -np.pi/2],
                      [[-0.385, 0.723], np.pi/3],
                      [[0.149,  0.840], -np.pi/6]]
+ellipse_targets =   [[[0.265,  0.723], np.pi/6],
+                     [[-0.421, 0.738], 0],
+                     [[-0.141, 0.723], 0]]
+heart_targets =     [[[-0.421, 0.738], 5*np.pi/6],
+                     [[0.265,  0.723], -np.pi/4],
+                     [[-0.421, 0.738], np.pi/6]]
+bean_targets =      [[[-0.421, 0.738], 2*np.pi/5],
+                     [[0.270,  0.426], -3*np.pi/4],
+                     [[-0.116, 0.838], 0]]
+
+targets = bean_targets
 target_i = 2
 
-# target_manip_pos = [0.25, 1.04]
-# target_manip_pos = [-0.1345, 1.04]
-# target_manip_pos = [0.27, 0.826]
-# target_manip_pos = [-0.385, 0.723]
-# target_manip_pos = [0.149, 0.84]
-# target_manip_pos = [-0.415, -0.3]
 traj: splines.Trajectory = None
 closest_s_index = None
 
@@ -49,21 +54,28 @@ c_dot = []
 frames_index = []
 cp_object_s = [0] * 3
 
-simulation = True
-# simulation = False
+# simulation = True
+simulation = False
 
 T = 20
 NX = 3
 NU = 3
 
+R_array = [[],
+           []]
+speed_array = [0.053, 0.06, 0.0, 0.0]
+
 # mpc parameters
-R = np.diag([10000, 1, 0.0028])  # input cost matrix
-Q = np.diag([10, 10, 0.0])  # cost matrix
+# R = np.diag([10000, 0.08, 0.002]) # input cost matrix (sheescake)
+# R = np.diag([10000, 1.05, 0.021]) # input cost matrix (ellipse)
+# R = np.diag([10000, 1.05, 0.018]) # input cost matrix (heart)
+R = np.diag([10000, 1.0, 0.017]) # input cost matrix (bean)
+Q = np.diag([10, 10, 0.0]) # cost matrixq
 Qf = Q # final matrix
 Rd = np.diag([10, 10000, 0.001])
 
 sp = None
-TARGET_SPEED = 0.053
+TARGET_SPEED = 0.06
 lookahead_distance = 0.04
 
 def extractManipShape(path) -> list:
@@ -96,8 +108,6 @@ def updateConfig():
         manip_pose = [manip_config['x'], manip_config['y'], manip_config['theta']]
         if manip:
             if not simulation:
-                # manip_pose[0] += manip.r * np.cos(manip.theta + manip.phi)
-                # manip_pose[1] += manip.r * np.sin(manip.theta + manip.phi)
                 manip.pose = manip_pose
             else:
                 pass
@@ -115,7 +125,8 @@ def updateConfigLoop():
         if rgb_camera is not None and agent is not None and manip_target is not None:
             rgb_camera.markers = markers
             rgb_camera.manip_center = manip.pose
-            rgb_camera.manip_target_contour = manip_target.contour
+            if rgb_camera.manip_target_contour is None:
+                rgb_camera.manip_target_contour = manip_target.contour
         
             s_frames = [arc_endpoints(), agent.pose, arc_endpoints(2)]
 
@@ -131,9 +142,9 @@ def updateConfigLoop():
                     cp_object_s[i] = closest_s_index
                 c_frames = frames
             
-            # rgb_camera.contact_points = c_frames
+            rgb_camera.contact_points = c_frames
 
-            # rgb_camera.c_dot = c_dot
+            rgb_camera.c_dot = c_dot
 
 def arc_endpoints(seg=1):
     global agent
@@ -291,13 +302,15 @@ def generatePath():
     end = np.array(manip_target.position)
 
     # Calculate control points for smooth exit and entrance
-    exit_distance = 0.85  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.85  # Adjust this value to control the "smoothness" of the entrance
+    exit_distance = 0.6  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.6  # Adjust this value to control the "smoothness" of the entrance
+    angle = agent.theta + np.pi/2
+    # angle = manip.theta
 
     p0 = start
-    p1 = start + exit_distance * np.array([np.cos(manip.theta), np.sin(manip.theta)])
-    p2 = end - entrance_distance * np.array([np.cos(manip_target.theta + cheescake_targets[target_i][1]), 
-                                             np.sin(manip_target.theta + cheescake_targets[target_i][1])])
+    p1 = start + exit_distance * np.array([np.cos(angle), np.sin(angle)])
+    p2 = end - entrance_distance * np.array([np.cos(angle + targets[target_i][1]), 
+                                             np.sin(angle + targets[target_i][1])])
     p3 = end
 
     # Generate path points
@@ -310,6 +323,10 @@ def generatePath():
 
     path = np.array(points)
     traj = splines.Trajectory(path[:,0], path[:,1])
+
+    manip.delta_theta = traj.yaw[0] - manip.theta
+    manip_target.theta = traj.yaw[-1] - manip.delta_theta
+    # manip_target.theta = traj.yaw[-1]
 
     return points
 
@@ -361,11 +378,20 @@ def transport(date_title):
     rgb_camera.add_to_traj(manip.position)
 
     directory = "Experiments/Data/Tracking/Object_transport"
-    filename = f"{directory}/heart_{date_title}.json"
+    filename = f"{directory}/bean_{date_title}.json"
 
     tracking_data = []
     elapsed_time = 0
     start_time = time.perf_counter()
+
+    cx, cy, cyaw, s = traj.params
+
+    if sp is None:
+        # sp = []
+        # for i in range(1, len(cx)):
+        #     sp.append(TARGET_SPEED * (1 - traj.curvature[i]/(max(traj.curvature) + 10)))
+        # sp.append(sp[-1])
+        sp = [TARGET_SPEED] * len(cx)
     
     while True:
         if closeToGoal(manip.pose, manip_target.pose) or rgb_camera.finish:
@@ -373,14 +399,6 @@ def transport(date_title):
             finish = True
         else:
             # v_o, q = simple_control(manip.pose, manip_target.pose)
-
-            cx, cy, cyaw, s = traj.params
-
-            if sp is None:
-                sp = []
-                for i in range(1, len(cx)):
-                    sp.append(TARGET_SPEED * (1 - traj.curvature[i]/(max(traj.curvature) + 6)))
-                sp.append(2 * sp[-1]/3)
 
             target_ind = traj.getTarget(manip.position, lookahead_distance)
             qref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, target_ind, v_o[1]) 
@@ -578,7 +596,8 @@ def mpc(qref, vref):
     cost = 0.0
     constraints = []
 
-    constraints += [q[:, 0] == manip.pose - qref[:,0]]  
+    # constraints += [q[:, 0] == manip.pose - qref[:,0]]  
+    constraints += [q[:, 0] == manip.pose_heading - qref[:,0]]  
 
     for t in range(T):
         cost += cvxpy.quad_form(u[:, t], R)
@@ -590,12 +609,17 @@ def mpc(qref, vref):
 
     cost += cvxpy.quad_form(q[:, T], Qf)  
     prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-    prob.solve(solver=cvxpy.ECOS_BB, verbose=False)
+    prob.solve(solver=cvxpy.ECOS, verbose=False)
 
     if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
         vx = u.value[0, 0] + vref[0, 1]
         vy = u.value[1, 0]
         omega = u.value[2, 0]
+
+        vel_rot = np.array([[np.cos(manip.delta_theta), -np.sin(manip.delta_theta)],
+                            [np.sin(manip.delta_theta), np.cos(manip.delta_theta)]])
+        v = vel_rot.dot(np.array([[vx], [vy]]))
+        vx, vy = v.flatten().tolist()
 
         rot = np.array([[np.cos(manip.theta), -np.sin(manip.theta), 0],
                         [np.sin(manip.theta), np.cos(manip.theta), 0],
@@ -627,12 +651,6 @@ def get_linear_model_matrix(vref, phi):
 
     return A, B
 
-def release():
-    pass
-
-def goHome():
-    pass
-
 
 if __name__ == "__main__":
 
@@ -649,12 +667,11 @@ if __name__ == "__main__":
     while not agent or not manip:
         pass
 
-    target_manip_pose = cheescake_targets[target_i][0] + [manip.theta]
+    target_manip_pose = targets[target_i][0] + [manip.theta]
     manip_target = manipulandum.Shape(2, target_manip_pose, contour)
     # ---------------------------------------------------------------
 
     rgb_camera.path = generatePath()
-    manip_target.theta = traj.yaw[-1]
 
     # ------------------------ Start a video ------------------------
     date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -671,11 +688,7 @@ if __name__ == "__main__":
     # ------------------------- Execute task ------------------------
     # approach()
     # grasp()
-    # transport(date_title)
-    rgb_camera.contour = manip.contour
-    release()
-    goHome()
-    # updateContour()
+    transport(date_title)
 
     rgb_camera.finish = True
     # ---------------------------------------------------------------

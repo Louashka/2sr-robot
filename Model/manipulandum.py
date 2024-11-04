@@ -17,7 +17,9 @@ class Shape(Frame):
 
         self.lin_vel_x = 0
         self.lin_vel_y = 0
-        self.ang_vel = 0      
+        self.ang_vel = 0     
+
+        self.delta_theta = 0 
 
     def __str__(self) -> str:
         response = 'id: ' + str(self.id) + ', pose: (' + ', '.join(map(str, self.pose)) + ')' 
@@ -26,6 +28,14 @@ class Shape(Frame):
     @property
     def id(self) -> int:
         return self.__id
+    
+    @property
+    def heading_angle(self) -> float:
+        return self.theta + self.delta_theta
+    
+    @property
+    def pose_heading(self) -> List[float]:
+        return self.position + [self.heading_angle]
     
     @property
     def contour_params(self) -> list:
@@ -97,7 +107,7 @@ class Shape(Frame):
     @property
     def parametric_contour(self) -> tuple[np.ndarray, np.ndarray]:
         ctr = []
-        s_array = np.linspace(0, 1)
+        s_array = np.linspace(0, 1, 200)
         for s in s_array:
             pos_target = self.getPoint(s)
             ctr.append(pos_target)
