@@ -102,84 +102,77 @@ class MocapReader:
     :return: dict, agent's generalized coordinates; dict, markers' id and coordinates
     """
 
-    def getAgentConfig(self, agents_exp_n = 1, manip_exp_n = 0) -> tuple[dict, dict, dict, str]:
-        agent = {}
-        manip = {}
+    def getConfig(self) -> tuple[list, list, dict, str]:
+        agents = []
+        objects = []
 
         # Parse Motive data
         markers, rigid_bodies = self.__unpackData()
         # markers, rigid_bodies = self.__simulateData()
 
         if markers is None or rigid_bodies is None:
-            return {}, {}, {}, 'No data is received from Motive!'
+            msg = 'No data is received from Motive!'
         
-        if not markers or not rigid_bodies:
-            return {}, {}, {}, 'No markers or rigid bodies are detected!'
-
-        # Convert values from the Motive frame to the global frame
-        self.__convertData(markers, rigid_bodies)
-
-        exp_n = agents_exp_n + manip_exp_n
-
-        if len(rigid_bodies) == exp_n and len(markers) == 9 * agents_exp_n + 3 * manip_exp_n:
-            rb_agent = rigid_bodies[1]
-
-            agent['id'] = rb_agent['id']
-
-            # Calculate the pose of the head LU
-            head_markers = [marker for marker in markers.values() if marker['model_id'] == rb_agent['id']]
-            if len(head_markers) != 3:
-                return {}, {}, {}, 'Problem with the agent\'s model id!'
-            
-            head_pose = self.__calcRbPose(rb_agent, head_markers)
-            agent['head'] = head_pose
-
-            # Sort markers to within the VSF
-            ranked_markers = self.__rankPoints(markers, head_pose[:-1])
-            # If some markers are missing we ignore the robot
-            if len(ranked_markers) != 6:
-                return {}, {}, {}, 'Not enough markers in VSF!'
-            
-            if len(self.__markers_id) == 0:
-                for marker in markers.values():
-                    self.__markers_id.add(marker['marker_id'])
-            
-            # Calculate the pose of the tail LU
-            tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
-            # tail_theta = tail_theta % (2 * np.pi)
-
-            tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
-            agent['tail'] = tail_pose
-            
-            # Calculate the robot's configuration
-            robot_x, robot_y, robot_theta, k1, k2 = self.__extrapolateCurve(ranked_markers[:-1])
-
-            agent['x'] = robot_x
-            agent['y'] = robot_y
-            agent['theta'] = robot_theta
-            agent['k1'] = k1
-            agent['k2'] = k2
-
-            # print(agent)
-
-            if manip_exp_n == 1:
-                rb_manip = rigid_bodies[2]
-
-                manip['id'] = rb_manip['id']
-
-                manip_markers = [marker for marker in markers.values() if marker['model_id'] == rb_manip['id']]
-                if len(manip_markers) != 3:
-                    return {}, {}, {}, 'Problem with the manipulandum\'s model id!'
-            
-                manip_pose = self.__calcRbPose(rb_manip, manip_markers)
-
-                manip['x'] = manip_pose[0]
-                manip['y'] = manip_pose[1]
-                manip['theta'] = manip_pose[2]
+        elif not markers or not rigid_bodies:
+            msg = 'No markers or rigid bodies are detected!'
         else:
-            return {}, {}, {}, 'Wrong number of the markers or rigid bodies!'
+            # Convert values from the Motive frame to the global frame
+            self.__convertData(markers, rigid_bodies)
 
-        return agent, manip, markers, 'Configuration successfully extracted.'
+            rb_agents = [rb for rb in rigid_bodies.values() if rb['id'] < 10]
+            rb_objects = [rb for rb in rigid_bodies.values() if rb['id'] > 10]
+
+            if len(markers) == 9 * len(rb_agents) + 3 * len(rb_objects):
+                for rb_agent in rb_agents:
+                    agent = {}
+
+                    agent['id'] = rb_agent['id']
+                    # Calculate the pose of the head LU
+                    head_markers = [marker for marker in markers.values() if marker['model_id'] == rb_agent['id']]
+                    head_pose = self.__calcRbPose(rb_agent, head_markers)
+                    agent['head'] = head_pose
+
+                    # Sort markers to within the VSF
+                    ranked_markers = self.__rankPoints(markers, head_pose[:-1])
+                    # Calculate the pose of the tail LU
+                    tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
+                    tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
+                    agent['tail'] = tail_pose
+                    
+                    # Calculate the robot's configuration
+                    robot_x, robot_y, robot_theta, k1, k2 = self.__extrapolateCurve(ranked_markers[:-1])
+
+                    agent['x'] = robot_x
+                    agent['y'] = robot_y
+                    agent['theta'] = robot_theta
+                    agent['k1'] = k1
+                    agent['k2'] = k2
+
+                    agents.append(agent)
+
+                for rb_object in rb_objects:
+                    object = {}
+
+                    object['id'] = rb_object['id']
+
+                    object_markers = [marker for marker in markers.values() if marker['model_id'] == rb_object['id']]                
+                    object_pose = self.__calcRbPose(rb_object, object_markers)
+
+                    object['x'] = object_pose[0]
+                    object['y'] = object_pose[1]
+                    object['theta'] = object_pose[2]
+
+                    objects.append(object)
+
+                if len(self.__markers_id) == 0:
+                    for marker in markers.values():
+                        self.__markers_id.add(marker['marker_id'])
+
+                msg = 'Configuration successfully extracted.'
+            else:
+                msg = 'Wrong number of the markers or rigid bodies!'
+
+        return agents, objects, markers, msg
     
     
     def __unpackData(self) -> tuple[dict, dict]:

@@ -53,7 +53,7 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def add_to_traj(self, pose) -> None:
+    def add2traj(self, pose) -> None:
         self.manip_trajectory.append(pose)
 
     def startVideo(self, date_title: str, task: str, args=[]):
@@ -254,78 +254,6 @@ class Aligner:
                 ]
 
             
-
-        
-    def __run_old(self, config_target: list, date_title: str):
-        video_path_rgb = f'Experiments/Video/Tracking/SM2/sm2_rgb_{date_title}.mp4'
-        video_path_thermal = f'Experiments/Video/Tracking/SM2/sm2_thermal_{date_title}.mp4'
-
-        target_seg1 = self.__arc(config_target, 1)
-        target_seg2 = self.__arc(config_target, 2)
-
-        cap_rgb = cv2.VideoCapture(1)
-        # set the resolution to 1280x720
-        cap_rgb.set(3, 1280)
-        cap_rgb.set(4, 720)
-
-        cap_thermal = cv2.VideoCapture(0)
-        # set the resolution to 1280x720
-        cap_thermal.set(3, 1280)
-        cap_thermal.set(4, 720)
-
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out_rgb = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1409,720))
-        out_thermal = cv2.VideoWriter(video_path_thermal, fourcc, 16.0, (640,512))
-
-        
-        while cap_rgb.isOpened():
-            _, frame = cap_rgb.read()
-            undistort_frame = self.__undistort(frame)
-            undistort_frame = cv2.rotate(undistort_frame, cv2.ROTATE_180)
-
-            # Crop the frame using the calculated ROI
-            cropped_frame = undistort_frame[self.data['roi_y']:self.data['roi_y'] + self.data['roi_height'], 
-                                            self.data['roi_x']:self.data['roi_x'] + self.data['roi_width']]
-
-            # Resize the cropped frame while maintaining the aspect ratio
-            height = 720
-            width = int(cropped_frame.shape[1] * (height / cropped_frame.shape[0]))
-            resized_frame = cv2.resize(cropped_frame, (width, height), interpolation=cv2.INTER_AREA)
-
-            cv2.polylines(resized_frame, [target_seg1], False, (255, 217, 4), 2)
-            cv2.polylines(resized_frame, [target_seg2], False, (255, 217, 4), 2)
-
-            # map the trajectory to the coordinate
-            # for i in range(0, path.n):
-            #     point = np.array([path.x[i], path.y[i]])
-            #     camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-            #     cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (255, 217, 4), -1)
-            # for i in range(len(self.config_list)):
-            #     point = np.array(self.config_list[i][:2])
-            #     camera_position = self.__convert_opti_coordinate_to_camera_coordinate(point)
-            #     cv2.circle(resized_frame, (camera_position[0], camera_position[1]), 3, (49, 49, 255), -1)
-            
-            out_rgb.write(resized_frame)
-            cv2.imshow("RGB camera", resized_frame)
-
-            _, frame_thermal = cap_thermal.read()
-            frame_thermal = cv2.rotate(frame_thermal, cv2.ROTATE_180)
-            out_thermal.write(frame_thermal)
-            cv2.imshow("Thermal camera", frame_thermal)
-
-            self.wait_video = True
-
-            if cv2.waitKey(1) & 0xFF == ord('q') or self.finish:
-                self.finish = True
-                break
-
-        cap_rgb.release()
-        out_rgb.release()
-
-        cap_thermal.release()
-        out_thermal.release()
-
-        cv2.destroyAllWindows()
 
     def __read_camera_calibration_data(self):
         camera_data = self.data["camera"]

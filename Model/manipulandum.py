@@ -1,25 +1,27 @@
+from Model.frame import Frame
 import numpy as np
 import math
-from Model.frame import Frame
+import pandas as pd
 from typing import List
 import cv2 as cv
 from pyefd import elliptic_fourier_descriptors as efd
 
+dir = 'Experiments/Data/Contours/'
+shapes = {11: {'type': 'cheescake', 'path': dir + 'cheescake_contour.csv'},
+          12: {'type': 'ellipse', 'path': dir + 'ellipse_contour.csv'},
+          13: {'type': 'heart', 'path': dir + 'heart_contour.csv'},
+          14: {'type': 'bean', 'path': dir + 'bean_contour.csv'}}
+
+
 class Shape(Frame):
-    def __init__(self, id: int, pose: List[float], contour_params=[]) -> None:
-        self.__id = id
+    def __init__(self, id: int, pose: List[float]) -> None:
         super().__init__(pose[0], pose[1], pose[2])
-        self.m = 10
-        self.contour_params = contour_params
-        self.default_contour, self.perimeter = self.__paramsToCoords()
-        
-        self.coeffs = efd(self.default_contour.T, order = self.m)
 
-        self.lin_vel_x = 0
-        self.lin_vel_y = 0
-        self.ang_vel = 0     
-
+        self.__id = id
         self.delta_theta = 0 
+        self.m = 10
+
+        self.__retrieveContour(shapes[id]['path'])        
 
     def __str__(self) -> str:
         response = 'id: ' + str(self.id) + ', pose: (' + ', '.join(map(str, self.pose)) + ')' 
@@ -36,39 +38,29 @@ class Shape(Frame):
     @property
     def pose_heading(self) -> List[float]:
         return self.position + [self.heading_angle]
-    
-    @property
-    def contour_params(self) -> list:
-        return self.__contour_params
-    
-    @contour_params.setter
-    def contour_params(self, value) -> None:
-        self.__contour_params = value
-
-    @property
-    def velocity(self) -> list:
-        return [self.lin_vel_x, self.lin_vel_y, self.ang_vel]
 
     @property
     def rotation_matrix(self) -> np.ndarray:
         return np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
                          [np.sin(self.theta), np.cos(self.theta), 0],
                          [0, 0, 1]])
+    
+    def __retrieveContour(self, path):
+        contour_df = pd.read_csv(path)
+        contour_r = contour_df['radius'].tolist()
+        contour_theta = contour_df['phase_angle'].tolist()
 
-    def __paramsToCoords(self) -> tuple[np.ndarray, float]:
+        contour_params = [contour_r, contour_theta]
+        
         points = []
-        for r, phi in zip(self.contour_params[0], self.contour_params[1]):
+        for r, phi in zip(contour_params[0], contour_params[1]):
             x = r * np.cos(phi)
             y = r * np.sin(phi)
 
             points.append([x, y])
 
-        # geom_centre = self.geomCentre(points)
-        default_contour = np.array(points).T 
-
-        perimeter = self.__calcPerimeter(points)
-
-        return default_contour, perimeter
+        self.default_contour = np.array(points).T 
+        self.coeffs = efd(self.default_contour.T, order = self.m)
     
     def geomCentre(self, points) -> list:
         ctr = np.array(points).reshape((-1,1,2))
@@ -78,14 +70,11 @@ class Shape(Frame):
         cX = int(M["m10"] / M["m00"]) / 10000.0
         cY = int(M["m01"] / M["m00"]) / 10000.0
 
-        self.r = math.hypot(cX, cY)
-        self.phi = math.atan2(cY, cX)
+        r = math.hypot(cX, cY)
+        phi = math.atan2(cY, cX)
 
-        x = self.r * np.cos(self.phi)
-        y = self.r * np.sin(self.phi)
-
-        # self.x += r * np.cos(self.theta + phi)
-        # self.y += r * np.sin(self.theta + phi)
+        x = r * np.cos(phi)
+        y = r * np.sin(phi)
 
         return [x, y]
     
@@ -171,25 +160,7 @@ class Shape(Frame):
         # Normalize theta to be between 0 and 2π
         theta = theta % (2 * np.pi)
         return theta
-    
-    # def update(self, q_dot: list, dt: float):
 
-    #     self.x += q_dot[0] * dt
-    #     self.y += q_dot[1] * dt
-    #     self.theta += q_dot[2] * dt
-
-    def update(self, acc: list):
-        dt = 0.05
-
-        q_dot = self.rotation_matrix.dot(np.array(self.velocity).T)
-
-        self.x += q_dot[0] * dt
-        self.y += q_dot[1] * dt
-        self.theta += q_dot[2] * dt
-
-        self.lin_vel_x += acc[0] * dt
-        self.lin_vel_y += acc[1] * dt
-        self.ang_vel += acc[2] * dt
     
 
     

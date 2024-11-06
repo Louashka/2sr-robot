@@ -1,8 +1,3 @@
-# Make grasping first:
-# 1. Select the closest point on the object's contour
-# 2. Approach the point (misth some pre margin) in a rigid mode
-# 3. Grasp the object in a soft mode SM3
-
 import sys
 sys.path.append('D:/Robot 2SR/2sr-swarm-control')
 from Model import global_var as gv, robot2sr as rsr, manipulandum, splines
@@ -128,7 +123,7 @@ def updateConfigLoop():
             if rgb_camera.manip_target_contour is None:
                 rgb_camera.manip_target_contour = manip_target.contour
         
-            s_frames = [arc_endpoints(), agent.pose, arc_endpoints(2)]
+            s_frames = [arcEndPoints(), agent.pose, arcEndPoints(2)]
 
             if simulation:
                 if len(frames_index) == 3:
@@ -146,7 +141,7 @@ def updateConfigLoop():
 
             rgb_camera.c_dot = c_dot
 
-def arc_endpoints(seg=1):
+def arcEndPoints(seg=1):
     global agent
 
     if seg == 1:
@@ -291,7 +286,7 @@ def goToPoint(point, v_prev):
 
     return v_rigid, finish
 
-def bezier_curve(t, p0, p1, p2, p3):
+def bezierCurve(t, p0, p1, p2, p3):
         return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
 
 def generatePath():
@@ -318,7 +313,7 @@ def generatePath():
     points = []
     for i in range(num_points):
         t = i / (num_points - 1)
-        point = bezier_curve(t, p0, p1, p2, p3)
+        point = bezierCurve(t, p0, p1, p2, p3)
         points.append(point.tolist())
 
     path = np.array(points)
@@ -329,44 +324,6 @@ def generatePath():
     # manip_target.theta = traj.yaw[-1]
 
     return points
-
-def approach():
-    v_prev = [0.0] * 3
-
-    while True:
-        target_pose = getNearestPoint()
-        v_prev, finish = goToPoint(target_pose, v_prev)
-            
-        if finish:
-            break
-
-def grasp():
-    global agent
-
-    v_prev = [0.0] * 2
-    s = [1, 1]
-
-    finish = False
-
-    while True:
-        target_config = getNearestPoint()
-        # target_pose = target_pose[:2] + [agent.theta] + [14, 14]
-        if closeToShape(agent.curvature, target_config[3:]) or rgb_camera.finish:
-            v_soft = [0.0] * 2
-            s = [0, 0]
-            finish = True
-        else:
-            v_soft = agent_controller.mpcSM3(agent, target_config, v_prev)
-
-        v = [0.0] * 3 + v_soft
-        print(v)
-        _, _, s_current, _ = agent_controller.move(agent, v, s)
-        agent.stiffness = s_current
-        
-        v_prev = v_soft
-            
-        if finish:
-            break
 
 def transport(date_title):
     global c_frames, c_dot, sp
@@ -401,7 +358,7 @@ def transport(date_title):
             # v_o, q = simple_control(manip.pose, manip_target.pose)
 
             target_ind = traj.getTarget(manip.position, lookahead_distance)
-            qref, vref = calc_ref_trajectory(cx, cy, cyaw, sp, target_ind, v_o[1]) 
+            qref, vref = calcRefTrajectory(cx, cy, cyaw, sp, target_ind, v_o[1]) 
 
             v_o, q = mpc(qref, vref)
             print(f'V_o: {v_o}')
@@ -410,7 +367,7 @@ def transport(date_title):
                 manip.pose = q
             rgb_camera.add_to_traj(manip.position)
 
-            v_c = cp_velocities(v_o)
+            v_c = cpVelocities(v_o)
             print(f'V_c: {v_c}')
 
             v_c_list = [v_c[3*i:3*i+3].tolist() for i in range(int(len(v_c)/3))]
@@ -472,34 +429,10 @@ def transport(date_title):
 
         print(f"Data written to {filename}")
 
-def map_to_pi_range(angle):
+def map2piRange(angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
-    
-def simple_control(current, target):
-    q = np.array(current)
-    q_t = np.array(target)    
 
-    q[-1] = map_to_pi_range(q[-1])
-    q_t[-1] = map_to_pi_range(q_t[-1])
-
-    print(f'Current angle: {q[-1]}')
-    print(f'Target angle: {q_t[-1]}')
-
-    coef = 0.075
-    q_tilda = (q_t - q) * coef
-
-    rot = np.array([[np.cos(q[2]), -np.sin(q[2]), 0],
-                    [np.sin(q[2]), np.cos(q[2]), 0],
-                    [0, 0, 1]])
-    
-    v = np.linalg.inv(rot).dot(q_tilda)
-
-    q_dot = rot.dot(v)
-    q_new = q + q_dot * gv.DT
-
-    return v, q_new
-
-def cp_velocities(v_o):
+def cpVelocities(v_o):
     global c_frames
 
     rot_ow = np.array([[np.cos(-manip.theta), -np.sin(-manip.theta)],
@@ -530,7 +463,7 @@ def cp_velocities(v_o):
 
     return v_c
 
-def robot_velocities(v_c):
+def robotVelocities(v_c):
     global c_frames
 
     rot_rw = np.array([[np.cos(-agent.theta), -np.sin(-agent.theta)],
@@ -562,7 +495,7 @@ def robot_velocities(v_c):
 
     return v_r
 
-def calc_ref_trajectory(cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
+def calcRefTrajectory(cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
     qref = np.zeros((NX, T + 1))
     vref = np.zeros((1, T + 1))
     ncourse = len(cx)
@@ -603,7 +536,7 @@ def mpc(qref, vref):
         cost += cvxpy.quad_form(u[:, t], R)
         if t != 0:
             cost += cvxpy.quad_form(q[:, t], Q)        
-        A, B = get_linear_model_matrix(vref[0, t], qref[2, t])  
+        A, B = getLinearModelMatrix(vref[0, t], qref[2, t])  
 
         constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  
 
@@ -634,7 +567,7 @@ def mpc(qref, vref):
 
     return [vx, vy, omega], q_new
 
-def get_linear_model_matrix(vref, phi):
+def getLinearModelMatrix(vref, phi):
     A = np.zeros((NX, NX))
     A[0, 0] = 1.0
     A[0, 2] = -vref * np.sin(phi) * gv.DT
@@ -686,8 +619,6 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------
 
     # ------------------------- Execute task ------------------------
-    # approach()
-    # grasp()
     transport(date_title)
 
     rgb_camera.finish = True
