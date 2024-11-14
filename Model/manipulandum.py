@@ -142,7 +142,8 @@ class Shape(Frame):
         theta = np.arctan(dy/dx) + self.theta
         # Ensure the tangent points in the positive direction of traversing the contour
         # Calculate the vector perpendicular to the tangent
-        perp_vector = np.array([np.cos(theta + np.pi/2), np.sin(theta + np.pi/2)])
+        # perp_vector = np.array([np.cos(theta + np.pi/2), np.sin(theta + np.pi/2)])
+        theta_vector = np.array([np.cos(theta), np.sin(theta)])
         
         # Get a point slightly ahead on the contour
         s_ahead = (s + 0.01) % 1  # Ensure we wrap around if s is close to 1
@@ -153,7 +154,7 @@ class Shape(Frame):
         direction_vector = point_ahead - current_point
         
         # Check if perpendicular vector points outwards
-        if np.dot(perp_vector, direction_vector) < 0:
+        if np.dot(theta_vector, direction_vector) < 0:
             theta += np.pi  # Add 180 degrees if pointing outwards
 
         

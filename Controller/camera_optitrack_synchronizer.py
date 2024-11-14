@@ -43,6 +43,18 @@ class Aligner:
         self.contact_points = []
         self.c_dot = []
 
+        #--------------------------------------------------
+        self.obstacles_contour = []
+        self.obstacles = None
+        self.expanded_obstacles_global = []
+        self.expanded_obstacles = None
+
+        self.direction = None
+        self.grasp_point = None
+
+        self.rrt_path = None
+        #--------------------------------------------------
+
         try:
             with open(self.file_path, "r") as json_file:
                 data = json.load(json_file)
@@ -63,10 +75,13 @@ class Aligner:
             thread = threading.Thread(target=self.__run_old, args=(config_target, date_title))
             thread.start()
         elif task == 'object_handling':
-            thread = threading.Thread(target=self.__run, args=(date_title,))
+            thread = threading.Thread(target=self.__run_tr, args=(date_title,))
+            thread.start()
+        elif task == 'object_grasp':
+            thread = threading.Thread(target=self.__run_gr, args=(date_title,))
             thread.start()
 
-    def __run(self, date_title: str):
+    def __run_tr(self, date_title: str):
         video_path_rgb = f'Experiments/Video/Grasping/transport_bean_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -189,6 +204,120 @@ class Aligner:
 
         cv2.destroyAllWindows()
     
+    def __run_gr(self, date_title: str):
+        video_path_rgb = f'Experiments/Video/Grasping/grasp_heart_{date_title}.mp4'
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
+
+        cap_rgb = cv2.VideoCapture(0)
+        # set the resolution to 1280x720
+        cap_rgb.set(3, 1280)
+        cap_rgb.set(4, 720)
+
+        start_timer = False
+        time_start = time.perf_counter()
+        elapsed_time = 0
+
+        while cap_rgb.isOpened():
+            _, frame = cap_rgb.read()
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+            h, w = frame.shape[:2]
+            self.new_camera_matrix, _ = cv2.getOptimalNewCameraMatrix(self.camera_matrix, self.dist, (w,h), 1, (w,h))
+            undistorted_frame = cv2.undistort(frame, self.camera_matrix, self.dist, None, self.new_camera_matrix)
+
+            mean_z = 0
+            depth = 0
+
+            if self.markers is not None:
+                z_values = [marker['marker_z'] for marker in self.markers.values()]
+                if len(z_values) != 0:
+                    mean_z = sum(z_values) / len(z_values)
+
+                depth_list = []
+
+                for marker in self.markers.values():
+                    _, depth = self.globalToImage(marker['marker_x'], marker['marker_y'], marker['marker_z'])
+                    depth_list.append(depth)
+
+                depth = sum(depth_list) / len(depth_list)
+                
+            
+            if self.obstacles is None:
+                self.detect_obstacles(undistorted_frame, depth)
+
+            # for obstacle_contour in self.obstacles_contour:
+            #     cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_green, 1)
+
+            if self.expanded_obstacles is None:
+                if len(self.expanded_obstacles_global) > 0:
+                    self.expanded_obstacles = []
+                    for expanded_obstacle_global in self.expanded_obstacles_global:
+                        expanded_obstacle = []
+                        for x, y in expanded_obstacle_global:
+                            x_, y_ = self.globalToImage(x, y, mean_z)[0]
+                            expanded_obstacle.append([[x_, y_]])
+                        self.expanded_obstacles.append(np.array(expanded_obstacle))
+            else:
+                for obstacle_contour in self.expanded_obstacles:
+                    cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_blue, 1)
+
+            if self.direction is not None:
+                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
+
+                end_x_global = self.manip_center[0] + np.cos(self.direction) * 0.15
+                end_y_global = self.manip_center[1] + np.sin(self.direction) * 0.15
+
+                (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+
+                # Draw the vector
+                cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_blue, 2)
+                cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)    
+
+            if self.grasp_point is not None:
+                (x, y), _ = self.globalToImage(*self.grasp_point, mean_z)
+                cv2.circle(undistorted_frame, (x, y), 3, neon_blue, -1)
+
+            if self.rrt_path is not None:
+                points = []
+                for p in self.rrt_path:
+                    points.append(self.globalToImage(*p[:-1], mean_z)[0])
+                
+                path = np.array(points).reshape((-1, 1, 2))
+                cv2.polylines(undistorted_frame, [path], False, neon_green, 1)
+
+                for p in points:
+                    cv2.circle(undistorted_frame, p, 3, (0, 255, 0), -1)
+
+            # Crop undistorted_frame from all sides
+            h, w = undistorted_frame.shape[:2]
+            crop_margin = 100  # Adjust this value to increase or decrease the crop amount
+            cropped_frame = undistorted_frame[crop_margin:h-crop_margin, crop_margin:w-crop_margin]
+
+            cv2.imshow("RGB camera", cropped_frame)
+            # out.write(cropped_frame)
+
+            self.wait_video = True
+
+            if cv2.waitKey(1) & 0xFF == ord('q') or self.finish:
+                self.finish = True
+                if not start_timer:
+                    time_start = time.perf_counter()
+                start_timer = True
+
+            if start_timer:
+                if elapsed_time > 3:
+                    break
+
+                elapsed_time = time.perf_counter() - time_start
+
+
+        cap_rgb.release()
+        # out.release()
+
+        cv2.destroyAllWindows()
+    
+    
     def detect_shape(self, frame, depth):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (7, 7), 0)
@@ -253,7 +382,42 @@ class Aligner:
                     for i in range(window // 2, len(self.detected_object_contour) - window // 2)
                 ]
 
-            
+    def detect_obstacles(self, frame, depth):
+        # Convert the frame to the HSV color space
+        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Define the range for blue color in HSV
+        lower_blue = np.array([100, 150, 0])
+        upper_blue = np.array([140, 255, 255])
+
+        # Create a mask for blue color
+        blue_mask = cv2.inRange(hsv_frame, lower_blue, upper_blue)
+
+        # Find contours in the mask
+        contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        obstacles_contour = []
+
+        for contour in contours:
+            # Approximate the contour to a polygon
+            epsilon = 0.02 * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+
+            # Check if the approximated contour has four points (rectangle) and is large enough
+            if len(approx) == 4 and cv2.contourArea(approx) > 1000:  # Adjust the area threshold as needed
+                obstacles_contour.append(approx)
+
+        if len(obstacles_contour) == 2:
+            if self.obstacles is None:
+                self.obstacles = []
+
+            self.obstacles_contour = obstacles_contour
+
+            for contour in obstacles_contour:
+                obstacle = []
+                for point in contour:
+                    point_global = self.imageToGlobal(point[0], depth)
+                    obstacle.append(point_global[:-1].tolist())
+                self.obstacles.append(np.array(obstacle))
 
     def __read_camera_calibration_data(self):
         camera_data = self.data["camera"]
@@ -273,7 +437,6 @@ class Aligner:
         self.dist = np.array([k1, k2, p1, p2, k3])
         self.R = np.array(self.data["R"])
         self.tvec = np.array(self.data["tvec"]).reshape(3,1)
-
     
     def globalToCamera(self, point_global):
         point_global = np.array(point_global).reshape(3, 1)
