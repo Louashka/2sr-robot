@@ -266,6 +266,9 @@ class Controller:
         return q_ref
     
     def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
+        # Desired constant linear velocity
+        V_DESIRED = 0.08
+
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -302,21 +305,19 @@ class Controller:
                                                         np.sin(wheels[i][2]) * v_y +
                                                         (wheels[i][0] * np.sin(wheels[i][2]) - wheels[i][1] * np.cos(wheels[i][2])) * omega)
              for i in range(4)])
-
-        # w_curve = [m.Intermediate(w[i]**4 - self.MIN_SPEED * w[i]**2) for i in range(4)]
-
-        # Constraints
-        # m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
-        # m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
-        # m.Equations([w_curve[i] >= 0 for i in range(4)])
-        # Create boolean model variables z[i] for each wheel
         
         m.Equations([w[i] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[i] for i in range(4)])
         m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
 
+        # m.Equation(v_x**2 + v_y**2 == V_DESIRED**2)
+        
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
               40 * v_x**2 + 30 * v_y**2 + 0.005 * omega**2)
+        
+        # # Constant velocity soft constraint
+        # velocity_weight = 1000
+        # m.Obj(velocity_weight * (v_x**2 + v_y**2 - V_DESIRED**2)**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -324,7 +325,7 @@ class Controller:
 
         m.solve(disp=False)
 
-        return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL]
+        return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1]]
     
 
     def mpcSM1(self, agent: robot2sr.Robot, target: list, lu1_target: list, lu2_target, v_current: list):

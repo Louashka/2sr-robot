@@ -180,7 +180,7 @@ class TrajectoryShape:
 
 
 class Trajectory:
-    def __init__(self, traj_x, traj_y):
+    def __init__(self, traj_x, traj_y, traj_yaw=[]):
         """
         Define a trajectory class
         :param traj_x: list, list of x position
@@ -189,11 +189,14 @@ class Trajectory:
         self.x = traj_x
         self.y = traj_y
         
-        yaw_list = []
-        for i in range(len(traj_x)):
-            # yaw = self.getSlopeAngle(i) - np.pi/2
-            yaw = self.getSlopeAngle(i)
-            yaw_list.append(yaw)
+        if traj_yaw:
+            yaw_list = traj_yaw
+        else:
+            yaw_list = []
+            for i in range(len(traj_x)):
+                # yaw = self.getSlopeAngle(i) - np.pi/2
+                yaw = self.getSlopeAngle(i)
+                yaw_list.append(yaw)
 
         self.yaw = np.unwrap(np.array(yaw_list)).tolist()
 

@@ -36,7 +36,7 @@ class Aligner:
         self.manip_center = None
 
         self.manip_target_contour = None
-        self.manip_trajectory = []
+        self.traversed_trajectory = []
 
         self.path = None
 
@@ -53,6 +53,11 @@ class Aligner:
         self.grasp_point = None
 
         self.rrt_path = None
+        self.heading = None
+        #--------------------------------------------------
+        self.new_pos = None
+        self.all_nodes = []
+
         #--------------------------------------------------
 
         try:
@@ -65,8 +70,9 @@ class Aligner:
 
         self.__read_camera_calibration_data()
 
-    def add2traj(self, pose) -> None:
-        self.manip_trajectory.append(pose)
+    def add2traj(self, pose, heading=None) -> None:
+        self.traversed_trajectory.append(pose)
+        self.heading = heading
 
     def startVideo(self, date_title: str, task: str, args=[]):
         if task == 'soft_modes':
@@ -137,7 +143,7 @@ class Aligner:
             cv2.polylines(undistorted_frame, [contour_array], True, neon_blue, 2)
 
             tracked_points = []
-            for p in self.manip_trajectory:
+            for p in self.traversed_trajectory:
                 pos, _ = self.globalToImage(*p, mean_z)
                 tracked_points.append(pos)
                 # cv2.circle(undistorted_frame, pos, 2, neon_red, -1)
@@ -208,7 +214,7 @@ class Aligner:
         video_path_rgb = f'Experiments/Video/Grasping/grasp_heart_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        # out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
+        out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
 
         cap_rgb = cv2.VideoCapture(0)
         # set the resolution to 1280x720
@@ -278,16 +284,65 @@ class Aligner:
                 (x, y), _ = self.globalToImage(*self.grasp_point, mean_z)
                 cv2.circle(undistorted_frame, (x, y), 3, neon_blue, -1)
 
+            #-----------------------------------------------------------------------------------
+            if self.new_pos is not None:
+                (x, y), _ = self.globalToImage(*self.new_pos, mean_z)
+                cv2.circle(undistorted_frame, (x, y), 3, (0, 0, 255), -1)    
+
+            for node in self.all_nodes:
+                (x, y), _ = self.globalToImage(node.position[0], node.position[1], mean_z)
+                cv2.circle(undistorted_frame, (x, y), 3, (255, 255, 255), -1)  
+
+                end_x_global = node.position[0] + np.cos(node.theta) * 0.05
+                end_y_global = node.position[1] + np.sin(node.theta) * 0.05
+
+                (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+                cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_red, 2)
+
+                if node.parent is not None:
+                    (x0, y0), _ = self.globalToImage(node.parent.position[0], node.parent.position[1], mean_z)
+                    cv2.line(undistorted_frame, (int(x0), int(y0)), (int(x), int(y)), (255, 255, 255), 1)
+
+
+            #-----------------------------------------------------------------------------------
+
             if self.rrt_path is not None:
                 points = []
+                arrow_points = []
                 for p in self.rrt_path:
                     points.append(self.globalToImage(*p[:-1], mean_z)[0])
+                    # points.append(self.globalToImage(*p, mean_z)[0])
+
+                    # end_x_global = p[0] + np.cos(p[2]) * 0.1
+                    # end_y_global = p[1] + np.sin(p[2]) * 0.1
+
+                    # arrow_points.append(self.globalToImage(end_x_global, end_y_global, mean_z)[0])
                 
                 path = np.array(points).reshape((-1, 1, 2))
                 cv2.polylines(undistorted_frame, [path], False, neon_green, 1)
 
-                for p in points:
-                    cv2.circle(undistorted_frame, p, 3, (0, 255, 0), -1)
+                # for p, ap in zip(points, arrow_points):
+                #     cv2.circle(undistorted_frame, p, 3, (0, 255, 0), -1)
+                #     cv2.arrowedLine(undistorted_frame, p, ap, neon_red, 2)
+
+            tracked_points = []
+            for p in self.traversed_trajectory:
+                pos, _ = self.globalToImage(*p, mean_z)
+                tracked_points.append(pos)
+
+            tracked_traj = np.array(tracked_points).reshape((-1, 1, 2))
+            cv2.polylines(undistorted_frame, [tracked_traj], False, (0, 0, 255), 2)
+
+            # if self.heading is not None:
+            #     p_start_global = self.traversed_trajectory[-1]
+            #     p_start, _ = self.globalToImage(*p_start_global, mean_z)
+
+            #     end_x_global = p_start_global[0] + np.cos(self.heading) * 0.1
+            #     end_y_global = p_start_global[1] + np.sin(self.heading) * 0.1
+
+            #     p_end, _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+
+            #     cv2.arrowedLine(undistorted_frame, p_start, p_end, (0, 0, 255), 2)
 
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]
@@ -295,7 +350,7 @@ class Aligner:
             cropped_frame = undistorted_frame[crop_margin:h-crop_margin, crop_margin:w-crop_margin]
 
             cv2.imshow("RGB camera", cropped_frame)
-            # out.write(cropped_frame)
+            out.write(cropped_frame)
 
             self.wait_video = True
 
@@ -313,7 +368,7 @@ class Aligner:
 
 
         cap_rgb.release()
-        # out.release()
+        out.release()
 
         cv2.destroyAllWindows()
     
@@ -386,8 +441,8 @@ class Aligner:
         # Convert the frame to the HSV color space
         hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Define the range for blue color in HSV
-        lower_blue = np.array([100, 150, 0])
+        # Define the range for blue color in HSV, including lighter shades
+        lower_blue = np.array([90, 100, 0])  # Adjusted lower bound to capture lighter shades
         upper_blue = np.array([140, 255, 255])
 
         # Create a mask for blue color
@@ -399,14 +454,14 @@ class Aligner:
 
         for contour in contours:
             # Approximate the contour to a polygon
-            epsilon = 0.02 * cv2.arcLength(contour, True)
+            epsilon = 0.04 * cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, epsilon, True)
 
             # Check if the approximated contour has four points (rectangle) and is large enough
             if len(approx) == 4 and cv2.contourArea(approx) > 1000:  # Adjust the area threshold as needed
                 obstacles_contour.append(approx)
-
-        if len(obstacles_contour) == 2:
+        
+        if len(obstacles_contour) == 3:
             if self.obstacles is None:
                 self.obstacles = []
 

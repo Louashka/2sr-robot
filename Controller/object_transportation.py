@@ -383,7 +383,7 @@ def transport(date_title):
 
             c_dot = c_dot_new
 
-            v_r = robot_velocities(v_c)
+            v_r = robotVelocities(v_c)
             print(f'V_r: {v_r}')
 
             current_time = time.perf_counter()
