@@ -14,10 +14,15 @@ import json
 from typing import List
 from scipy.optimize import minimize
 from skopt import gp_minimize
+from scipy.spatial import Voronoi
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon as PlotPolygon
+from matplotlib.collections import PatchCollection
+from matplotlib import animation
 
 agent: rsr.Robot = None
 object: manipulandum.Shape = None
-obstacles = []
 
 mocap = motive_client.MocapReader()
 rgb_camera = cos.Aligner()
@@ -356,21 +361,30 @@ def closeToShape(current_k, target_k):
         status = False
     return status
 
-# class Node:
-#     def __init__(self, pose):
-#         self.pose = np.array(pose)  # [x, y, theta]
-#         self.parent = None
-#         self.cost = 0.0
+class Node:
+    def __init__(self, position, theta=0.0):
+        self.position = position  # [x, y]
+        self.theta = theta
+        self.parent = None
+        self.cost = 0.0
+
+    @property
+    def pose(self):
+        return [*self.position, self.theta]
 
 class RRTStar:
-    def __init__(self, start_pose, target_pose, workspace_bounds, 
-                 max_iter=1000, step_size=0.5, search_radius=2.0):
-        self.start = Node(start_pose)
-        self.goal = Node(target_pose)
-        self.bounds = workspace_bounds  # [x_min, x_max, y_min, y_max]
+    def __init__(self, start_pose, target_pose, bounds, max_dth=2*np.pi, step_size=0.2, 
+                 max_iter=1000, search_radius=1.0, w1=10.0, w2=0.1, w3=200):
+        self.start = Node(np.array(start_pose[:-1]), start_pose[-1])
+        self.goal = Node(np.array(target_pose[:-1]), target_pose[-1])
+        self.bounds = bounds  # [x_min, x_max, y_min, y_max]
+        self.max_dth = max_dth
         self.max_iter = max_iter
         self.step_size = step_size
         self.search_radius = search_radius
+        self.w1 = w1
+        self.w2 = w2
+        self.w3 = w3
         self.nodes = [self.start]
 
     def getRobotPolygon(self, pose):
@@ -394,110 +408,162 @@ class RRTStar:
         for i in range(self.max_iter):
             # Sample random pose
             if np.random.random() < 0.05:  # 5% chance to sample goal
-                sampled_pose = self.goal.pose
+                sampled_pos = self.goal.position
             else:
-                sampled_pose = self.sampleRandomPose()
+                sampled_pos = self.sampleRandomPosition()
             
             # Find nearest node
-            nearest_node = self.getNearestNode(sampled_pose)
+            nearest_node = self.getNearestNode(sampled_pos)
             
-            # Extend towards sampled pose
-            new_pose = self.steer(nearest_node.pose, sampled_pose)
+            # Extend towards sampled position
+            new_pos = self.steer(nearest_node.position, sampled_pos)
+            rgb_camera.new_pos = new_pos
+
+            # Find optimal theta for new position
+            optimal_theta = self.findOptimalTheta(new_pos, nearest_node)
+
+            if optimal_theta is None:
+                continue  # Skip if no valid theta found
             
             # Check if new pose is valid
-            if self.isValidPose(new_pose) and self.isPathValid(nearest_node.pose, new_pose):
-                new_node = Node(new_pose)
+            if (self.isValidPose(new_pos, optimal_theta) and 
+                self.isPathValid(nearest_node, new_pos, optimal_theta)):
                 
+                new_node = Node(new_pos, optimal_theta)
+
                 # Find nearby nodes for rewiring
-                nearby_nodes = self.getNearbyNodes(new_pose)
-                
-                # Connect to best parent
-                min_cost = float('inf')
-                best_parent = None
-                
-                for node in nearby_nodes:
-                    potential_cost = (node.cost + 
-                                self.calculateDistance(node.pose, new_pose))
-                    
-                    if (potential_cost < min_cost and 
-                        self.isPathValid(node.pose, new_pose)):
-                        min_cost = potential_cost
-                        best_parent = node
-                
+                nearby_nodes = self.getNearbyNodes(new_pos)
+
+                # Choose best parent from nearby nodes
+                best_parent, cost = self.chooseBestParent(new_node, nearby_nodes)
+
                 if best_parent is not None:
                     new_node.parent = best_parent
-                    new_node.cost = min_cost
+                    new_node.cost = cost
                     self.nodes.append(new_node)
-                    rgb_camera.all_nodes = self.nodes
                     
                     # Rewire nearby nodes
                     self.rewire(new_node, nearby_nodes)
+                    rgb_camera.all_nodes = self.nodes
+                    
+                    # time.sleep(0.5)
                     
                     # Check if we can connect to goal
-                    if (self.calculateDistance(new_pose, self.goal.pose) < self.step_size and 
-                        self.isPathValid(new_pose, self.goal.pose)):
-                        self.goal.parent = new_node
-                        self.goal.cost = (new_node.cost + 
-                                        self.calculateDistance(new_pose, self.goal.pose))
-                        
-                        # Add goal to nodes list temporarily for final rewiring
-                        self.nodes.append(self.goal)
-                        rgb_camera.all_nodes = self.nodes
-                        
-                        # Perform final rewiring
-                        nearby_nodes = self.getNearbyNodes(self.goal.pose)
-                        self.rewire(self.goal, nearby_nodes)
-                        
-                        # Remove goal from nodes list
-                        self.nodes.pop()
-                        rgb_camera.all_nodes = self.nodes
-                        
-                        return self.extractPath()
+                    distance_to_goal = np.linalg.norm(new_pos - self.goal.position)
+                    dth = abs(self.goal.theta - new_node.theta) / distance_to_goal
+                    
+                    # if (distance_to_goal < self.step_size and dth <= self.max_dth and
+                    #     self.isPathValid(new_node, self.goal.position, self.goal.theta)):
+                    if (distance_to_goal < self.step_size and
+                        self.isPathValid(new_node, self.goal.position, self.goal.theta)):
+                        if dth <= self.max_dth:
+                            self.goal.parent = new_node
+                            self.goal.cost = self.calculateCost(new_node, self.goal)
+                            rgb_camera.all_nodes.append(self.goal)
+                            return self.extractPath()
+                        else:
+                            continue
         
         return None  # No path found
     
-    def sampleRandomPose(self):
+    def sampleRandomPosition(self):
         x = np.random.uniform(self.bounds[0], self.bounds[1])
         y = np.random.uniform(self.bounds[2], self.bounds[3])
-        previous_theta = self.nodes[-1].pose[2] if self.nodes else agent.theta  # Get the last node's theta or default to 0
-        theta = np.random.uniform(-np.pi, np.pi)
-        theta = np.clip(theta, previous_theta - np.pi/2, previous_theta + np.pi/2)  # Limit theta
-        return np.array([x, y, theta])
+        return np.array([x, y])
     
-    def getNearestNode(self, pose):
-        distances = [self.calculateDistance(node.pose, pose) for node in self.nodes]
+    def findOptimalTheta(self, position, from_node: Node):
+        def objective(theta):
+            # Get robot polygon at proposed position and orientation
+            robot_polygon = self.getRobotPolygon([position[0], position[1], theta[0]])
+            
+            # Calculate minimum distance to obstacles
+            min_distance = float('inf')
+            for obstacle in expanded_obstacles:
+                distance = robot_polygon.distance(obstacle)
+                min_distance = min(min_distance, distance)
+            
+            # Three terms to consider:
+            # 1. Distance from obstacles
+            # 2. Change from previous theta
+            # 3. Difference from goal theta
+            dist = np.linalg.norm(position - from_node.position)
+            theta_change = abs(theta[0] - from_node.theta)
+            goal_theta_diff = abs(theta[0] - self.goal.theta)
+            
+            # Weight factors can be tuned
+            # return -self.w1 * min_distance + self.w2 * theta_change + np.exp(-self.w3 * dist) * goal_theta_diff
+            return -self.w1 * min_distance + self.w2 * theta_change
+
+
+        # Initial guess is current theta
+        theta0 = [from_node.theta]
+        bounds = [(-np.pi, np.pi)]
+        
+        # Optimize
+        result = minimize(objective, theta0, bounds=bounds, method='SLSQP')
+        
+        if result.success:
+            optimal_theta = result.x[0]
+            # Verify the solution is actually valid
+            distance = np.linalg.norm(position - from_node.position)
+            dth = abs(optimal_theta - from_node.theta) / distance
+
+            if dth > self.max_dth:
+                optimal_theta = from_node.theta + np.sign(optimal_theta) * distance * self.max_dth
+
+            return optimal_theta
+        
+        return None
+    
+    def getNearestNode(self, position):
+        distances = [np.linalg.norm(node.position - position) for node in self.nodes]
         return self.nodes[np.argmin(distances)]
     
-    def getNearbyNodes(self, pose):
+    def getNearbyNodes(self, position):
         nearby = []
         for node in self.nodes:
-            if self.calculateDistance(node.pose, pose) <= self.search_radius:
+            if self.calculateDistance(node.position, position) <= self.search_radius:
                 nearby.append(node)
         return nearby
     
-    def steer(self, from_pose, to_pose):
-        dist = self.calculateDistance(from_pose, to_pose)
-        if dist <= self.step_size:
-            return to_pose
-        else:
-            ratio = self.step_size / dist
-            dx = to_pose[0] - from_pose[0]
-            dy = to_pose[1] - from_pose[1]
-            dtheta = normalizeAngle(to_pose[2] - from_pose[2])
-            
-            new_x = from_pose[0] + dx * ratio
-            new_y = from_pose[1] + dy * ratio
-            new_theta = normalizeAngle(from_pose[2] + dtheta * ratio)
-            
-            return np.array([new_x, new_y, new_theta])
+    def calculateCost(self, node_parent: Node, node: Node):
+        # Include both distance and orientation change in cost
+        distance_cost = np.linalg.norm(node.position - node_parent.position)
+        angle_cost = abs(node.theta - node_parent.theta)
+        return node_parent.cost + distance_cost + 0.3 * angle_cost  # Weight can be adjusted
     
-    def rewire(self, new_node, nearby_nodes):
+    def chooseBestParent(self, new_node: Node, nearby_nodes: List[Node]):
+        min_cost = float('inf')
+        best_parent = None
+        
         for node in nearby_nodes:
-            potential_cost = (new_node.cost + 
-                            self.calculateDistance(new_node.pose, node.pose))
+            # Calculate potential cost through this node
+            potential_cost = self.calculateCost(node, new_node)
+            
+            # Check if this path is valid and better than current best
+            if (self.isPathValid(node, new_node.position, new_node.theta) and 
+                potential_cost < min_cost):
+                min_cost = potential_cost
+                best_parent = node
+                
+        return best_parent, min_cost
+    
+    def steer(self, from_pos, to_pos):
+        direction = to_pos - from_pos
+        distance = np.linalg.norm(direction)
+        if distance > self.step_size:
+            direction = direction / distance * self.step_size
+        return from_pos + direction
+    
+    def rewire(self, new_node: Node, nearby_nodes: List[Node]):
+        for node in nearby_nodes:
+            if node == new_node.parent:
+                continue
+            
+            potential_cost = self.calculateCost(new_node, node)
             
             if (potential_cost < node.cost and 
-                self.isPathValid(new_node.pose, node.pose)):
+                self.isPathValid(new_node, node.position, node.theta)):
                 node.parent = new_node
                 node.cost = potential_cost
     
@@ -508,83 +574,45 @@ class RRTStar:
         # return pos_diff + 0.2 * angle_diff  # Weight for angular component
         return pos_diff
     
-    def isValidPose(self, pose):
-        """Two-phase collision checking"""
-        x, y = pose[0], pose[1]
-        
+    def isValidPose(self, position, theta):
         # Check bounds
-        if not (self.bounds[0] <= x <= self.bounds[1] and 
-                self.bounds[2] <= y <= self.bounds[3]):
+        if (position[0] < self.bounds[0] or position[0] > self.bounds[1] or
+            position[1] < self.bounds[2] or position[1] > self.bounds[3]):
             return False
-
-        # Quick check with expanded obstacles
-        point = Point(x, y)
-        if any(obs.contains(point) for obs in expanded_obstacles):
+        
+        # Check robot collision
+        robot_polygon = self.getRobotPolygon([position[0], position[1], theta])
+        if any(obs.intersects(robot_polygon) for obs in expanded_obstacles):
             return False
-
-        # If close to expanded obstacles, do precise check
-        for exp_obs, orig_obs in zip(expanded_obstacles, original_obstacles):
-            if exp_obs.distance(point) < agent_length:
-                # Only create robot polygon if we're close to obstacles
-                robot = self.getRobotPolygon(pose)
-                if robot.intersects(orig_obs):
-                    return False
-
         return True
     
-    def isPathValid(self, pose1, pose2, check_steps=10):
-        """Check if path between poses is collision-free"""
-        # Calculate total distance and angle difference
-        dist = np.sqrt((pose2[0] - pose1[0])**2 + (pose2[1] - pose1[1])**2)
-        angle_diff = normalizeAngle(pose2[2] - pose1[2])
-
-        print(angle_diff/dist)
-        if abs(angle_diff/dist) > 3:
-            return False
+    def isPathValid(self, from_node: Node, to_pos, to_theta):
+        # Check straight line path
+        line = LineString([(from_node.position[0], from_node.position[1]), 
+                          (to_pos[0], to_pos[1])])
         
-        # Determine number of checks based on distance and angle
-        num_steps = max(
-            check_steps,
-            int(dist / (agent_width/2)),
-            int(abs(angle_diff) / (np.pi/8))
-        )
-
-        for i in range(num_steps + 1):
-            t = i / num_steps
-            # Linear interpolation for position
-            x = pose1[0] + t * (pose2[0] - pose1[0])
-            y = pose1[1] + t * (pose2[1] - pose1[1])
-            # Angular interpolation
-            theta = normalizeAngle(pose1[2] + t * angle_diff)
+        # Check collision at intermediate points
+        num_checks = 10
+        for i in range(num_checks):
+            t = i / (num_checks - 1)
+            point = line.interpolate(t, normalized=True)
+            # Interpolate theta
+            theta = from_node.theta + t * (to_theta - from_node.theta)
             
-            if not self.isValidPose([x, y, theta]):
+            if not self.isValidPose(np.array([point.x, point.y]), theta):
                 return False
         return True
 
     def extractPath(self):
         if self.goal.parent is None:
             return None
-            
-        # Get initial path
-        path = []
-        current = self.goal
-        while current is not None:
-            path.append(current.pose.tolist())
-            current = current.parent
-        path = path[::-1]  # Reverse to get start-to-goal order
         
-        return path
-
-class Node:
-    def __init__(self, position, theta=0.0):
-        self.position = position  # [x, y]
-        self.theta = theta
-        self.parent = None
-        self.cost = 0.0
-
-    @property
-    def pose(self):
-        return [*self.position, self.theta]
+        path = []
+        node = self.goal
+        while node is not None:
+            path.append(node.pose)
+            node = node.parent
+        return path[::-1]  # Reverse path to get start-to-goal order
 
 class RRT:
     def __init__(self, start_pose, target_pose, bounds, max_dth=np.pi, step_size=0.2, max_iter=1000,
@@ -622,7 +650,7 @@ class RRT:
         y = np.random.uniform(self.bounds[2], self.bounds[3])
         return np.array([x, y])
     
-    def findValidTheta(self, position, from_node: Node):
+    def findOptimalTheta(self, position, from_node: Node):
         def objective(theta):
             # Get robot polygon at proposed position and orientation
             robot_polygon = self.getRobotPolygon([position[0], position[1], theta[0]])
@@ -645,7 +673,7 @@ class RRT:
 
         # Initial guess is current theta
         theta0 = [from_node.theta]
-        bounds = [(from_node.theta - self.max_dth, from_node.theta + self.max_dth)]
+        bounds = [(-np.pi, np.pi)]
         
         # Optimize
         result = minimize(objective, theta0, bounds=bounds, method='SLSQP')
@@ -653,8 +681,12 @@ class RRT:
         if result.success:
             optimal_theta = result.x[0]
             # Verify the solution is actually valid
+            distance = np.linalg.norm(position - from_node.position)
+            dth = abs(optimal_theta - from_node.theta) / distance
+
             robot_polygon = self.getRobotPolygon([position[0], position[1], optimal_theta])
-            if not any(obs.intersects(robot_polygon) for obs in expanded_obstacles):
+            if (not any(obs.intersects(robot_polygon) for obs in expanded_obstacles)
+                and dth <= self.max_dth):
                 return optimal_theta
         
         return None
@@ -726,7 +758,7 @@ class RRT:
             rgb_camera.new_pos = new_pos
 
             # Find optimal theta for new position
-            optimal_theta = self.findValidTheta(new_pos, nearest_node)
+            optimal_theta = self.findOptimalTheta(new_pos, nearest_node)
 
             if optimal_theta is None:
                 continue  # Skip if no valid theta found
@@ -745,19 +777,13 @@ class RRT:
                 
                 # Check if we can connect to goal
                 distance_to_goal = np.linalg.norm(new_pos - self.goal.position)
-                if distance_to_goal < self.step_size:
-                    # Find optimal theta for connecting to goal
-                    goal_theta = self.findValidTheta(self.goal.position, new_node)
-                    
-                    if (goal_theta is not None and 
-                        self.isPathValid(new_node, self.goal.position, goal_theta)):
-                        
-                        self.goal.theta = goal_theta
-                        self.goal.parent = new_node
-                        
-                        rgb_camera.all_nodes.append(self.goal)
-                        
-                        return self.extractPath()
+                dth = abs(self.goal.theta - new_node.theta) / distance_to_goal
+                
+                if (distance_to_goal < self.step_size and dth <= self.max_dth and
+                    self.isPathValid(new_node, self.goal.position, self.goal.theta)):
+                    self.goal.parent = new_node
+                    rgb_camera.all_nodes.append(self.goal)
+                    return self.extractPath()
         
         return None  # No path found
 
@@ -770,8 +796,8 @@ class BayesianTuner:
         # Define parameter space
         self.space = [
             (0.5, 2.0),  # w1 range
-            (0.3, 1.0),  # w2 range
-            (0.2, 0.8)   # w3 range
+            (0.05, 1.0),  # w2 range
+            (0.05, 1.0)   # w3 range
         ]
         
         # Calculate maximum possible length and clearance for normalization
@@ -847,8 +873,8 @@ class BayesianTuner:
         
         # Combined score (lower is better)
         return (0.4 * norm_length + 
-                0.4 * norm_clearance + 
-                0.2 * norm_orientation)
+                0.3 * norm_clearance + 
+                0.3 * norm_orientation)
 
     def objective(self, params):
         w1, w2, w3 = params
@@ -867,7 +893,7 @@ class BayesianTuner:
                           for i in range(4))
         return self.objective_score(avg_metrics)
 
-    def tune_parameters(self, n_calls=10):
+    def tune_parameters(self, n_calls=30):
         result = gp_minimize(self.objective,
                            self.space,
                            n_calls=n_calls,
@@ -881,6 +907,538 @@ class BayesianTuner:
             'w3': result.x[2],
             'score': result.fun
         }
+
+class VoronoiPassageAnalyzer:
+    def __init__(self, obstacles, workspace_bounds):
+        self.obstacles = obstacles
+        self.workspace_bounds = workspace_bounds
+        self.boundary_points = self.sample_obstacle_boundaries()
+        self.vor = Voronoi(self.boundary_points)
+        self.passage_graph = self.create_passage_graph()
+        
+    def sample_obstacle_boundaries(self, sampling_density=0.1):
+        boundary_points = []
+        
+        # Sample points from each obstacle's boundary
+        for obstacle in self.obstacles:
+            if isinstance(obstacle, Polygon):
+                # boundary = obstacle.exterior.coords[:-1]  # Exclude last point (same as first)
+                xx, yy = obstacle.exterior.coords.xy
+                xx = xx.tolist()
+                yy = yy.tolist()
+                points = [[xx[i], yy[i]] for i in range(len(xx) - 1)]
+                boundary_points.extend(points)
+        
+        return np.array(boundary_points)
+    
+    def is_line_collision_free(self, p1, p2):
+        """Check if line segment between p1 and p2 collides with any obstacle"""
+        line = LineString([p1, p2])
+        for obstacle in self.obstacles:
+            if line.intersects(obstacle):
+                return False
+        return True
+
+    def create_passage_graph(self):
+        graph = nx.Graph()
+        
+        # Add Voronoi vertices as graph nodes
+        for i, vertex in enumerate(self.vor.vertices):
+            if self.is_point_in_workspace(vertex) and self.is_point_collision_free(vertex):
+                clearance = self.get_clearance(vertex)
+                graph.add_node(i, pos=vertex, clearance=clearance)
+        
+        # Add Voronoi edges
+        for ridge_vertices in self.vor.ridge_vertices:
+            if -1 not in ridge_vertices:  # Skip infinite ridges
+                v1, v2 = ridge_vertices
+                if (v1 in graph.nodes and v2 in graph.nodes):
+                    p1 = self.vor.vertices[v1]
+                    p2 = self.vor.vertices[v2]
+                    
+                    # Check if edge intersects any obstacle
+                    if self.is_line_collision_free(p1, p2):
+                        edge_length = np.linalg.norm(p1 - p2)
+                        min_clearance = min(
+                            graph.nodes[v1]['clearance'],
+                            graph.nodes[v2]['clearance']
+                        )
+                        
+                        graph.add_edge(v1, v2, 
+                                     length=edge_length,
+                                     clearance=min_clearance)
+        
+        return graph
+
+    def identify_passages(self, min_clearance_threshold=0.5):
+        passages = []
+        
+        # Find connected components in the graph
+        components = list(nx.connected_components(self.passage_graph))
+        
+        for component in components:
+            subgraph = self.passage_graph.subgraph(component)
+            
+            # Find bottlenecks in this component
+            bottlenecks = self.find_bottlenecks(subgraph, min_clearance_threshold)
+            passages.extend(bottlenecks)
+        
+        return passages
+    
+    def is_point_collision_free(self, point):
+        """Check if point is inside any obstacle"""
+        point_obj = Point(point)
+        for obstacle in self.obstacles:
+            if obstacle.contains(point_obj) or obstacle.boundary.contains(point_obj):
+                return False
+        return True
+
+    def get_clearance(self, point):
+        """Get minimum distance from point to any obstacle"""
+        point_obj = Point(point)
+        min_distance = float('inf')
+        for obstacle in self.obstacles:
+            distance = point_obj.distance(obstacle)
+            min_distance = min(min_distance, distance)
+        return min_distance
+
+    def find_bottlenecks(self, graph, min_clearance_threshold):
+        robot_width = agent_width  # replace with your robot's width
+        safety_margin = 1.05
+        min_clearance_threshold = (robot_width * safety_margin) / 2
+        
+        bottlenecks = []
+        
+        # Sort edges by clearance
+        edges = list(graph.edges(data=True))
+        edges.sort(key=lambda x: x[2]['clearance'])
+        
+        for edge in edges:
+            v1, v2, data = edge
+            p1 = graph.nodes[v1]['pos']
+            p2 = graph.nodes[v2]['pos']
+            
+            # Check clearance at multiple points along the passage
+            num_checks = 5
+            is_passable = True
+            
+            # Only proceed if the passage doesn't intersect obstacles
+            if self.is_line_collision_free(p1, p2):
+                for i in range(num_checks):
+                    t = i / (num_checks - 1)
+                    # Interpolate point along passage
+                    check_point = [
+                        p1[0] * (1-t) + p2[0] * t,
+                        p1[1] * (1-t) + p2[1] * t
+                    ]
+                    
+                    # Check clearance at this point
+                    clearance = self.get_clearance(check_point)
+                    if clearance < min_clearance_threshold:
+                        is_passable = False
+                        break
+                
+                if is_passable:
+                    passage = {
+                        'points': (p1, p2),
+                        'clearance': data['clearance'],
+                        'length': data['length'],
+                        'orientation': np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
+                    }
+                    bottlenecks.append(passage)
+        
+        return bottlenecks
+    
+    def is_point_in_workspace(self, point):
+        x, y = point
+        return (self.workspace_bounds[0][0] <= x <= self.workspace_bounds[1][0] and
+                self.workspace_bounds[0][1] <= y <= self.workspace_bounds[1][1])
+    
+    def find_passage_sequence(self, start_point, goal_pose, segment_length):
+        """
+        Find passage sequence for a 3-point segment
+        segment_length: total length of segment (distance between endpoints)
+        """
+        # First, calculate target positions for all three points when segment reaches goal
+        mid_point_target = goal_pose[:-1]
+        segment_half = segment_length / 2
+        
+        # Calculate target positions for endpoints
+        front_target = np.array(mid_point_target) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
+        rear_target = np.array(mid_point_target) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+        
+        # Find path for rear point (leading the motion)
+        rear_path = self.find_point_path(start_point, rear_target)
+        
+        if not rear_path:
+            return None
+        
+        interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
+            
+        # # Convert point path to full segment motion sequence
+        # segment_sequence = []
+        
+        # for i in range(len(rear_path) - 1):
+        #     # Start with rear point position
+        #     mid_pos = None
+            
+        #     rear_pos = np.array(rear_path[i]['points'][0])
+        #     p1, p2 = rear_path[i]['points']
+            
+        #     total_passage_length = np.linalg.norm(np.array(p2)-rear_pos)
+        #     current_idx = i
+            
+        #     if total_passage_length >= segment_half:
+        #         # Mid point is on the current passage
+        #         orientation = np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
+        #         mid_pos = rear_pos + segment_half * np.array([np.cos(orientation), np.sin(orientation)])
+        #     else:
+        #         # Keep traversing passages until we find mid point
+        #         while current_idx + 1 < len(rear_path):
+        #             current_idx += 1
+        #             p1, p2 = rear_path[current_idx]['points']
+        #             passage_length = np.linalg.norm(np.array(p2)-np.array(p1))
+                    
+        #             if total_passage_length + passage_length >= segment_half:
+        #                 orientation = np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
+        #                 remaining_length = segment_half - total_passage_length
+        #                 mid_pos = np.array(p1) + remaining_length * np.array([np.cos(orientation), np.sin(orientation)])
+        #                 break
+                    
+        #             total_passage_length += passage_length
+            
+            
+        #     segment_sequence.append({
+        #         'rear_point': rear_pos,
+        #         'mid_point': mid_pos,
+        #         # 'front_point': front_pos,
+        #         # 'orientation': current_orientation,
+        #         'rear_point_passage': rear_path[i],
+        #         'mid_point_passage': rear_path[current_idx]
+        #     })
+        
+        # return segment_sequence
+
+        return interpoltaed_rear_path_points
+    
+    def interpolate_path_points(self, path, target_point, step_size=0.01, threshold=0.01):
+        interpolated_points = []
+
+        for i in range(len(path)-1):
+            p1, p2 = path[i]['points']
+            current_nodes = path[i]['nodes']
+
+            passage_vector = np.array(p2) - np.array(p1)
+            passage_length = np.linalg.norm(passage_vector)
+            direction = passage_vector / passage_length
+            
+            # How many points we need on this passage
+            num_points = int(passage_length / step_size)
+
+            for j in range(num_points):
+                point_pos = np.array(p1) + j * step_size * direction
+
+                dist_to_target = np.linalg.norm(np.array(target_point) - point_pos)
+                if dist_to_target < threshold:
+                    return interpolated_points
+                
+                interpolated_points.append({
+                    'pos': point_pos,
+                    'nodes': current_nodes
+                })
+
+        return interpolated_points
+    
+    def find_nearest_passage(self, point):
+        """Find nearest passage to a point"""
+        # Convert voronoi vertices to array for efficient computation
+        point_array = np.array(point)
+        nearest_passage = None
+        min_distance = float('inf')
+        
+        # Check each edge in the passage graph
+        for edge in self.passage_graph.edges():
+            v1, v2 = edge
+            p1 = np.array(self.passage_graph.nodes[v1]['pos'])
+            p2 = np.array(self.passage_graph.nodes[v2]['pos'])
+            
+            # Find closest point on line segment
+            segment_vector = p2 - p1
+            segment_length = np.linalg.norm(segment_vector)
+            if segment_length == 0:
+                continue
+                
+            segment_unit = segment_vector / segment_length
+            point_vector = point_array - p1
+            projection = np.dot(point_vector, segment_unit)
+            
+            if projection <= 0:
+                closest_point = p1
+            elif projection >= segment_length:
+                closest_point = p2
+            else:
+                closest_point = p1 + projection * segment_unit
+                
+            distance = np.linalg.norm(point_array - closest_point)
+            
+            if distance < min_distance:
+                min_distance = distance
+                nearest_passage = {
+                    'points': (p1, p2),
+                    'nodes': edge,
+                    'distance': distance,
+                    'clearance': self.passage_graph.edges[edge].get('clearance', 0)
+                }
+        
+        return nearest_passage
+    
+    def calculate_passage_orientation(self, passage):
+        """Calculate orientation of a passage"""
+        if not passage:
+            return 0
+            
+        # Get passage endpoints
+        p1, p2 = passage['points']
+        
+        # Calculate orientation angle from p1 to p2
+        return np.arctan2(p2[1] - p1[1], p2[0] - p1[0])
+    
+    def find_point_path(self, start_point, goal_point):
+        """Find path for a point through passages"""
+        # Find nearest passages to start and goal
+        start_passage = self.find_nearest_passage(start_point)
+        goal_passage = self.find_nearest_passage(goal_point)
+        
+        if not start_passage or not goal_passage:
+            return None
+            
+        # Get nodes from passages
+        start_nodes = start_passage['nodes']
+        goal_nodes = goal_passage['nodes']
+        
+        # Try to find path between any combination of start and goal nodes
+        shortest_path = None
+        min_length = float('inf')
+        
+        for start_node in start_nodes:
+            for goal_node in goal_nodes:
+                try:
+                    # Use NetworkX to find shortest path
+                    path = nx.shortest_path(self.passage_graph, start_node, goal_node)
+                    
+                    # Calculate path length
+                    path_length = 0
+                    for i in range(len(path)-1):
+                        n1, n2 = path[i], path[i+1]
+                        p1 = np.array(self.passage_graph.nodes[n1]['pos'])
+                        p2 = np.array(self.passage_graph.nodes[n2]['pos'])
+                        path_length += np.linalg.norm(p2 - p1)
+                    
+                    if path_length < min_length:
+                        min_length = path_length
+                        shortest_path = path
+                        
+                except nx.NetworkXNoPath:
+                    continue
+        
+        if not shortest_path:
+            return None
+            
+        # Convert node path to passage sequence
+        passage_sequence = []
+        
+        # Add initial passage from start point to first node
+        first_node = shortest_path[0]
+        first_pos = self.passage_graph.nodes[first_node]['pos']
+        passage_sequence.append({
+            'points': (start_point, first_pos),
+            'nodes': (None, first_node),
+            'clearance': start_passage['clearance']
+        })
+        
+        # Add passages between nodes
+        for i in range(len(shortest_path)-1):
+            n1, n2 = shortest_path[i], shortest_path[i+1]
+            p1 = self.passage_graph.nodes[n1]['pos']
+            p2 = self.passage_graph.nodes[n2]['pos']
+            clearance = self.passage_graph.edges[(n1, n2)]['clearance']
+            
+            passage_sequence.append({
+                'points': (p1, p2),
+                'nodes': (n1, n2),
+                'clearance': clearance
+            })
+        
+        # Add final passage from last node to goal point
+        last_node = shortest_path[-1]
+        last_pos = self.passage_graph.nodes[last_node]['pos']
+        passage_sequence.append({
+            'points': (last_pos, goal_point),
+            'nodes': (last_node, None),
+            'clearance': goal_passage['clearance']
+        })
+        
+        return passage_sequence
+
+    def find_nearest_passage_point(self, point):
+        """Find nearest valid point on passage network"""
+        point_array = np.array(point)
+        
+        # Calculate distances to all vertices
+        valid_connections = []
+        
+        for vertex_id in self.passage_graph.nodes():
+            vertex_pos = self.passage_graph.nodes[vertex_id]['pos']
+            
+            # Check if connection is collision-free
+            if self.is_line_collision_free(point, vertex_pos):
+                distance = np.linalg.norm(point_array - vertex_pos)
+                clearance = min(
+                    self.get_clearance(point),
+                    self.get_clearance(vertex_pos)
+                )
+                
+                valid_connections.append({
+                    'node_id': vertex_id,
+                    'distance': distance,
+                    'clearance': clearance
+                })
+        
+        if not valid_connections:
+            return None
+            
+        # Return the nearest valid connection
+        return min(valid_connections, key=lambda x: x['distance'])
+    
+    def connect_point_to_graph(self, graph, point, node_id):
+        """Connect a point to nearby Voronoi vertices"""
+        point_array = np.array(point)
+        
+        # Find closest vertices
+        distances = []
+        for vertex_id in graph.nodes():
+            if vertex_id not in [node_id, node_id+1]:  # Skip start/goal nodes
+                vertex_pos = graph.nodes[vertex_id]['pos']
+                dist = np.linalg.norm(point_array - vertex_pos)
+                distances.append((dist, vertex_id))
+        
+        # Connect to closest vertices
+        distances.sort()
+        for dist, vertex_id in distances[:3]:  # Connect to 3 closest vertices
+            graph.add_node(node_id, pos=point)
+            graph.add_edge(node_id, vertex_id, 
+                         length=dist,
+                         clearance=self.get_clearance(point))
+
+class VoronoiVisualizer:
+    def __init__(self, obstacles, workspace_bounds):
+        self.obstacles = obstacles
+        self.workspace_bounds = workspace_bounds
+        self.vor = None
+        self.fig = None
+        self.ax = None
+        
+    def plot_voronoi(self, show_points=True):
+        # Create figure and axis
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        
+        # Plot obstacles
+        self._plot_obstacles()
+        
+        # Sample points from obstacle boundaries
+        boundary_points = self._sample_obstacle_boundaries()
+        
+        # Create and plot Voronoi diagram
+        self.vor = Voronoi(boundary_points)
+        self._plot_voronoi_diagram(show_points)
+        
+        # Set workspace bounds
+        self.ax.set_xlim(self.workspace_bounds[0][0], self.workspace_bounds[1][0])
+        self.ax.set_ylim(self.workspace_bounds[0][1], self.workspace_bounds[1][1])
+        
+        # Set equal aspect ratio
+        self.ax.set_aspect('equal')
+        
+        # Add grid
+        self.ax.grid(True)
+        
+        return self.fig, self.ax
+    
+    def _plot_obstacles(self):
+        patches = []
+        for obstacle in self.obstacles:
+            if isinstance(obstacle, Polygon):
+                patches.append(PlotPolygon(np.array(obstacle.exterior.coords)))
+        
+        # Add obstacle patches to plot
+        p = PatchCollection(patches, alpha=0.4, color='gray')
+        self.ax.add_collection(p)
+    
+    def _sample_obstacle_boundaries(self, sampling_density=0.1):
+        boundary_points = []
+        
+        for obstacle in self.obstacles:
+            if isinstance(obstacle, Polygon):
+                # boundary = obstacle.exterior.coords[:-1]
+                # perimeter = obstacle.length
+                # num_samples = max(4, int(perimeter * sampling_density))
+                
+                # for i in range(num_samples):
+                #     t = i / num_samples
+                #     point = obstacle.boundary.interpolate(t * perimeter)
+                #     boundary_points.append([point.x, point.y])
+                xx, yy = obstacle.exterior.coords.xy
+                xx = xx.tolist()
+                yy = yy.tolist()
+                points = [[xx[i], yy[i]] for i in range(len(xx) - 1)]
+                boundary_points.extend(points)
+
+        boundary_points.extend([
+            [self.workspace_bounds[0][0], self.workspace_bounds[0][1]],  # bottom-left
+            [self.workspace_bounds[1][0], self.workspace_bounds[0][1]],  # bottom-right
+            [self.workspace_bounds[1][0], self.workspace_bounds[1][1]],  # top-right
+            [self.workspace_bounds[0][0], self.workspace_bounds[1][1]]   # top-left
+        ])
+        
+        return np.array(boundary_points)
+    
+    def _plot_voronoi_diagram(self, show_points=True):
+        # Plot Voronoi vertices
+        if show_points:
+            self.ax.plot(self.vor.points[:, 0], self.vor.points[:, 1], 'ko', 
+                        markersize=2, label='Sample Points')
+        
+        # Plot finite Voronoi edges
+        for simplex in self.vor.ridge_vertices:
+            if -1 not in simplex:
+                self.ax.plot(self.vor.vertices[simplex, 0], 
+                           self.vor.vertices[simplex, 1], 
+                           'b-', linewidth=1)
+        
+        # Plot infinite Voronoi edges
+        center = self.vor.points.mean(axis=0)
+        for pointidx, simplex in zip(self.vor.ridge_points, self.vor.ridge_vertices):
+            if -1 in simplex:
+                i = simplex.index(-1)
+                v1 = self.vor.vertices[simplex[(i+1) % 2]]
+                v2 = self.vor.points[pointidx[(i+1) % 2]] - self.vor.points[pointidx[i]]
+                v2 = v2 / np.linalg.norm(v2)
+                far_point = v1 + v2 * 100
+                self.ax.plot([v1[0], far_point[0]], [v1[1], far_point[1]], 
+                           'b--', linewidth=1)
+
+    def highlight_narrow_passages(self, passages, color='red', linewidth=2):
+        """Highlight identified narrow passages"""
+        for passage in passages:
+            p1, p2 = passage['points']
+            self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 
+                        color=color, linewidth=linewidth, 
+                        label=f'Passage (clearance: {passage["clearance"]:.2f})')
+            
+        # Remove duplicate labels
+        handles, labels = self.ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        self.ax.legend(by_label.values(), by_label.keys())
 
 if __name__ == "__main__":
 
@@ -976,23 +1534,14 @@ if __name__ == "__main__":
 
     expandObstacles()
 
-    tuner = BayesianTuner(workspace_bounds, agent.pose, target_pose)
-    best_params = tuner.tune_parameters()
+    # tuner = BayesianTuner(workspace_bounds, agent.pose, target_pose)
+    # best_params = tuner.tune_parameters()
 
-    print(best_params)
+    # print(best_params)
 
     # while True:
-    #     # rrt = RRTStar(
-    #     #     start_pose=agent.pose,
-    #     #     target_pose=target_pose,
-    #     #     workspace_bounds=workspace_bounds,
-    #     #     max_iter=5000,
-    #     #     step_size=0.02,
-    #     #     search_radius=1.0
-    #     # )
-
-    #     rrt = RRT(agent.pose, target_pose, workspace_bounds,
-    #               w1=best_params['w1'], w2=best_params['w2'], w3=best_params['w3'])
+    #     # rrt = RRT(agent.pose, target_pose, workspace_bounds)
+    #     rrt = RRTStar(agent.pose, target_pose, workspace_bounds)
         
     #     path = rrt.plan()
 
@@ -1061,7 +1610,109 @@ if __name__ == "__main__":
                 
     #     else:
     #         print("No path found!")
-    #         break  # Exit if no path is found
+    #         # break  # Exit if no path is found
 
     # ---------------------------------------------------------------
+    # Create visualizer
+    bounds = [
+        (-0.606, -0.6), # Lower left corner (x_min, y_min)
+        (0.319, 0.5)  # Upper right corner (x_max, y_max)
+    ]
 
+    visualizer = VoronoiVisualizer(expanded_obstacles, bounds)
+    
+    # Plot basic Voronoi diagram
+    fig, ax = visualizer.plot_voronoi(show_points=True)
+    
+    # Create analyzer and find passages
+    analyzer = VoronoiPassageAnalyzer(expanded_obstacles, bounds)
+    passages = analyzer.identify_passages()
+    
+    # Highlight narrow passages
+    visualizer.highlight_narrow_passages(passages)
+    
+    # Find passage sequence
+    # passage_sequence = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
+    rear_path_points = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
+
+    # if passage_sequence:
+    #     # Plot the path of the rear point
+    #     for passage in passage_sequence:
+    #         p1, p2 = passage['rear_point_passage']['points']
+    #         plt.plot([p1[0], p2[0]], [p1[1], p2[1]], 'g-', linewidth=2, label='Path')
+
+    #     # Create visualization elements for the 3-point segment
+    #     rear_point, = plt.plot([], [], 'bo', markersize=8)
+    #     mid_point, = plt.plot([], [], 'ro', markersize=8)
+    #     front_point, = plt.plot([], [], 'bo', markersize=8)
+    #     segment_lines, = plt.plot([], [], 'r-', linewidth=2)
+        
+    #     def animate(frame):
+    #         # Calculate total path length
+    #         total_length = 0
+    #         path_segments = []
+            
+    #         for passage in passage_sequence:
+    #             p1 = passage['rear_point']
+    #             p2 = passage['rear_point_passage']['points'][1]
+    #             segment_length = np.linalg.norm(np.array(p2) - np.array(p1))
+    #             path_segments.append((total_length, segment_length, passage))
+    #             total_length += segment_length
+            
+    #         # Calculate current position
+    #         t = frame / 100  # Normalize frame to [0,1]
+    #         current_length = t * total_length
+            
+    #         # Find current segment and position within it
+    #         for start_length, seg_length, passage in path_segments:
+    #             if current_length <= start_length + seg_length:
+    #                 segment_t = (current_length - start_length) / seg_length
+                    
+    #                 # Interpolate rear point position
+    #                 rear_pos = np.array(passage['rear_point']) * (1 - segment_t) + \
+    #                         np.array(passage['rear_point_passage']['points'][1]) * segment_t
+                    
+    #                 mid_pos = np.array(passage['mid_point']) * (1 - segment_t) + \
+    #                         np.array(passage['mid_point_passage']['points'][1]) * segment_t
+                    
+    #                 # Update visualization
+    #                 rear_point.set_data([rear_pos[0]], [rear_pos[1]])
+    #                 mid_point.set_data([mid_pos[0]], [mid_pos[1]])
+    #                 break
+
+            
+            
+    #         return rear_point, mid_point, front_point, segment_lines
+
+    if rear_path_points:
+        rear_point, = plt.plot([], [], 'bo', markersize=8)
+        traversed_line, = plt.plot([], [], 'g-', linewidth=3)
+
+        traversed_path_x = []
+        traversed_path_y = []
+
+        def animate(frame):
+            if frame < len(rear_path_points):
+                rear_pos = rear_path_points[frame]['pos']
+
+                traversed_path_x.append(rear_pos[0])
+                traversed_path_y.append(rear_pos[1])
+
+                traversed_line.set_data(traversed_path_x, traversed_path_y)
+                rear_point.set_data([rear_pos[0]], [rear_pos[1]])
+
+            return traversed_line, rear_point
+
+        # Create animation
+        anim = animation.FuncAnimation(
+            fig, animate, frames=101,
+            interval=50,
+            blit=True,
+            repeat=False
+        )
+        
+        plt.title('Voronoi Diagram with 3-Point Segment Motion')
+    else:
+        plt.title('No valid path found')
+
+    plt.show()

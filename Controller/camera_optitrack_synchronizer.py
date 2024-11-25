@@ -461,7 +461,7 @@ class Aligner:
             if len(approx) == 4 and cv2.contourArea(approx) > 1000:  # Adjust the area threshold as needed
                 obstacles_contour.append(approx)
         
-        if len(obstacles_contour) == 3:
+        if len(obstacles_contour) == 4:
             if self.obstacles is None:
                 self.obstacles = []
 
