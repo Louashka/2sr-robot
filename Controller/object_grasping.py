@@ -1074,41 +1074,30 @@ class VoronoiPassageAnalyzer:
         Find passage sequence for a 3-point segment
         segment_length: total length of segment (distance between endpoints)
         """
-        # First, calculate target positions for all three points when segment reaches goal
-        mid_point_target = goal_pose[:-1]
-        segment_half = segment_length / 2
-
-        front_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
-        rear_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
-
-        # Calculate target positions for endpoints
-        front_target = np.array(mid_point_target) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
-        rear_target = np.array(mid_point_target) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+        # Calculate paths of the robot points within the passages
+        rear_path, front_path, interpoltaed_rear_path_points = self._calc_robot_paths(start_pose, goal_pose, segment_length)
         
-        # Find path for rear point (leading the motion)
-        rear_path = self.find_point_path(rear_start, rear_target)
-        front_path = self.find_point_path(front_start, front_target)
-
-        print(rear_path)
-        print(front_path)
-        
-        if not rear_path:
+        if not rear_path or not front_path:
             return None
         
-        interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
-        front_path_points = []
-
+        # Initialize the queue of nodes between the rear and front points
         path_between_rear_front = self.find_point_path(rear_path[0]['points'][0],
                                                        front_path[0]['points'][1])
         passages_between_rear_front = deque()
         for item in path_between_rear_front[:-1]:
             passages_between_rear_front.append(item['nodes'])
 
+        # Main loop
+        front_path_points = []
+        middle_path_points = []
+
         front_current_idx = 0
 
         for rear_path_point in interpoltaed_rear_path_points:
-            rear_pos = rear_path_point['pos']
             front_pos_new = None
+            middle_pos_new = None
+
+            rear_pos = rear_path_point['pos']
 
             if (rear_path_point['nodes'] != passages_between_rear_front[0] and 
                 rear_path_point['nodes'][::-1] != passages_between_rear_front[0]):
@@ -1129,6 +1118,8 @@ class VoronoiPassageAnalyzer:
 
             while front_pos_new is None:
                 delta_rear_front = 0
+                delta_rear_middle = 0
+                middle_passage = None
 
                 for i in range(len(passages_between_rear_front)):
                     passage = passages_between_rear_front[i]
@@ -1139,6 +1130,11 @@ class VoronoiPassageAnalyzer:
 
                     delta_rear_front += np.linalg.norm(self.allowed_passage_graph.nodes[passage[1]]['pos'] - passage_start_pos)
 
+                    if middle_passage is None:
+                        delta_rear_middle = delta_rear_front
+                        if delta_rear_middle >= segment_length/2:
+                            middle_passage = passage
+                    
                     if delta_rear_front >= segment_length:
                         if i < len(passages_between_rear_front) - 1:
                             front_current_idx -= (len(passages_between_rear_front) - 1 - i)
@@ -1150,6 +1146,15 @@ class VoronoiPassageAnalyzer:
                     orientation = np.arctan2(node_end_pos[1]-node_start_pos[1], 
                                              node_end_pos[0]-node_start_pos[0]) - np.pi
                     front_pos_new = node_end_pos + (delta_rear_front-segment_length) * np.array([np.cos(orientation), np.sin(orientation)])
+                
+                    if middle_passage[0] is None:
+                        middle_node_start_pos = rear_pos
+                    else:
+                        middle_node_start_pos = self.allowed_passage_graph.nodes[middle_passage[0]]['pos']
+                    middle_node_end_pos = self.allowed_passage_graph.nodes[middle_passage[1]]['pos']
+                    middle_orientation = np.arctan2(middle_node_end_pos[1]-middle_node_start_pos[1], 
+                                                    middle_node_end_pos[0]-middle_node_start_pos[0]) - np.pi
+                    middle_pos_new = middle_node_end_pos + (delta_rear_middle-segment_length/2) * np.array([np.cos(middle_orientation), np.sin(middle_orientation)])
                 else:
                     nodes_to_append = None
 
@@ -1175,9 +1180,38 @@ class VoronoiPassageAnalyzer:
 
 
             front_path_points.append(front_pos_new)
+            middle_path_points.append(middle_pos_new)
 
-        return interpoltaed_rear_path_points, front_path_points
+        return interpoltaed_rear_path_points, front_path_points, middle_path_points
     
+    def _calc_robot_paths(self, start_pose, goal_pose, segment_length):
+        segment_half = segment_length / 2
+
+        front_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
+        rear_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
+
+        # Calculate target positions for endpoints
+        front_target = np.array(goal_pose[:-1]) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
+        rear_target = np.array(goal_pose[:-1]) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+        
+        # Find path for rear point (leading the motion)
+        rear_path = self.find_point_path(rear_start, rear_target)
+        front_path = self.find_point_path(front_start, front_target)
+
+        rear_nodes = []
+        for item in rear_path:
+            rear_nodes.append(item['nodes'])
+        print(f'Rear point nodes: {rear_nodes}')
+
+        front_nodes = []
+        for item in front_path:
+            front_nodes.append(item['nodes'])
+        print(f'Front point nodes: {front_nodes}')
+
+        interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
+
+        return rear_path, front_path, interpoltaed_rear_path_points
+
     def interpolate_path_points(self, path, target_point, step_size=0.01, threshold=0.01):
         interpolated_points = []
 
@@ -1690,12 +1724,15 @@ if __name__ == "__main__":
     
     # Find passage sequence
     # passage_sequence = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
-    rear_path_points, front_path_points = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
+    rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
+    print()
+    print('Start animation...')
 
     if rear_path_points:
-        rear_point, = plt.plot([], [], 'bo', markersize=8)
-        front_point, = plt.plot([], [], 'ko', markersize=6)
         traversed_line, = plt.plot([], [], 'g-', linewidth=3)
+        rear_point, = plt.plot([], [], 'ko', markersize=8)
+        front_point, = plt.plot([], [], 'bo', markersize=8)
+        middle_point, = plt.plot([], [], 'bo', markersize=10)
 
         traversed_path_x = []
         traversed_path_y = []
@@ -1704,6 +1741,7 @@ if __name__ == "__main__":
             if frame < len(rear_path_points):
                 rear_pos = rear_path_points[frame]['pos']
                 front_pos = front_path_points[frame]
+                middle_pos = middle_path_points[frame]
 
                 traversed_path_x.append(rear_pos[0])
                 traversed_path_y.append(rear_pos[1])
@@ -1711,8 +1749,9 @@ if __name__ == "__main__":
                 traversed_line.set_data(traversed_path_x, traversed_path_y)
                 rear_point.set_data([rear_pos[0]], [rear_pos[1]])
                 front_point.set_data([front_pos[0]], [front_pos[1]])
+                middle_point.set_data([middle_pos[0]], [middle_pos[1]])
 
-            return traversed_line, rear_point, front_point
+            return traversed_line, rear_point, front_point, middle_point
 
         # Create animation
         anim = animation.FuncAnimation(
