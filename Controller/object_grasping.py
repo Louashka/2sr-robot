@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as PlotPolygon
 from matplotlib.collections import PatchCollection
 from matplotlib import animation
+from collections import deque
 
 agent: rsr.Robot = None
 object: manipulandum.Shape = None
@@ -915,6 +916,7 @@ class VoronoiPassageAnalyzer:
         self.boundary_points = self.sample_obstacle_boundaries()
         self.vor = Voronoi(self.boundary_points)
         self.passage_graph = self.create_passage_graph()
+        self.allowed_passage_graph = None
         
     def sample_obstacle_boundaries(self, sampling_density=0.1):
         boundary_points = []
@@ -972,6 +974,7 @@ class VoronoiPassageAnalyzer:
 
     def identify_passages(self, min_clearance_threshold=0.5):
         passages = []
+        self.allowed_passage_graph = nx.Graph()  # Create new graph for passages
         
         # Find connected components in the graph
         components = list(nx.connected_components(self.passage_graph))
@@ -982,6 +985,17 @@ class VoronoiPassageAnalyzer:
             # Find bottlenecks in this component
             bottlenecks = self.find_bottlenecks(subgraph, min_clearance_threshold)
             passages.extend(bottlenecks)
+            
+            # Add these passages to the new graph
+            for passage in bottlenecks:
+                node1, node2 = passage['nodes']
+                self.allowed_passage_graph.add_node(node1, pos=passage['points'][0], 
+                                                    clearance=self.get_clearance(passage['points'][0]))
+                self.allowed_passage_graph.add_node(node2, pos=passage['points'][1], 
+                                                    clearance=self.get_clearance(passage['points'][0]))
+                self.allowed_passage_graph.add_edge(node1, node2,
+                                                    length=passage['length'],
+                                                    clearance=passage['clearance'])  # Add edge with passage data
         
         return passages
     
@@ -1041,6 +1055,7 @@ class VoronoiPassageAnalyzer:
                 if is_passable:
                     passage = {
                         'points': (p1, p2),
+                        'nodes': (v1, v2),  # Add nodes information
                         'clearance': data['clearance'],
                         'length': data['length'],
                         'orientation': np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
@@ -1054,7 +1069,7 @@ class VoronoiPassageAnalyzer:
         return (self.workspace_bounds[0][0] <= x <= self.workspace_bounds[1][0] and
                 self.workspace_bounds[0][1] <= y <= self.workspace_bounds[1][1])
     
-    def find_passage_sequence(self, start_point, goal_pose, segment_length):
+    def find_passage_sequence(self, start_pose, goal_pose, segment_length):
         """
         Find passage sequence for a 3-point segment
         segment_length: total length of segment (distance between endpoints)
@@ -1062,64 +1077,106 @@ class VoronoiPassageAnalyzer:
         # First, calculate target positions for all three points when segment reaches goal
         mid_point_target = goal_pose[:-1]
         segment_half = segment_length / 2
-        
+
+        front_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
+        rear_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
+
         # Calculate target positions for endpoints
         front_target = np.array(mid_point_target) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
         rear_target = np.array(mid_point_target) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
         
         # Find path for rear point (leading the motion)
-        rear_path = self.find_point_path(start_point, rear_target)
+        rear_path = self.find_point_path(rear_start, rear_target)
+        front_path = self.find_point_path(front_start, front_target)
+
+        print(rear_path)
+        print(front_path)
         
         if not rear_path:
             return None
         
         interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
-            
-        # # Convert point path to full segment motion sequence
-        # segment_sequence = []
-        
-        # for i in range(len(rear_path) - 1):
-        #     # Start with rear point position
-        #     mid_pos = None
-            
-        #     rear_pos = np.array(rear_path[i]['points'][0])
-        #     p1, p2 = rear_path[i]['points']
-            
-        #     total_passage_length = np.linalg.norm(np.array(p2)-rear_pos)
-        #     current_idx = i
-            
-        #     if total_passage_length >= segment_half:
-        #         # Mid point is on the current passage
-        #         orientation = np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
-        #         mid_pos = rear_pos + segment_half * np.array([np.cos(orientation), np.sin(orientation)])
-        #     else:
-        #         # Keep traversing passages until we find mid point
-        #         while current_idx + 1 < len(rear_path):
-        #             current_idx += 1
-        #             p1, p2 = rear_path[current_idx]['points']
-        #             passage_length = np.linalg.norm(np.array(p2)-np.array(p1))
-                    
-        #             if total_passage_length + passage_length >= segment_half:
-        #                 orientation = np.arctan2(p2[1]-p1[1], p2[0]-p1[0])
-        #                 remaining_length = segment_half - total_passage_length
-        #                 mid_pos = np.array(p1) + remaining_length * np.array([np.cos(orientation), np.sin(orientation)])
-        #                 break
-                    
-        #             total_passage_length += passage_length
-            
-            
-        #     segment_sequence.append({
-        #         'rear_point': rear_pos,
-        #         'mid_point': mid_pos,
-        #         # 'front_point': front_pos,
-        #         # 'orientation': current_orientation,
-        #         'rear_point_passage': rear_path[i],
-        #         'mid_point_passage': rear_path[current_idx]
-        #     })
-        
-        # return segment_sequence
+        front_path_points = []
 
-        return interpoltaed_rear_path_points
+        path_between_rear_front = self.find_point_path(rear_path[0]['points'][0],
+                                                       front_path[0]['points'][1])
+        passages_between_rear_front = deque()
+        for item in path_between_rear_front[:-1]:
+            passages_between_rear_front.append(item['nodes'])
+
+        front_current_idx = 0
+
+        for rear_path_point in interpoltaed_rear_path_points:
+            rear_pos = rear_path_point['pos']
+            front_pos_new = None
+
+            if (rear_path_point['nodes'] != passages_between_rear_front[0] and 
+                rear_path_point['nodes'][::-1] != passages_between_rear_front[0]):
+                if (rear_path_point['nodes'] in passages_between_rear_front or 
+                    rear_path_point['nodes'][::-1] in passages_between_rear_front):
+                    passages_between_rear_front.popleft()
+                else:
+                    if rear_path_point['nodes'][1] == passages_between_rear_front[0][0]:
+                        passages_between_rear_front.appendleft(rear_path_point['nodes'])
+                    elif rear_path_point['nodes'][0] == passages_between_rear_front[0][0]:
+                        passages_between_rear_front.appendleft(rear_path_point['nodes'][::-1])
+                    else:
+                        passages_between_rear_front.popleft()
+                        if rear_path_point['nodes'][1] == passages_between_rear_front[0][0]:
+                            passages_between_rear_front.appendleft(rear_path_point['nodes'])
+                        elif rear_path_point['nodes'][0] == passages_between_rear_front[0][0]:
+                            passages_between_rear_front.appendleft(rear_path_point['nodes'][::-1])
+
+            while front_pos_new is None:
+                delta_rear_front = 0
+
+                for i in range(len(passages_between_rear_front)):
+                    passage = passages_between_rear_front[i]
+                    if i == 0:
+                        passage_start_pos = rear_pos
+                    else:
+                        passage_start_pos = self.allowed_passage_graph.nodes[passage[0]]['pos']
+
+                    delta_rear_front += np.linalg.norm(self.allowed_passage_graph.nodes[passage[1]]['pos'] - passage_start_pos)
+
+                    if delta_rear_front >= segment_length:
+                        if i < len(passages_between_rear_front) - 1:
+                            front_current_idx -= (len(passages_between_rear_front) - 1 - i)
+                        break
+
+                if delta_rear_front >= segment_length:
+                    node_start_pos = passage_start_pos
+                    node_end_pos = self.allowed_passage_graph.nodes[passage[1]]['pos']
+                    orientation = np.arctan2(node_end_pos[1]-node_start_pos[1], 
+                                             node_end_pos[0]-node_start_pos[0]) - np.pi
+                    front_pos_new = node_end_pos + (delta_rear_front-segment_length) * np.array([np.cos(orientation), np.sin(orientation)])
+                else:
+                    nodes_to_append = None
+
+                    if front_current_idx < len(front_path) - 1:
+                        front_current_idx += 1
+                        nodes = front_path[front_current_idx]['nodes']
+
+                        if nodes[1] != None:
+                            nodes_to_append = nodes
+                        else:
+                            for neighbor in self.allowed_passage_graph.neighbors(nodes[0]):
+                                if neighbor != passages_between_rear_front[-1][0]:
+                                    nodes_to_append = (nodes[0], neighbor)
+                                    break
+                    else:
+                        for neighbor in self.allowed_passage_graph.neighbors(passages_between_rear_front[-1][1]):
+                            if neighbor != passages_between_rear_front[-1][0]:
+                                nodes_to_append = (passages_between_rear_front[-1][1], neighbor)
+                                break
+                                
+                    if nodes_to_append is not None:
+                        passages_between_rear_front.append(nodes_to_append)
+
+
+            front_path_points.append(front_pos_new)
+
+        return interpoltaed_rear_path_points, front_path_points
     
     def interpolate_path_points(self, path, target_point, step_size=0.01, threshold=0.01):
         interpolated_points = []
@@ -1157,10 +1214,10 @@ class VoronoiPassageAnalyzer:
         min_distance = float('inf')
         
         # Check each edge in the passage graph
-        for edge in self.passage_graph.edges():
+        for edge in self.allowed_passage_graph.edges():
             v1, v2 = edge
-            p1 = np.array(self.passage_graph.nodes[v1]['pos'])
-            p2 = np.array(self.passage_graph.nodes[v2]['pos'])
+            p1 = np.array(self.allowed_passage_graph.nodes[v1]['pos'])
+            p2 = np.array(self.allowed_passage_graph.nodes[v2]['pos'])
             
             # Find closest point on line segment
             segment_vector = p2 - p1
@@ -1187,7 +1244,7 @@ class VoronoiPassageAnalyzer:
                     'points': (p1, p2),
                     'nodes': edge,
                     'distance': distance,
-                    'clearance': self.passage_graph.edges[edge].get('clearance', 0)
+                    'clearance': self.allowed_passage_graph.edges[edge].get('clearance', 0)
                 }
         
         return nearest_passage
@@ -1224,14 +1281,14 @@ class VoronoiPassageAnalyzer:
             for goal_node in goal_nodes:
                 try:
                     # Use NetworkX to find shortest path
-                    path = nx.shortest_path(self.passage_graph, start_node, goal_node)
+                    path = nx.shortest_path(self.allowed_passage_graph, start_node, goal_node)
                     
                     # Calculate path length
                     path_length = 0
                     for i in range(len(path)-1):
                         n1, n2 = path[i], path[i+1]
-                        p1 = np.array(self.passage_graph.nodes[n1]['pos'])
-                        p2 = np.array(self.passage_graph.nodes[n2]['pos'])
+                        p1 = np.array(self.allowed_passage_graph.nodes[n1]['pos'])
+                        p2 = np.array(self.allowed_passage_graph.nodes[n2]['pos'])
                         path_length += np.linalg.norm(p2 - p1)
                     
                     if path_length < min_length:
@@ -1249,7 +1306,7 @@ class VoronoiPassageAnalyzer:
         
         # Add initial passage from start point to first node
         first_node = shortest_path[0]
-        first_pos = self.passage_graph.nodes[first_node]['pos']
+        first_pos = self.allowed_passage_graph.nodes[first_node]['pos']
         passage_sequence.append({
             'points': (start_point, first_pos),
             'nodes': (None, first_node),
@@ -1259,9 +1316,9 @@ class VoronoiPassageAnalyzer:
         # Add passages between nodes
         for i in range(len(shortest_path)-1):
             n1, n2 = shortest_path[i], shortest_path[i+1]
-            p1 = self.passage_graph.nodes[n1]['pos']
-            p2 = self.passage_graph.nodes[n2]['pos']
-            clearance = self.passage_graph.edges[(n1, n2)]['clearance']
+            p1 = self.allowed_passage_graph.nodes[n1]['pos']
+            p2 = self.allowed_passage_graph.nodes[n2]['pos']
+            clearance = self.allowed_passage_graph.edges[(n1, n2)]['clearance']
             
             passage_sequence.append({
                 'points': (p1, p2),
@@ -1271,7 +1328,7 @@ class VoronoiPassageAnalyzer:
         
         # Add final passage from last node to goal point
         last_node = shortest_path[-1]
-        last_pos = self.passage_graph.nodes[last_node]['pos']
+        last_pos = self.allowed_passage_graph.nodes[last_node]['pos']
         passage_sequence.append({
             'points': (last_pos, goal_point),
             'nodes': (last_node, None),
@@ -1615,7 +1672,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------
     # Create visualizer
     bounds = [
-        (-0.606, -0.6), # Lower left corner (x_min, y_min)
+        (-0.606, -0.8), # Lower left corner (x_min, y_min)
         (0.319, 0.5)  # Upper right corner (x_max, y_max)
     ]
 
@@ -1633,59 +1690,11 @@ if __name__ == "__main__":
     
     # Find passage sequence
     # passage_sequence = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
-    rear_path_points = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
-
-    # if passage_sequence:
-    #     # Plot the path of the rear point
-    #     for passage in passage_sequence:
-    #         p1, p2 = passage['rear_point_passage']['points']
-    #         plt.plot([p1[0], p2[0]], [p1[1], p2[1]], 'g-', linewidth=2, label='Path')
-
-    #     # Create visualization elements for the 3-point segment
-    #     rear_point, = plt.plot([], [], 'bo', markersize=8)
-    #     mid_point, = plt.plot([], [], 'ro', markersize=8)
-    #     front_point, = plt.plot([], [], 'bo', markersize=8)
-    #     segment_lines, = plt.plot([], [], 'r-', linewidth=2)
-        
-    #     def animate(frame):
-    #         # Calculate total path length
-    #         total_length = 0
-    #         path_segments = []
-            
-    #         for passage in passage_sequence:
-    #             p1 = passage['rear_point']
-    #             p2 = passage['rear_point_passage']['points'][1]
-    #             segment_length = np.linalg.norm(np.array(p2) - np.array(p1))
-    #             path_segments.append((total_length, segment_length, passage))
-    #             total_length += segment_length
-            
-    #         # Calculate current position
-    #         t = frame / 100  # Normalize frame to [0,1]
-    #         current_length = t * total_length
-            
-    #         # Find current segment and position within it
-    #         for start_length, seg_length, passage in path_segments:
-    #             if current_length <= start_length + seg_length:
-    #                 segment_t = (current_length - start_length) / seg_length
-                    
-    #                 # Interpolate rear point position
-    #                 rear_pos = np.array(passage['rear_point']) * (1 - segment_t) + \
-    #                         np.array(passage['rear_point_passage']['points'][1]) * segment_t
-                    
-    #                 mid_pos = np.array(passage['mid_point']) * (1 - segment_t) + \
-    #                         np.array(passage['mid_point_passage']['points'][1]) * segment_t
-                    
-    #                 # Update visualization
-    #                 rear_point.set_data([rear_pos[0]], [rear_pos[1]])
-    #                 mid_point.set_data([mid_pos[0]], [mid_pos[1]])
-    #                 break
-
-            
-            
-    #         return rear_point, mid_point, front_point, segment_lines
+    rear_path_points, front_path_points = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
 
     if rear_path_points:
         rear_point, = plt.plot([], [], 'bo', markersize=8)
+        front_point, = plt.plot([], [], 'ko', markersize=6)
         traversed_line, = plt.plot([], [], 'g-', linewidth=3)
 
         traversed_path_x = []
@@ -1694,14 +1703,16 @@ if __name__ == "__main__":
         def animate(frame):
             if frame < len(rear_path_points):
                 rear_pos = rear_path_points[frame]['pos']
+                front_pos = front_path_points[frame]
 
                 traversed_path_x.append(rear_pos[0])
                 traversed_path_y.append(rear_pos[1])
 
                 traversed_line.set_data(traversed_path_x, traversed_path_y)
                 rear_point.set_data([rear_pos[0]], [rear_pos[1]])
+                front_point.set_data([front_pos[0]], [front_pos[1]])
 
-            return traversed_line, rear_point
+            return traversed_line, rear_point, front_point
 
         # Create animation
         anim = animation.FuncAnimation(
@@ -1710,6 +1721,7 @@ if __name__ == "__main__":
             blit=True,
             repeat=False
         )
+        anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=20)  # Save the animation as an MP4 file
         
         plt.title('Voronoi Diagram with 3-Point Segment Motion')
     else:
