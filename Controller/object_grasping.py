@@ -1090,12 +1090,14 @@ class VoronoiPassageAnalyzer:
         # Main loop
         front_path_points = []
         middle_path_points = []
+        theta_seq = []
 
         front_current_idx = 0
 
         for rear_path_point in interpoltaed_rear_path_points:
             front_pos_new = None
             middle_pos_new = None
+            middle_orientation = None
 
             rear_pos = rear_path_point['pos']
 
@@ -1181,8 +1183,9 @@ class VoronoiPassageAnalyzer:
 
             front_path_points.append(front_pos_new)
             middle_path_points.append(middle_pos_new)
+            theta_seq.append(middle_orientation)
 
-        return interpoltaed_rear_path_points, front_path_points, middle_path_points
+        return interpoltaed_rear_path_points, front_path_points, middle_path_points, theta_seq
     
     def _calc_robot_paths(self, start_pose, goal_pose, segment_length):
         segment_half = segment_length / 2
@@ -1724,7 +1727,35 @@ if __name__ == "__main__":
     
     # Find passage sequence
     # passage_sequence = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
-    rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
+    rear_path_points, front_path_points, middle_path_points, theta_seq = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
+    
+    # Afterprocess theta_seq
+    connection_indices = []
+
+    for i in range(1, len(theta_seq)):
+        if abs(theta_seq[i] - theta_seq[i-1]) > 0.01:
+            connection_indices.append(i)
+
+    for idx in connection_indices:
+        prev_angle = theta_seq[idx-1]  # Angle of previous segment
+        curr_angle = theta_seq[idx]    # Angle of current segment
+        
+        # Calculate the angle that forms equal angles with both segments
+        # This is the average angle between the two segments
+        tangent_angle = (prev_angle + curr_angle) / 2
+
+        # If the difference between angles is more than π radians,
+        # we need to handle the wrap-around case
+        angle_diff = curr_angle - prev_angle
+        if abs(angle_diff) > np.pi:
+            if angle_diff > 0:
+                tangent_angle += np.pi
+            else:
+                tangent_angle -= np.pi
+
+        theta_seq[idx] = tangent_angle
+    
+    
     print()
     print('Start animation...')
 
@@ -1733,6 +1764,9 @@ if __name__ == "__main__":
         rear_point, = plt.plot([], [], 'ko', markersize=8)
         front_point, = plt.plot([], [], 'bo', markersize=8)
         middle_point, = plt.plot([], [], 'bo', markersize=10)
+        orientation_line, = plt.plot([], [], 'b-', linewidth=3)
+
+        l = 0.05
 
         traversed_path_x = []
         traversed_path_y = []
@@ -1742,6 +1776,7 @@ if __name__ == "__main__":
                 rear_pos = rear_path_points[frame]['pos']
                 front_pos = front_path_points[frame]
                 middle_pos = middle_path_points[frame]
+                orientation = theta_seq[frame]
 
                 traversed_path_x.append(rear_pos[0])
                 traversed_path_y.append(rear_pos[1])
@@ -1750,8 +1785,10 @@ if __name__ == "__main__":
                 rear_point.set_data([rear_pos[0]], [rear_pos[1]])
                 front_point.set_data([front_pos[0]], [front_pos[1]])
                 middle_point.set_data([middle_pos[0]], [middle_pos[1]])
+                orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
+                                          [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
 
-            return traversed_line, rear_point, front_point, middle_point
+            return traversed_line, rear_point, front_point, middle_point,orientation_line
 
         # Create animation
         anim = animation.FuncAnimation(
