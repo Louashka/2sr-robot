@@ -21,6 +21,7 @@ from matplotlib.patches import Polygon as PlotPolygon
 from matplotlib.collections import PatchCollection
 from matplotlib import animation
 from collections import deque
+from scipy.optimize import minimize
 
 agent: rsr.Robot = None
 object: manipulandum.Shape = None
@@ -31,7 +32,7 @@ agent_controller = rsr_ctrl.Controller()
 
 markers = None
 agent_width = 0.07
-agent_length = 0.34
+agent_length = 0.33
 
 original_obstacles = []
 expanded_obstacles = []
@@ -1088,6 +1089,7 @@ class VoronoiPassageAnalyzer:
             passages_between_rear_front.append(item['nodes'])
 
         # Main loop
+        rear_path_points = []
         front_path_points = []
         middle_path_points = []
         theta_seq = []
@@ -1181,11 +1183,12 @@ class VoronoiPassageAnalyzer:
                         passages_between_rear_front.append(nodes_to_append)
 
 
+            rear_path_points.append(rear_pos)
             front_path_points.append(front_pos_new)
             middle_path_points.append(middle_pos_new)
             theta_seq.append(middle_orientation)
 
-        return interpoltaed_rear_path_points, front_path_points, middle_path_points, theta_seq
+        return rear_path_points, front_path_points, middle_path_points, theta_seq
     
     def _calc_robot_paths(self, start_pose, goal_pose, segment_length):
         segment_half = segment_length / 2
@@ -1534,6 +1537,178 @@ class VoronoiVisualizer:
         by_label = dict(zip(labels, handles))
         self.ax.legend(by_label.values(), by_label.keys())
 
+class RobotConfigurationFitter:
+    def __init__(self, l_vss, l_conn):
+        """
+        Initialize the configuration fitter.
+        
+        Args:
+            l_vss: Length of VSS segment
+            l_conn: Length of connection segment
+        """
+        self.l_vss = l_vss
+        self.l_conn = l_conn
+        
+    def _compute_vss_end_pos(self, theta, k, is_front=True):
+        """
+        Compute the end position of VSS segment.
+        
+        Args:
+            theta: Base orientation
+            k: Curvature
+            is_front: True for front segment, False for rear segment
+        """
+        if abs(k) < 1e-6:  # Practically straight line
+            direction = -1 if is_front else 1
+            return self.l_vss * direction * np.array([np.cos(theta), np.sin(theta)])
+        else:
+            theta_end = theta + (-1 if is_front else 1) * self.l_vss * k
+            return 1/k * np.array([
+                np.sin(theta_end) - np.sin(theta),
+                -np.cos(theta_end) + np.cos(theta)
+            ])
+    
+    def _compute_segment_end(self, base_pos, theta, k, is_front=True):
+        """
+        Compute the end position of a complete segment (VSS + connection).
+        
+        Args:
+            base_pos: Base position [x, y]
+            theta: Base orientation
+            k: Curvature
+            is_front: True for front segment, False for rear segment
+        """
+        vss_end = self._compute_vss_end_pos(theta, k, is_front)
+        theta_end = theta + (-1 if is_front else 1) * self.l_vss * k
+        
+        direction = -1 if is_front else 1
+        conn_vector = direction * self.l_conn * np.array([
+            np.cos(theta_end),
+            np.sin(theta_end)
+        ])
+        
+        return base_pos + vss_end + conn_vector
+    
+    def _objective_function(self, q, p_0, p_1, p_2, gamma, prev_q=None, smoothness_weight=1.0, bounds=None):
+        """
+        Compute the objective function value.
+        
+        Args:
+            q: Robot configuration [x, y, theta, k1, k2]
+            p_0, p_1, p_2: Target positions for middle, front, and rear points
+            gamma: Target orientation at middle point
+            prev_q: Previous configuration for smoothness constraint
+            smoothness_weight: Weight for smoothness term
+            bounds: Optimization bounds for normalization
+        """
+        x, y, theta, k1, k2 = q
+        base_pos = np.array([x, y])
+        
+        # Compute actual positions
+        front_pos = self._compute_segment_end(base_pos, theta, k1, True)
+        rear_pos = self._compute_segment_end(base_pos, theta, k2, False)
+        
+        # Compute objective terms
+        pos_error = np.linalg.norm(base_pos - p_0)
+        front_error = np.linalg.norm(front_pos - p_1)
+        rear_error = np.linalg.norm(rear_pos - p_2)
+        orientation_error = abs(gamma - theta)
+        
+        # Base objective
+        objective = 10 * (pos_error + front_error + rear_error) + 0.001 * orientation_error
+        
+        # Add smoothness term if previous configuration exists
+        if prev_q is not None and bounds is not None:
+            # Calculate range for each variable
+            ranges = np.array([bound[1] - bound[0] for bound in bounds])
+            
+            # Normalize the differences by their respective ranges
+            normalized_diff = (q - prev_q) / ranges
+            smoothness_error = np.sum(normalized_diff**2)
+            objective += smoothness_weight * smoothness_error
+            
+        return objective
+    
+    def fit_configurations(self, middle_path_points, front_path_points, 
+                         rear_path_points, theta_seq, smoothness_weight=0.01):
+        """
+        Fit robot configurations to the given path points.
+        
+        Args:
+            middle_path_points: List of middle point positions
+            front_path_points: List of front point positions
+            rear_path_points: List of rear point positions
+            theta_seq: List of orientations at middle points
+            smoothness_weight: Weight for smoothness constraint (default: 1.0)
+            
+        Returns:
+            List of robot configurations [x, y, theta, k1, k2]
+        """
+        configurations = []
+        prev_q = None
+        
+        for i in range(len(middle_path_points)):
+            p_0 = np.array(middle_path_points[i])
+            p_1 = np.array(front_path_points[i])
+            p_2 = np.array(rear_path_points[i])
+            gamma = theta_seq[i]
+            
+            # Initial guess
+            if prev_q is None:
+                q0 = [
+                    p_0[0],  # x
+                    p_0[1],  # y
+                    gamma,   # theta
+                    0.0,     # k1
+                    0.0      # k2
+                ]
+            else:
+                # Use previous configuration as initial guess
+                q0 = prev_q
+            
+            # Bounds for optimization
+            bounds = [
+                (p_0[0] - 0.03, p_0[0] + 0.03),  # x
+                (p_0[1] - 0.03, p_0[1] + 0.03),  # y
+                (gamma - np.pi/2, gamma + np.pi/2),  # theta
+                (-np.pi/(2*self.l_vss), np.pi/(2*self.l_vss)),  # k1
+                (-np.pi/(2*self.l_vss), np.pi/(2*self.l_vss))   # k2
+            ]
+            
+            # Optimize
+            result = minimize(
+                self._objective_function,
+                q0,
+                args=(p_0, p_1, p_2, gamma, prev_q, smoothness_weight, bounds),
+                bounds=bounds,
+                method='SLSQP'
+            )
+            
+            configurations.append(result.x)
+            prev_q = result.x  # Update previous configuration
+            
+        return configurations
+
+def arc(config: list, seg=1):
+        k = config[2+seg]
+        l = np.linspace(0, gv.L_VSS, 50)
+        flag = -1 if seg == 1 else 1
+        theta_array = config[2] + flag * k * l
+
+        if abs(k) < 1e-6:
+            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
+            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
+        else:
+            x = np.sin(theta_array) / k - np.sin(config[2]) / k
+            y = -np.cos(theta_array) / k + np.cos(config[2]) / k
+
+        x += config[0]
+        y += config[1]
+        theta_end = normalizeAngle(theta_array[-1])
+            
+        return x, y, theta_end
+
+
 if __name__ == "__main__":
 
     # ------------------------ Start tracking -----------------------
@@ -1754,17 +1929,32 @@ if __name__ == "__main__":
                 tangent_angle -= np.pi
 
         theta_seq[idx] = tangent_angle
-    
+
+    # Fit robot's configuration
+    print()
+    print('Fit robot\'s configurations...')
+
+    fitter = RobotConfigurationFitter(gv.L_VSS, gv.L_CONN + gv.LU_SIDE)
+    q_array = fitter.fit_configurations(middle_path_points, front_path_points, 
+                                        rear_path_points, theta_seq)
     
     print()
     print('Start animation...')
 
     if rear_path_points:
         traversed_line, = plt.plot([], [], 'g-', linewidth=3)
-        rear_point, = plt.plot([], [], 'ko', markersize=8)
+        rear_point, = plt.plot([], [], 'go', markersize=8)
         front_point, = plt.plot([], [], 'bo', markersize=8)
         middle_point, = plt.plot([], [], 'bo', markersize=10)
         orientation_line, = plt.plot([], [], 'b-', linewidth=3)
+
+        vss1_line, = plt.plot([], [], 'k-', linewidth=2)
+        vss2_line, = plt.plot([], [], 'k-', linewidth=2)
+        conn1_line, = plt.plot([], [], 'k-', linewidth=2)
+        conn2_line, = plt.plot([], [], 'k-', linewidth=2)
+        lu1_square, = plt.plot([], [], 'k-', linewidth=2)
+        lu2_square, = plt.plot([], [], 'k-', linewidth=2)
+        frame_origin, = plt.plot([], [], 'yo', markersize=6)
 
         l = 0.05
 
@@ -1772,8 +1962,11 @@ if __name__ == "__main__":
         traversed_path_y = []
 
         def animate(frame):
+            plot_components = []
+
             if frame < len(rear_path_points):
-                rear_pos = rear_path_points[frame]['pos']
+                
+                rear_pos = rear_path_points[frame]
                 front_pos = front_path_points[frame]
                 middle_pos = middle_path_points[frame]
                 orientation = theta_seq[frame]
@@ -1788,7 +1981,83 @@ if __name__ == "__main__":
                 orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
                                           [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
 
-            return traversed_line, rear_point, front_point, middle_point,orientation_line
+                plot_components.append(traversed_line)
+                plot_components.append(rear_point)
+                plot_components.append(front_point)
+                plot_components.append(middle_point)
+                plot_components.append(orientation_line)
+
+                # Base position
+                q = q_array[frame]
+
+                # Plot VSS
+                x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
+                vss1_line.set_data(x_vss1, y_vss1)
+
+                x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
+                vss2_line.set_data(x_vss2, y_vss2)
+
+                plot_components.append(vss1_line)
+                plot_components.append(vss2_line)
+
+                # Plot connection lines
+                # Front connection
+                conn1_start = np.array([x_vss1[-1], y_vss1[-1]])
+                conn1_vec = gv.L_CONN * np.array([-np.cos(theta_vss1_end), -np.sin(theta_vss1_end)])
+                conn1_end = conn1_start + conn1_vec
+                conn1_line.set_data([conn1_start[0], conn1_end[0]], [conn1_start[1], conn1_end[1]])
+                plot_components.append(conn1_line)
+                
+                # Rear connection
+                conn2_start = np.array([x_vss2[-1], y_vss2[-1]])
+                conn2_vec = gv.L_CONN * np.array([np.cos(theta_vss2_end), np.sin(theta_vss2_end)])
+                conn2_end = conn2_start + conn2_vec
+                conn2_line.set_data([conn2_start[0], conn2_end[0]], [conn2_start[1], conn2_end[1]])
+                plot_components.append(conn2_line)
+
+                # Plot LU squares
+                # Front LU - connected at right top corner
+                lu1_theta = theta_vss1_end
+                # First calculate the top right corner position (which is conn1_end)
+                lu1_corner = conn1_end
+                # Then calculate the center by shifting from this corner
+                lu1_center = lu1_corner + gv.LU_SIDE/2 * np.array([
+                    -np.cos(lu1_theta) + np.sin(lu1_theta),  # x shift
+                    -np.sin(lu1_theta) - np.cos(lu1_theta)   # y shift
+                ])
+                lu1_corners = lu1_center + gv.LU_SIDE/2 * np.array([
+                    [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)],
+                    [-np.cos(lu1_theta) + np.sin(lu1_theta), -np.sin(lu1_theta) - np.cos(lu1_theta)],
+                    [np.cos(lu1_theta) + np.sin(lu1_theta), np.sin(lu1_theta) - np.cos(lu1_theta)],
+                    [np.cos(lu1_theta) - np.sin(lu1_theta), np.sin(lu1_theta) + np.cos(lu1_theta)],
+                    [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)]  # Close the square
+                ])
+                lu1_square.set_data(lu1_corners[:, 0], lu1_corners[:, 1])
+                plot_components.append(lu1_square)
+
+                # Rear LU - connected at left top corner
+                lu2_theta = theta_vss2_end
+                # First calculate the top left corner position (which is conn2_end)
+                lu2_corner = conn2_end
+                # Then calculate the center by shifting from this corner
+                lu2_center = lu2_corner + gv.LU_SIDE/2 * np.array([
+                    np.cos(lu2_theta) + np.sin(lu2_theta),   # x shift
+                    np.sin(lu2_theta) - np.cos(lu2_theta)    # y shift
+                ])
+                lu2_corners = lu2_center + gv.LU_SIDE/2 * np.array([
+                    [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)],
+                    [-np.cos(lu2_theta) + np.sin(lu2_theta), -np.sin(lu2_theta) - np.cos(lu2_theta)],
+                    [np.cos(lu2_theta) + np.sin(lu2_theta), np.sin(lu2_theta) - np.cos(lu2_theta)],
+                    [np.cos(lu2_theta) - np.sin(lu2_theta), np.sin(lu2_theta) + np.cos(lu2_theta)],
+                    [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)]
+                ])
+                lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
+                plot_components.append(lu2_square)
+
+                # Plot the frame origin
+                frame_origin.set_data([q[0]], [q[1]])
+
+            return tuple(plot_components)
 
         # Create animation
         anim = animation.FuncAnimation(
