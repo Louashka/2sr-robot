@@ -1509,6 +1509,9 @@ class VoronoiVisualizer:
         self.vor = None
         self.fig = None
         self.ax = None
+
+        self.edge_color = '#acb1c4'
+        self.passage_color = '#79addc'
         
     def plot_voronoi(self, show_points=True):
         # Create figure and axis
@@ -1578,14 +1581,14 @@ class VoronoiVisualizer:
         # Plot Voronoi vertices
         if show_points:
             self.ax.plot(self.vor.points[:, 0], self.vor.points[:, 1], 'ko', 
-                        markersize=2, label='Sample Points')
+                        markersize=2, label='Obstacles Points')
         
         # Plot finite Voronoi edges
         for simplex in self.vor.ridge_vertices:
             if -1 not in simplex:
                 self.ax.plot(self.vor.vertices[simplex, 0], 
                            self.vor.vertices[simplex, 1], 
-                           'b-', linewidth=1)
+                           self.edge_color, linewidth=1)
         
         # Plot infinite Voronoi edges
         center = self.vor.points.mean(axis=0)
@@ -1597,20 +1600,25 @@ class VoronoiVisualizer:
                 v2 = v2 / np.linalg.norm(v2)
                 far_point = v1 + v2 * 100
                 self.ax.plot([v1[0], far_point[0]], [v1[1], far_point[1]], 
-                           'b--', linewidth=1)
+                           self.edge_color, linestyle='dashed', linewidth=1)
 
-    def highlight_narrow_passages(self, passages, color='red', linewidth=2):
+    def highlight_narrow_passages(self, passages, linewidth=2):
         """Highlight identified narrow passages"""
-        for passage in passages:
-            p1, p2 = passage['points']
+        # Plot first passage with label
+        if passages:
+            p1, p2 = passages[0]['points']
             self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 
-                        color=color, linewidth=linewidth, 
-                        label=f'Passage (clearance: {passage["clearance"]:.2f})')
+                        color=self.passage_color, linewidth=linewidth, 
+                        label='Passages')
             
-        # Remove duplicate labels
-        handles, labels = self.ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        self.ax.legend(by_label.values(), by_label.keys())
+            # Plot remaining passages without labels
+            for passage in passages[1:]:
+                p1, p2 = passage['points']
+                self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 
+                            color=self.passage_color, linewidth=linewidth)
+        
+        # Add legend
+        self.ax.legend()
 
 class RobotConfigurationFitter:
     def __init__(self, l_vss, l_conn):
@@ -1803,128 +1811,192 @@ def grasp(target_pose: list) -> None:
 
 # ---------------------------------------------------------------------------
 
-def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array) -> None:
-    traversed_line, = plt.plot([], [], 'g-', linewidth=3)
-    rear_point, = plt.plot([], [], 'go', markersize=8)
-    front_point, = plt.plot([], [], 'bo', markersize=8)
-    middle_point, = plt.plot([], [], 'bo', markersize=10)
-    orientation_line, = plt.plot([], [], 'b-', linewidth=3)
+def plotPath(traversed_path: list, rear_pos: list, traversed_line, plot_components) -> None:
+    traversed_path[0].append(rear_pos[0])
+    traversed_path[1].append(rear_pos[1])
 
-    vss1_line, = plt.plot([], [], 'k-', linewidth=2)
-    vss2_line, = plt.plot([], [], 'k-', linewidth=2)
-    conn1_line, = plt.plot([], [], 'k-', linewidth=2)
-    conn2_line, = plt.plot([], [], 'k-', linewidth=2)
-    lu1_square, = plt.plot([], [], 'k-', linewidth=2)
-    lu2_square, = plt.plot([], [], 'k-', linewidth=2)
-    frame_origin, = plt.plot([], [], 'yo', markersize=6)
-
+    traversed_line.set_data(traversed_path[0], traversed_path[1])
+    plot_components.append(traversed_line)
+            
+def plotPoints(points: list, components: tuple, plot_components) -> None:
+    for point, component in zip(points, components):
+        component.set_data([point[0]], [point[1]])
+        plot_components.append(component)
+    
+def plotOrientation(middle_pos: list, orientation: float, orientation_line, plot_components) -> None:
     l = 0.05
 
-    traversed_path_x = []
-    traversed_path_y = []
+    orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
+                              [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
+    plot_components.append(orientation_line)
+
+def getConnEnds(x: float, y: float, theta_end: float, seg=1) -> tuple[np.ndarray, np.ndarray]:
+    sign = -1 if seg == 1 else 1
+
+    conn_start = np.array([x, y])
+    conn_vec = gv.L_CONN * np.array([sign * np.cos(theta_end), sign * np.sin(theta_end)])
+    conn_end = conn_start + conn_vec
+
+    return conn_start, conn_end
+
+def getLUCenter(corner: np.ndarray, lu_theta: float, seg=1) -> np.ndarray:
+    sign = -1 if seg == 1 else 1
+
+    lu_center = corner + gv.LU_SIDE/2 * np.array([
+        sign * np.cos(lu_theta) + np.sin(lu_theta),  # x shift
+        sign * np.sin(lu_theta) - np.cos(lu_theta)   # y shift
+        ])
+    
+    return lu_center
+
+def getLUCorners(corner: np.ndarray, lu_theta: float, seg=1) -> np.ndarray:
+    lu_center = getLUCenter(corner, lu_theta, seg)
+
+    lu_corners = lu_center + gv.LU_SIDE/2 * np.array([
+        [-np.cos(lu_theta) - np.sin(lu_theta), -np.sin(lu_theta) + np.cos(lu_theta)],
+        [-np.cos(lu_theta) + np.sin(lu_theta), -np.sin(lu_theta) - np.cos(lu_theta)],
+        [np.cos(lu_theta) + np.sin(lu_theta), np.sin(lu_theta) - np.cos(lu_theta)],
+        [np.cos(lu_theta) - np.sin(lu_theta), np.sin(lu_theta) + np.cos(lu_theta)],
+        [-np.cos(lu_theta) - np.sin(lu_theta), -np.sin(lu_theta) + np.cos(lu_theta)]  # Close the square
+        ])
+    
+    return lu_corners
+
+def plotRobot(q: list, plot_components: list, components: tuple) -> None:
+    vss1_line, vss2_line, conn1_line, conn2_line, lu1_square, lu2_square = components
+    
+    # Plot VSS
+    x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
+    vss1_line.set_data(x_vss1, y_vss1)
+    plot_components.append(vss1_line)
+
+    x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
+    vss2_line.set_data(x_vss2, y_vss2)
+    plot_components.append(vss2_line)
+
+    # Plot connection lines
+    # Front connection
+    conn1_start, conn1_end = getConnEnds(x_vss1[-1], y_vss1[-1], theta_vss1_end)
+    conn1_line.set_data([conn1_start[0], conn1_end[0]], [conn1_start[1], conn1_end[1]])
+    plot_components.append(conn1_line)
+    
+    # Rear connection
+    conn2_start, conn2_end = getConnEnds(x_vss2[-1], y_vss2[-1], theta_vss2_end, 2)
+    conn2_line.set_data([conn2_start[0], conn2_end[0]], [conn2_start[1], conn2_end[1]])
+    plot_components.append(conn2_line)
+
+    # Plot LU squares
+    # Front LU
+    lu1_corners = getLUCorners(conn1_end, theta_vss1_end)
+    lu1_square.set_data(lu1_corners[:, 0], lu1_corners[:, 1])
+    plot_components.append(lu1_square)
+
+    # Rear LU - connected at left top corner
+    lu2_corners = getLUCorners(conn2_end, theta_vss2_end, 2)
+    lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
+    plot_components.append(lu2_square)
+
+def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array) -> None:
+    # Colors
+    red_color = '#ec5353'
+    blue_color = '#3471A8'
+    grey_color = '#474747'
+
+    # Rear point with its traversed path
+    traversed_line, = plt.plot([], [], '-', color=red_color, linewidth=3)
+    rear_point, = plt.plot([], [], 'o', color=red_color, markersize=6)
+
+    # Front and niddle points with orientation at the middle point
+    front_point, = plt.plot([], [], 'o', color=blue_color, markersize=6)
+    middle_point, = plt.plot([], [], 'o', color=blue_color, markersize=7)
+    orientation_line, = plt.plot([], [], color=blue_color, linewidth=2)
+
+    # Robot components
+    vss1_line, = plt.plot([], [], color=grey_color, linewidth=2)
+    vss2_line, = plt.plot([], [], color=grey_color, linewidth=2)
+    conn1_line, = plt.plot([], [], color=grey_color, linewidth=2)
+    conn2_line, = plt.plot([], [], color=grey_color, linewidth=2)
+    lu1_square, = plt.plot([], [], color=grey_color, linewidth=2)
+    lu2_square, = plt.plot([], [], color=grey_color, linewidth=2)
+
+    class AnimationState:
+        def __init__(self):
+            self.iteration = 0
+            self.idx = 0
+            self.traversed_path = [[], []]
+    
+    state = AnimationState()
 
     def animate(frame):
         plot_components = []
-
-        if frame < len(rear_path_points):
+        
+        if state.idx < len(rear_path_points):
+            rear_pos = rear_path_points[state.idx]
+            front_pos = front_path_points[state.idx]
+            middle_pos = middle_path_points[state.idx]
+            orientation = theta_seq[state.idx]
             
-            rear_pos = rear_path_points[frame]
-            front_pos = front_path_points[frame]
-            middle_pos = middle_path_points[frame]
-            orientation = theta_seq[frame]
-
-            traversed_path_x.append(rear_pos[0])
-            traversed_path_y.append(rear_pos[1])
-
-            traversed_line.set_data(traversed_path_x, traversed_path_y)
-            rear_point.set_data([rear_pos[0]], [rear_pos[1]])
-            front_point.set_data([front_pos[0]], [front_pos[1]])
-            middle_point.set_data([middle_pos[0]], [middle_pos[1]])
-            orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
-                                        [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
-
-            plot_components.append(traversed_line)
-            plot_components.append(rear_point)
-            plot_components.append(front_point)
-            plot_components.append(middle_point)
-            plot_components.append(orientation_line)
-
-            # Base position
-            q = q_array[frame]
-
-            # Plot VSS
-            x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
-            vss1_line.set_data(x_vss1, y_vss1)
-
-            x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
-            vss2_line.set_data(x_vss2, y_vss2)
-
-            plot_components.append(vss1_line)
-            plot_components.append(vss2_line)
-
-            # Plot connection lines
-            # Front connection
-            conn1_start = np.array([x_vss1[-1], y_vss1[-1]])
-            conn1_vec = gv.L_CONN * np.array([-np.cos(theta_vss1_end), -np.sin(theta_vss1_end)])
-            conn1_end = conn1_start + conn1_vec
-            conn1_line.set_data([conn1_start[0], conn1_end[0]], [conn1_start[1], conn1_end[1]])
-            plot_components.append(conn1_line)
+            if state.iteration == 0:
+                # Iteration 0: Just show Voronoi diagram (empty plot_components)
+                if frame > 10:
+                    state.iteration += 1
             
-            # Rear connection
-            conn2_start = np.array([x_vss2[-1], y_vss2[-1]])
-            conn2_vec = gv.L_CONN * np.array([np.cos(theta_vss2_end), np.sin(theta_vss2_end)])
-            conn2_end = conn2_start + conn2_vec
-            conn2_line.set_data([conn2_start[0], conn2_end[0]], [conn2_start[1], conn2_end[1]])
-            plot_components.append(conn2_line)
+            elif state.iteration == 1:
+                # Iteration 1: rear point and its path only
+                plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+                rear_point.set_color(red_color)
+                plotPoints([rear_pos], (rear_point,), plot_components)
 
-            # Plot LU squares
-            # Front LU - connected at right top corner
-            lu1_theta = theta_vss1_end
-            # First calculate the top right corner position (which is conn1_end)
-            lu1_corner = conn1_end
-            # Then calculate the center by shifting from this corner
-            lu1_center = lu1_corner + gv.LU_SIDE/2 * np.array([
-                -np.cos(lu1_theta) + np.sin(lu1_theta),  # x shift
-                -np.sin(lu1_theta) - np.cos(lu1_theta)   # y shift
-            ])
-            lu1_corners = lu1_center + gv.LU_SIDE/2 * np.array([
-                [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)],
-                [-np.cos(lu1_theta) + np.sin(lu1_theta), -np.sin(lu1_theta) - np.cos(lu1_theta)],
-                [np.cos(lu1_theta) + np.sin(lu1_theta), np.sin(lu1_theta) - np.cos(lu1_theta)],
-                [np.cos(lu1_theta) - np.sin(lu1_theta), np.sin(lu1_theta) + np.cos(lu1_theta)],
-                [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)]  # Close the square
-            ])
-            lu1_square.set_data(lu1_corners[:, 0], lu1_corners[:, 1])
-            plot_components.append(lu1_square)
+                if state.idx < len(rear_path_points) - 1:
+                    state.idx += 1
+                else:
+                    state.iteration += 1
+                    state.idx = 0
 
-            # Rear LU - connected at left top corner
-            lu2_theta = theta_vss2_end
-            # First calculate the top left corner position (which is conn2_end)
-            lu2_corner = conn2_end
-            # Then calculate the center by shifting from this corner
-            lu2_center = lu2_corner + gv.LU_SIDE/2 * np.array([
-                np.cos(lu2_theta) + np.sin(lu2_theta),   # x shift
-                np.sin(lu2_theta) - np.cos(lu2_theta)    # y shift
-            ])
-            lu2_corners = lu2_center + gv.LU_SIDE/2 * np.array([
-                [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)],
-                [-np.cos(lu2_theta) + np.sin(lu2_theta), -np.sin(lu2_theta) - np.cos(lu2_theta)],
-                [np.cos(lu2_theta) + np.sin(lu2_theta), np.sin(lu2_theta) - np.cos(lu2_theta)],
-                [np.cos(lu2_theta) - np.sin(lu2_theta), np.sin(lu2_theta) + np.cos(lu2_theta)],
-                [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)]
-            ])
-            lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
-            plot_components.append(lu2_square)
+                    state.traversed_path = [[], []]
+                    traversed_line.set_data(state.traversed_path)
+                
+            elif state.iteration == 2:
+                # Iteration 2: all points, path, and orientation
+                plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+                plotPoints([front_pos, middle_pos, rear_pos], 
+                         (front_point, middle_point, rear_point), plot_components)
+                plotOrientation(middle_pos, orientation, orientation_line, plot_components)
 
-            # Plot the frame origin
-            frame_origin.set_data([q[0]], [q[1]])
+                if state.idx < len(rear_path_points) - 1:
+                    state.idx += 1
+                else:
+                    state.iteration += 1
+                    state.idx = 0
+
+                    state.traversed_path = [[], []]
+                    traversed_line.set_data(state.traversed_path)
+                
+            elif state.iteration == 3:
+                # Iteration 3: all points, orientation, robot, rear point in blue
+                rear_point.set_color(blue_color)
+                plotPoints([front_pos, middle_pos, rear_pos], 
+                         (front_point, middle_point, rear_point), plot_components)
+                plotOrientation(middle_pos, orientation, orientation_line, plot_components)
+                
+                q = q_array[state.idx]
+                robot_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
+                                 lu1_square, lu2_square)
+                plotRobot(q, plot_components, robot_components)
+
+                if state.idx < len(rear_path_points) - 1:
+                    state.idx += 1
+                else:
+                    state.iteration += 1
+                    state.idx = 0
 
         return tuple(plot_components)
 
     # Create animation
+    # 160 frames total: 40 frames per iteration (4 iterations)
     anim = animation.FuncAnimation(
-        fig, animate, frames=101,
-        interval=50,
+        fig, animate, frames=3*len(rear_path_points)+50,
+        interval=50,  # 50ms between frames
         blit=True,
         repeat=False
     )
@@ -2091,5 +2163,9 @@ if __name__ == "__main__":
 
     if rear_path_points:
         runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array)
+
+    print()
+    print('Finished!')
+
 
     
