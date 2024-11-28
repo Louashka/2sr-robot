@@ -65,7 +65,10 @@ start_time = None
 simulation = True
 # simulation = False
 
-def updateConfig():
+
+# ----------------------------- State Estimation ----------------------------
+
+def updateConfig() -> None:
     global agent, object, markers
 
     agents_config, objects_config, markers, msg = mocap.getConfig()
@@ -94,8 +97,7 @@ def updateConfig():
     else:
         print(msg)
 
-def updateConfigLoop():
-
+def updateConfigLoop() -> None:
     while True:
         updateConfig()
 
@@ -103,7 +105,7 @@ def updateConfigLoop():
         if object is not None:
             rgb_camera.manip_center = object.pose
 
-def expandObstacles():
+def expandObstacles() -> None:
     global original_obstacles, expanded_obstacles
 
     obstacles_corners = rgb_camera.obstacles
@@ -136,14 +138,16 @@ def expandObstacles():
             extended_corners.append((x, y))
         rgb_camera.expanded_obstacles_global.append(extended_corners)
 
-def normalizeAngle(angle):
+# ----------------------------- Static Functions ----------------------------
+
+def normalizeAngle(angle: float) -> float:
         while angle > np.pi:
             angle -= 2 * np.pi
         while angle < -np.pi:
             angle += 2 * np.pi
         return angle
 
-def closeToGoal(current, target):
+def close2Goal(current: list, target: list) -> bool:
     status = True
 
     # Calculate Euclidean distance between current and target (x, y)
@@ -160,208 +164,34 @@ def closeToGoal(current, target):
 
     return status
 
-def traversePath(path):
-    global agent, tracking_data, path_data, elapsed_time, start_time
-
-    v_r = [0.0] * 3
-    heading_angle = 0
-    finish = False
-    rgb_camera.add2traj(agent.position)
-
-    path_array = np.array(path)
-    traj = splines.Trajectory(path_array[:,0], path_array[:,1], path_array[:,2].tolist())
-
-    for x, y, yaw, in zip(traj.x, traj.y, traj.yaw):
-        path_data.append({'x': x, 'y': y, 'yaw': yaw})
-
-    start_time = time.perf_counter()
-
-    cx, cy, cyaw, s = traj.params
-    sp = [TARGET_SPEED] * len(cx)
-    
-
-    while True:
-        if closeToGoal(agent.position, traj.getPoint(-1)) or rgb_camera.finish:
-            v_r = [0.0] * 3
-            finish = True
-        else:
-            target_ind = traj.getTarget(agent.position, lookahead_distance)
-
-            target_point = traj.getPoint(target_ind)
-            vector_to_target = np.array(target_point) - np.array(agent.position)
-            heading_angle = np.arctan2(vector_to_target[1], vector_to_target[0])
-            rgb_camera.heading = heading_angle
-
-            v_heading = getVelAlongHeading(v_r, heading_angle)
-            qref, vref = calcRefTrajectory(cx, cy, cyaw, sp, target_ind, v_heading) 
-
-            v_r, q = mpc(qref, vref, heading_angle)
-            
-        if simulation:
-            agent.pose = q
-        # print(agent.pose)
-        rgb_camera.add2traj(agent.position)
-
-        v = v_r + [0.0] * 2
-        agent_controller.move(agent, v, [0, 0])
-
-        current_time = time.perf_counter()
-        elapsed_time = current_time - start_time
-
-        tracking_data.append({'time': elapsed_time,
-                              'config': agent.config.tolist(),
-                              'stiffness': agent.stiffness,
-                              'target_vel': v})
-
-        if finish:
-            break
-
-def getVelAlongHeading(v, angle):
-    # 1. Convert body velocities to global frame
-    R = np.array([[np.cos(agent.theta), -np.sin(agent.theta)],
-                  [np.sin(agent.theta), np.cos(agent.theta)]])
-    v_body = np.array(v[:-1])
-    v_global = R @ v_body
-    
-    # 2. Create heading direction unit vector
-    heading_vector = np.array([np.cos(angle), 
-                             np.sin(angle)])
-    
-    # 3. Project global velocity onto heading direction
-    v_along_heading = np.dot(v_global, heading_vector)
-    
-    return v_along_heading
-
-def calcRefTrajectory(cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
-    qref = np.zeros((NX, T + 1))
-    vref = np.zeros((1, T + 1))
-    ncourse = len(cx)
-
-    qref[0, 0] = cx[ind]
-    qref[1, 0] = cy[ind]
-    qref[2, 0] = cyaw[ind]
-    vref[0, 0] = sp[ind]
-    travel = 0.0
-
-    for i in range(1, T + 1):
-        travel += abs(v) * gv.DT
-        dind = int(round(travel / lookahead_distance))
-        if (ind + dind) < ncourse:
-            qref[0, i] = cx[ind + dind]
-            qref[1, i] = cy[ind + dind]
-            qref[2, i] = cyaw[ind + dind]
-            vref[0, i] = sp[ind + dind]
-        else:
-            qref[0, i] = cx[ncourse - 1]
-            qref[1, i] = cy[ncourse - 1]
-            qref[2, i] = cyaw[ncourse - 1]
-            vref[0, i] = sp[ncourse - 1]
-
-    return qref, vref
-
-def getLinearModelMatrix(vref, phi):
-    A = np.zeros((NX, NX))
-    A[0, 0] = 1.0
-    A[0, 2] = -vref * np.sin(phi) * gv.DT
-    A[1, 1] = 1.0
-    A[1, 2] = vref * np.cos(phi) * gv.DT
-    A[2, 2] = 1.0
-
-    B = np.zeros((NX, NU))
-    B[0, 0] = gv.DT * np.cos(phi)
-    B[0, 1] = -gv.DT * np.sin(phi)
-    B[1, 0] = gv.DT * np.sin(phi)
-    B[1, 1] = gv.DT * np.cos(phi)
-    B[2, 2] = gv.DT
-
-    return A, B
-
-def mpc(qref, vref, heading_angle):
-    q = cvxpy.Variable((NX, T + 1))
-    u = cvxpy.Variable((NU, T))
-
-    cost = 0.0
-    constraints = []
-
-    constraints += [q[:, 0] == agent.pose - qref[:,0]]  
-
-    for t in range(T):
-        cost += cvxpy.quad_form(u[:, t], R)
-        if t != 0:
-            cost += cvxpy.quad_form(q[:, t], Q)        
-        A, B = getLinearModelMatrix(vref[0, t], heading_angle)  
-
-        constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  
-
-    cost += cvxpy.quad_form(q[:, T], Qf)  
-    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-    prob.solve(solver=cvxpy.ECOS, verbose=False)
-
-    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-        vx = u.value[0, 0] + vref[0, 1]
-        vy = u.value[1, 0]
-        omega = u.value[2, 0]
-
-        delta_theta = heading_angle - agent.theta
-        
-        vel_rot = np.array([[np.cos(delta_theta), -np.sin(delta_theta)],
-                            [np.sin(delta_theta), np.cos(delta_theta)]])
-        v = vel_rot.dot(np.array([[vx], [vy]]))
-        vx, vy = v.flatten().tolist()
-
-        rot = np.array([[np.cos(agent.theta), -np.sin(agent.theta), 0],
-                        [np.sin(agent.theta), np.cos(agent.theta), 0],
-                        [0, 0, 1]])
-
-        q_dot = rot.dot([vx, vy, omega])
-        q_new = np.array(agent.pose) + q_dot * gv.DT
-    else:
-        print("Error: Cannot solve mpc..")
-        vx, vy, omega = None, None, None
-        q_new = None
-
-    return [vx, vy, omega], q_new
-
-def grasp(target_pose):
-    global agent, tracking_data, elapsed_time
-
-    target_config = target_pose + [15, 15]
-    v_prev = [0.0] * 2
-    s = [1, 1]
-    finish = False
-
-    while True:
-        if closeToShape(agent.curvature, target_config[3:]) or rgb_camera.finish:
-            v_soft = [0.0] * 2
-            s = [0, 0]
-            finish = True
-        else:
-            v_soft = agent_controller.mpcSM3(agent, target_config, v_prev)
-        
-        v = [0.0] * 3 + v_soft
-        _, _, s_current, _ = agent_controller.move(agent, v, s)
-        agent.stiffness = s_current
-        
-        v_prev = v_soft
-
-        current_time = time.perf_counter()
-        elapsed_time = current_time - start_time
-
-        tracking_data.append({'time': elapsed_time,
-                              'config': agent.config.tolist(),
-                              'stiffness': agent.stiffness,
-                              'target_vel': v})
-            
-        if finish:
-            break
-
-def closeToShape(current_k, target_k):
+def close2Shape(current_k: list, target_k: list) -> bool:
     status = True
     k1_diff = abs(current_k[0] - target_k[0])
     k2_diff = abs(current_k[1] - target_k[1])
     if k1_diff > 5 or k2_diff > 5:
         status = False
     return status
+
+def arc(config: list, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
+        k = config[2+seg]
+        l = np.linspace(0, gv.L_VSS, 50)
+        flag = -1 if seg == 1 else 1
+        theta_array = config[2] + flag * k * l
+
+        if abs(k) < 1e-6:
+            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
+            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
+        else:
+            x = np.sin(theta_array) / k - np.sin(config[2]) / k
+            y = -np.cos(theta_array) / k + np.cos(config[2]) / k
+
+        x += config[0]
+        y += config[1]
+        theta_end = normalizeAngle(theta_array[-1])
+            
+        return x, y, theta_end
+
+# --------------------------- Rigid Motion Planning -------------------------
 
 class Node:
     def __init__(self, position, theta=0.0):
@@ -909,6 +739,251 @@ class BayesianTuner:
             'w3': result.x[2],
             'score': result.fun
         }
+
+# --------------------------- Rigid Motion Control --------------------------
+
+def getVelAlongHeading(v: list, angle: float) -> np.ndarray:
+    # 1. Convert body velocities to global frame
+    R = np.array([[np.cos(agent.theta), -np.sin(agent.theta)],
+                  [np.sin(agent.theta), np.cos(agent.theta)]])
+    v_body = np.array(v[:-1])
+    v_global = R @ v_body
+    
+    # 2. Create heading direction unit vector
+    heading_vector = np.array([np.cos(angle), 
+                             np.sin(angle)])
+    
+    # 3. Project global velocity onto heading direction
+    v_along_heading = np.dot(v_global, heading_vector)
+    
+    return v_along_heading
+
+def calcRefTrajectory(cx: list, cy: list, cyaw: list, sp, ind, v) -> tuple[np.ndarray, np.ndarray]:
+    qref = np.zeros((NX, T + 1))
+    vref = np.zeros((1, T + 1))
+    ncourse = len(cx)
+
+    qref[0, 0] = cx[ind]
+    qref[1, 0] = cy[ind]
+    qref[2, 0] = cyaw[ind]
+    vref[0, 0] = sp[ind]
+    travel = 0.0
+
+    for i in range(1, T + 1):
+        travel += abs(v) * gv.DT
+        dind = int(round(travel / lookahead_distance))
+        if (ind + dind) < ncourse:
+            qref[0, i] = cx[ind + dind]
+            qref[1, i] = cy[ind + dind]
+            qref[2, i] = cyaw[ind + dind]
+            vref[0, i] = sp[ind + dind]
+        else:
+            qref[0, i] = cx[ncourse - 1]
+            qref[1, i] = cy[ncourse - 1]
+            qref[2, i] = cyaw[ncourse - 1]
+            vref[0, i] = sp[ncourse - 1]
+
+    return qref, vref
+
+def getLinearModelMatrix(vref: float, phi: float) -> tuple[np.ndarray, np.ndarray]:
+    A = np.zeros((NX, NX))
+    A[0, 0] = 1.0
+    A[0, 2] = -vref * np.sin(phi) * gv.DT
+    A[1, 1] = 1.0
+    A[1, 2] = vref * np.cos(phi) * gv.DT
+    A[2, 2] = 1.0
+
+    B = np.zeros((NX, NU))
+    B[0, 0] = gv.DT * np.cos(phi)
+    B[0, 1] = -gv.DT * np.sin(phi)
+    B[1, 0] = gv.DT * np.sin(phi)
+    B[1, 1] = gv.DT * np.cos(phi)
+    B[2, 2] = gv.DT
+
+    return A, B
+
+def mpc(qref: np.ndarray, vref: np.ndarray, heading_angle: float) -> tuple[list, np.ndarray]:
+    q = cvxpy.Variable((NX, T + 1))
+    u = cvxpy.Variable((NU, T))
+
+    cost = 0.0
+    constraints = []
+
+    constraints += [q[:, 0] == agent.pose - qref[:,0]]  
+
+    for t in range(T):
+        cost += cvxpy.quad_form(u[:, t], R)
+        if t != 0:
+            cost += cvxpy.quad_form(q[:, t], Q)        
+        A, B = getLinearModelMatrix(vref[0, t], heading_angle)  
+
+        constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  
+
+    cost += cvxpy.quad_form(q[:, T], Qf)  
+    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
+    prob.solve(solver=cvxpy.ECOS, verbose=False)
+
+    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
+        vx = u.value[0, 0] + vref[0, 1]
+        vy = u.value[1, 0]
+        omega = u.value[2, 0]
+
+        delta_theta = heading_angle - agent.theta
+        
+        vel_rot = np.array([[np.cos(delta_theta), -np.sin(delta_theta)],
+                            [np.sin(delta_theta), np.cos(delta_theta)]])
+        v = vel_rot.dot(np.array([[vx], [vy]]))
+        vx, vy = v.flatten().tolist()
+
+        rot = np.array([[np.cos(agent.theta), -np.sin(agent.theta), 0],
+                        [np.sin(agent.theta), np.cos(agent.theta), 0],
+                        [0, 0, 1]])
+
+        q_dot = rot.dot([vx, vy, omega])
+        q_new = np.array(agent.pose) + q_dot * gv.DT
+    else:
+        print("Error: Cannot solve mpc..")
+        vx, vy, omega = None, None, None
+        q_new = None
+
+    return [vx, vy, omega], q_new
+
+def traversePath(path: list) -> None:
+    global agent, tracking_data, path_data, elapsed_time, start_time
+
+    v_r = [0.0] * 3
+    heading_angle = 0
+    finish = False
+    rgb_camera.add2traj(agent.position)
+
+    path_array = np.array(path)
+    traj = splines.Trajectory(path_array[:,0], path_array[:,1], path_array[:,2].tolist())
+
+    for x, y, yaw, in zip(traj.x, traj.y, traj.yaw):
+        path_data.append({'x': x, 'y': y, 'yaw': yaw})
+
+    start_time = time.perf_counter()
+
+    cx, cy, cyaw, s = traj.params
+    sp = [TARGET_SPEED] * len(cx)
+    
+
+    while True:
+        if close2Goal(agent.position, traj.getPoint(-1)) or rgb_camera.finish:
+            v_r = [0.0] * 3
+            finish = True
+        else:
+            target_ind = traj.getTarget(agent.position, lookahead_distance)
+
+            target_point = traj.getPoint(target_ind)
+            vector_to_target = np.array(target_point) - np.array(agent.position)
+            heading_angle = np.arctan2(vector_to_target[1], vector_to_target[0])
+            rgb_camera.heading = heading_angle
+
+            v_heading = getVelAlongHeading(v_r, heading_angle)
+            qref, vref = calcRefTrajectory(cx, cy, cyaw, sp, target_ind, v_heading) 
+
+            v_r, q = mpc(qref, vref, heading_angle)
+            
+        if simulation:
+            agent.pose = q
+        # print(agent.pose)
+        rgb_camera.add2traj(agent.position)
+
+        v = v_r + [0.0] * 2
+        agent_controller.move(agent, v, [0, 0])
+
+        current_time = time.perf_counter()
+        elapsed_time = current_time - start_time
+
+        tracking_data.append({'time': elapsed_time,
+                              'config': agent.config.tolist(),
+                              'stiffness': agent.stiffness,
+                              'target_vel': v})
+
+        if finish:
+            break
+
+def runRigidPlanner():
+    tuner = BayesianTuner(workspace_bounds, agent.pose, target_pose)
+    best_params = tuner.tune_parameters()
+
+    print(best_params)
+
+    while True:
+        # rrt = RRT(agent.pose, target_pose, workspace_bounds)
+        rrt = RRTStar(agent.pose, target_pose, workspace_bounds)
+        
+        path = rrt.plan()
+
+        if path is not None:
+            print("Path found!")
+            path.append(grasp_pose)
+            # path.append(grasp_pose[:-1])
+            print(path)
+            rgb_camera.rrt_path = path
+            
+            # Ask for user confirmation
+            user_input = input("Is this path acceptable? (yes/no): ").lower()
+            
+            if user_input == 'yes' or user_input == 'y':
+                # Continue with the original code
+                interpolated_path = []
+                num_interpolated_points = 20
+
+                for i in range(len(path) - 1):
+                    start = path[i]
+                    end = path[i + 1]
+                    for j in range(num_interpolated_points + 1):
+                        t = j / num_interpolated_points
+                        x = start[0] + t * (end[0] - start[0])
+                        y = start[1] + t * (end[1] - start[1])
+                        theta = normalizeAngle(start[2] + t * (end[2] - start[2]))
+                        interpolated_path.append([x, y, theta])
+
+                # print('Traverse the path...')
+                # traversePath(interpolated_path)
+                # print('Arrived!')
+                # print()
+
+                # print('Grasp the object...')
+                # grasp(path[-1])
+                # print(f'Finished! Recording time: {elapsed_time} seconds')
+                # rgb_camera.finish = True
+
+                # # Prepare data to be written
+                # data_json = {
+                #     "metadata": {
+                #         "description": "Grasp through obstacles",
+                #         "date": date_title
+                #     },
+                #     'path': path_data,
+                #     "tracking": tracking_data
+                # } 
+
+                # # Write data to JSON file
+                # if not simulation:
+                #     with open(filename, 'w') as f:
+                #         json.dump(data_json, f, indent=2)
+
+                #     print(f"Data written to {filename}")                   
+                
+                break 
+                
+            elif user_input == 'no' or user_input == 'n':
+                rgb_camera.rrt_path = None
+                print("Replanning path...")
+                continue  # Continue to next iteration to find a new path
+                
+            else:
+                print("Invalid input. Please enter 'yes' or 'no'.")
+                continue  # Ask for input again if invalid
+                
+        else:
+            print("No path found!")
+            # break  # Exit if no path is found
+
+# --------------------------- Soft Motion Planning --------------------------
 
 class VoronoiPassageAnalyzer:
     def __init__(self, obstacles, workspace_bounds):
@@ -1689,24 +1764,174 @@ class RobotConfigurationFitter:
             
         return configurations
 
-def arc(config: list, seg=1):
-        k = config[2+seg]
-        l = np.linspace(0, gv.L_VSS, 50)
-        flag = -1 if seg == 1 else 1
-        theta_array = config[2] + flag * k * l
+# ------------------------------ Grasp Control ------------------------------
 
-        if abs(k) < 1e-6:
-            x = np.array([0, flag * gv.L_VSS * np.cos(config[2])])
-            y = np.array([0, flag * gv.L_VSS * np.sin(config[2])])
+def grasp(target_pose: list) -> None:
+    global agent, tracking_data, elapsed_time
+
+    target_config = target_pose + [15, 15]
+    v_prev = [0.0] * 2
+    s = [1, 1]
+    finish = False
+
+    while True:
+        if close2Shape(agent.curvature, target_config[3:]) or rgb_camera.finish:
+            v_soft = [0.0] * 2
+            s = [0, 0]
+            finish = True
         else:
-            x = np.sin(theta_array) / k - np.sin(config[2]) / k
-            y = -np.cos(theta_array) / k + np.cos(config[2]) / k
+            v_soft = agent_controller.mpcSM3(agent, target_config, v_prev)
+        
+        v = [0.0] * 3 + v_soft
+        _, _, s_current, _ = agent_controller.move(agent, v, s)
+        agent.stiffness = s_current
+        
+        v_prev = v_soft
 
-        x += config[0]
-        y += config[1]
-        theta_end = normalizeAngle(theta_array[-1])
+        current_time = time.perf_counter()
+        elapsed_time = current_time - start_time
+
+        tracking_data.append({'time': elapsed_time,
+                              'config': agent.config.tolist(),
+                              'stiffness': agent.stiffness,
+                              'target_vel': v})
             
-        return x, y, theta_end
+        if finish:
+            break
+
+# -------------------------------- Animation --------------------------------
+
+# ---------------------------------------------------------------------------
+
+def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array) -> None:
+    traversed_line, = plt.plot([], [], 'g-', linewidth=3)
+    rear_point, = plt.plot([], [], 'go', markersize=8)
+    front_point, = plt.plot([], [], 'bo', markersize=8)
+    middle_point, = plt.plot([], [], 'bo', markersize=10)
+    orientation_line, = plt.plot([], [], 'b-', linewidth=3)
+
+    vss1_line, = plt.plot([], [], 'k-', linewidth=2)
+    vss2_line, = plt.plot([], [], 'k-', linewidth=2)
+    conn1_line, = plt.plot([], [], 'k-', linewidth=2)
+    conn2_line, = plt.plot([], [], 'k-', linewidth=2)
+    lu1_square, = plt.plot([], [], 'k-', linewidth=2)
+    lu2_square, = plt.plot([], [], 'k-', linewidth=2)
+    frame_origin, = plt.plot([], [], 'yo', markersize=6)
+
+    l = 0.05
+
+    traversed_path_x = []
+    traversed_path_y = []
+
+    def animate(frame):
+        plot_components = []
+
+        if frame < len(rear_path_points):
+            
+            rear_pos = rear_path_points[frame]
+            front_pos = front_path_points[frame]
+            middle_pos = middle_path_points[frame]
+            orientation = theta_seq[frame]
+
+            traversed_path_x.append(rear_pos[0])
+            traversed_path_y.append(rear_pos[1])
+
+            traversed_line.set_data(traversed_path_x, traversed_path_y)
+            rear_point.set_data([rear_pos[0]], [rear_pos[1]])
+            front_point.set_data([front_pos[0]], [front_pos[1]])
+            middle_point.set_data([middle_pos[0]], [middle_pos[1]])
+            orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
+                                        [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
+
+            plot_components.append(traversed_line)
+            plot_components.append(rear_point)
+            plot_components.append(front_point)
+            plot_components.append(middle_point)
+            plot_components.append(orientation_line)
+
+            # Base position
+            q = q_array[frame]
+
+            # Plot VSS
+            x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
+            vss1_line.set_data(x_vss1, y_vss1)
+
+            x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
+            vss2_line.set_data(x_vss2, y_vss2)
+
+            plot_components.append(vss1_line)
+            plot_components.append(vss2_line)
+
+            # Plot connection lines
+            # Front connection
+            conn1_start = np.array([x_vss1[-1], y_vss1[-1]])
+            conn1_vec = gv.L_CONN * np.array([-np.cos(theta_vss1_end), -np.sin(theta_vss1_end)])
+            conn1_end = conn1_start + conn1_vec
+            conn1_line.set_data([conn1_start[0], conn1_end[0]], [conn1_start[1], conn1_end[1]])
+            plot_components.append(conn1_line)
+            
+            # Rear connection
+            conn2_start = np.array([x_vss2[-1], y_vss2[-1]])
+            conn2_vec = gv.L_CONN * np.array([np.cos(theta_vss2_end), np.sin(theta_vss2_end)])
+            conn2_end = conn2_start + conn2_vec
+            conn2_line.set_data([conn2_start[0], conn2_end[0]], [conn2_start[1], conn2_end[1]])
+            plot_components.append(conn2_line)
+
+            # Plot LU squares
+            # Front LU - connected at right top corner
+            lu1_theta = theta_vss1_end
+            # First calculate the top right corner position (which is conn1_end)
+            lu1_corner = conn1_end
+            # Then calculate the center by shifting from this corner
+            lu1_center = lu1_corner + gv.LU_SIDE/2 * np.array([
+                -np.cos(lu1_theta) + np.sin(lu1_theta),  # x shift
+                -np.sin(lu1_theta) - np.cos(lu1_theta)   # y shift
+            ])
+            lu1_corners = lu1_center + gv.LU_SIDE/2 * np.array([
+                [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)],
+                [-np.cos(lu1_theta) + np.sin(lu1_theta), -np.sin(lu1_theta) - np.cos(lu1_theta)],
+                [np.cos(lu1_theta) + np.sin(lu1_theta), np.sin(lu1_theta) - np.cos(lu1_theta)],
+                [np.cos(lu1_theta) - np.sin(lu1_theta), np.sin(lu1_theta) + np.cos(lu1_theta)],
+                [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)]  # Close the square
+            ])
+            lu1_square.set_data(lu1_corners[:, 0], lu1_corners[:, 1])
+            plot_components.append(lu1_square)
+
+            # Rear LU - connected at left top corner
+            lu2_theta = theta_vss2_end
+            # First calculate the top left corner position (which is conn2_end)
+            lu2_corner = conn2_end
+            # Then calculate the center by shifting from this corner
+            lu2_center = lu2_corner + gv.LU_SIDE/2 * np.array([
+                np.cos(lu2_theta) + np.sin(lu2_theta),   # x shift
+                np.sin(lu2_theta) - np.cos(lu2_theta)    # y shift
+            ])
+            lu2_corners = lu2_center + gv.LU_SIDE/2 * np.array([
+                [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)],
+                [-np.cos(lu2_theta) + np.sin(lu2_theta), -np.sin(lu2_theta) - np.cos(lu2_theta)],
+                [np.cos(lu2_theta) + np.sin(lu2_theta), np.sin(lu2_theta) - np.cos(lu2_theta)],
+                [np.cos(lu2_theta) - np.sin(lu2_theta), np.sin(lu2_theta) + np.cos(lu2_theta)],
+                [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)]
+            ])
+            lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
+            plot_components.append(lu2_square)
+
+            # Plot the frame origin
+            frame_origin.set_data([q[0]], [q[1]])
+
+        return tuple(plot_components)
+
+    # Create animation
+    anim = animation.FuncAnimation(
+        fig, animate, frames=101,
+        interval=50,
+        blit=True,
+        repeat=False
+    )
+    anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=20)  # Save the animation as an MP4 file
+    
+    plt.title('Voronoi Diagram with 3-Point Segment Motion')
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -1803,86 +2028,9 @@ if __name__ == "__main__":
 
     expandObstacles()
 
-    # tuner = BayesianTuner(workspace_bounds, agent.pose, target_pose)
-    # best_params = tuner.tune_parameters()
-
-    # print(best_params)
-
-    # while True:
-    #     # rrt = RRT(agent.pose, target_pose, workspace_bounds)
-    #     rrt = RRTStar(agent.pose, target_pose, workspace_bounds)
-        
-    #     path = rrt.plan()
-
-    #     if path is not None:
-    #         print("Path found!")
-    #         path.append(grasp_pose)
-    #         # path.append(grasp_pose[:-1])
-    #         print(path)
-    #         rgb_camera.rrt_path = path
-            
-    #         # Ask for user confirmation
-    #         user_input = input("Is this path acceptable? (yes/no): ").lower()
-            
-    #         if user_input == 'yes' or user_input == 'y':
-    #             # Continue with the original code
-    #             interpolated_path = []
-    #             num_interpolated_points = 20
-
-    #             for i in range(len(path) - 1):
-    #                 start = path[i]
-    #                 end = path[i + 1]
-    #                 for j in range(num_interpolated_points + 1):
-    #                     t = j / num_interpolated_points
-    #                     x = start[0] + t * (end[0] - start[0])
-    #                     y = start[1] + t * (end[1] - start[1])
-    #                     theta = normalizeAngle(start[2] + t * (end[2] - start[2]))
-    #                     interpolated_path.append([x, y, theta])
-
-    #             # print('Traverse the path...')
-    #             # traversePath(interpolated_path)
-    #             # print('Arrived!')
-    #             # print()
-
-    #             # print('Grasp the object...')
-    #             # grasp(path[-1])
-    #             # print(f'Finished! Recording time: {elapsed_time} seconds')
-    #             # rgb_camera.finish = True
-
-    #             # # Prepare data to be written
-    #             # data_json = {
-    #             #     "metadata": {
-    #             #         "description": "Grasp through obstacles",
-    #             #         "date": date_title
-    #             #     },
-    #             #     'path': path_data,
-    #             #     "tracking": tracking_data
-    #             # } 
-
-    #             # # Write data to JSON file
-    #             # if not simulation:
-    #             #     with open(filename, 'w') as f:
-    #             #         json.dump(data_json, f, indent=2)
-
-    #             #     print(f"Data written to {filename}")                   
-                
-    #             break 
-                
-    #         elif user_input == 'no' or user_input == 'n':
-    #             rgb_camera.rrt_path = None
-    #             print("Replanning path...")
-    #             continue  # Continue to next iteration to find a new path
-                
-    #         else:
-    #             print("Invalid input. Please enter 'yes' or 'no'.")
-    #             continue  # Ask for input again if invalid
-                
-    #     else:
-    #         print("No path found!")
-    #         # break  # Exit if no path is found
+    # runRigidPlanner()
 
     # ---------------------------------------------------------------
-    # Create visualizer
     bounds = [
         (-0.606, -0.8), # Lower left corner (x_min, y_min)
         (0.319, 0.5)  # Upper right corner (x_max, y_max)
@@ -1942,134 +2090,6 @@ if __name__ == "__main__":
     print('Start animation...')
 
     if rear_path_points:
-        traversed_line, = plt.plot([], [], 'g-', linewidth=3)
-        rear_point, = plt.plot([], [], 'go', markersize=8)
-        front_point, = plt.plot([], [], 'bo', markersize=8)
-        middle_point, = plt.plot([], [], 'bo', markersize=10)
-        orientation_line, = plt.plot([], [], 'b-', linewidth=3)
+        runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array)
 
-        vss1_line, = plt.plot([], [], 'k-', linewidth=2)
-        vss2_line, = plt.plot([], [], 'k-', linewidth=2)
-        conn1_line, = plt.plot([], [], 'k-', linewidth=2)
-        conn2_line, = plt.plot([], [], 'k-', linewidth=2)
-        lu1_square, = plt.plot([], [], 'k-', linewidth=2)
-        lu2_square, = plt.plot([], [], 'k-', linewidth=2)
-        frame_origin, = plt.plot([], [], 'yo', markersize=6)
-
-        l = 0.05
-
-        traversed_path_x = []
-        traversed_path_y = []
-
-        def animate(frame):
-            plot_components = []
-
-            if frame < len(rear_path_points):
-                
-                rear_pos = rear_path_points[frame]
-                front_pos = front_path_points[frame]
-                middle_pos = middle_path_points[frame]
-                orientation = theta_seq[frame]
-
-                traversed_path_x.append(rear_pos[0])
-                traversed_path_y.append(rear_pos[1])
-
-                traversed_line.set_data(traversed_path_x, traversed_path_y)
-                rear_point.set_data([rear_pos[0]], [rear_pos[1]])
-                front_point.set_data([front_pos[0]], [front_pos[1]])
-                middle_point.set_data([middle_pos[0]], [middle_pos[1]])
-                orientation_line.set_data([middle_pos[0], middle_pos[0] + l * np.cos(orientation)], 
-                                          [middle_pos[1], middle_pos[1] + l * np.sin(orientation)])
-
-                plot_components.append(traversed_line)
-                plot_components.append(rear_point)
-                plot_components.append(front_point)
-                plot_components.append(middle_point)
-                plot_components.append(orientation_line)
-
-                # Base position
-                q = q_array[frame]
-
-                # Plot VSS
-                x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
-                vss1_line.set_data(x_vss1, y_vss1)
-
-                x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
-                vss2_line.set_data(x_vss2, y_vss2)
-
-                plot_components.append(vss1_line)
-                plot_components.append(vss2_line)
-
-                # Plot connection lines
-                # Front connection
-                conn1_start = np.array([x_vss1[-1], y_vss1[-1]])
-                conn1_vec = gv.L_CONN * np.array([-np.cos(theta_vss1_end), -np.sin(theta_vss1_end)])
-                conn1_end = conn1_start + conn1_vec
-                conn1_line.set_data([conn1_start[0], conn1_end[0]], [conn1_start[1], conn1_end[1]])
-                plot_components.append(conn1_line)
-                
-                # Rear connection
-                conn2_start = np.array([x_vss2[-1], y_vss2[-1]])
-                conn2_vec = gv.L_CONN * np.array([np.cos(theta_vss2_end), np.sin(theta_vss2_end)])
-                conn2_end = conn2_start + conn2_vec
-                conn2_line.set_data([conn2_start[0], conn2_end[0]], [conn2_start[1], conn2_end[1]])
-                plot_components.append(conn2_line)
-
-                # Plot LU squares
-                # Front LU - connected at right top corner
-                lu1_theta = theta_vss1_end
-                # First calculate the top right corner position (which is conn1_end)
-                lu1_corner = conn1_end
-                # Then calculate the center by shifting from this corner
-                lu1_center = lu1_corner + gv.LU_SIDE/2 * np.array([
-                    -np.cos(lu1_theta) + np.sin(lu1_theta),  # x shift
-                    -np.sin(lu1_theta) - np.cos(lu1_theta)   # y shift
-                ])
-                lu1_corners = lu1_center + gv.LU_SIDE/2 * np.array([
-                    [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)],
-                    [-np.cos(lu1_theta) + np.sin(lu1_theta), -np.sin(lu1_theta) - np.cos(lu1_theta)],
-                    [np.cos(lu1_theta) + np.sin(lu1_theta), np.sin(lu1_theta) - np.cos(lu1_theta)],
-                    [np.cos(lu1_theta) - np.sin(lu1_theta), np.sin(lu1_theta) + np.cos(lu1_theta)],
-                    [-np.cos(lu1_theta) - np.sin(lu1_theta), -np.sin(lu1_theta) + np.cos(lu1_theta)]  # Close the square
-                ])
-                lu1_square.set_data(lu1_corners[:, 0], lu1_corners[:, 1])
-                plot_components.append(lu1_square)
-
-                # Rear LU - connected at left top corner
-                lu2_theta = theta_vss2_end
-                # First calculate the top left corner position (which is conn2_end)
-                lu2_corner = conn2_end
-                # Then calculate the center by shifting from this corner
-                lu2_center = lu2_corner + gv.LU_SIDE/2 * np.array([
-                    np.cos(lu2_theta) + np.sin(lu2_theta),   # x shift
-                    np.sin(lu2_theta) - np.cos(lu2_theta)    # y shift
-                ])
-                lu2_corners = lu2_center + gv.LU_SIDE/2 * np.array([
-                    [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)],
-                    [-np.cos(lu2_theta) + np.sin(lu2_theta), -np.sin(lu2_theta) - np.cos(lu2_theta)],
-                    [np.cos(lu2_theta) + np.sin(lu2_theta), np.sin(lu2_theta) - np.cos(lu2_theta)],
-                    [np.cos(lu2_theta) - np.sin(lu2_theta), np.sin(lu2_theta) + np.cos(lu2_theta)],
-                    [-np.cos(lu2_theta) - np.sin(lu2_theta), -np.sin(lu2_theta) + np.cos(lu2_theta)]
-                ])
-                lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
-                plot_components.append(lu2_square)
-
-                # Plot the frame origin
-                frame_origin.set_data([q[0]], [q[1]])
-
-            return tuple(plot_components)
-
-        # Create animation
-        anim = animation.FuncAnimation(
-            fig, animate, frames=101,
-            interval=50,
-            blit=True,
-            repeat=False
-        )
-        anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=20)  # Save the animation as an MP4 file
-        
-        plt.title('Voronoi Diagram with 3-Point Segment Motion')
-    else:
-        plt.title('No valid path found')
-
-    plt.show()
+    
