@@ -1130,7 +1130,7 @@ class VoronoiPassageAnalyzer:
             next_pos = current_pos + step_size * direction
             clearance = self.get_clearance(next_pos)
             
-            if clearance > 1.5 * agent_length:
+            if clearance > 1.3 * agent_length:
                 new_point = current_pos  # Use last valid position
                 break
             
@@ -1407,29 +1407,54 @@ class VoronoiPassageAnalyzer:
 
         return rear_path, front_path, interpoltaed_rear_path_points
 
-    def interpolate_path_points(self, path, target_point, step_size=0.005, threshold=0.001):
+    def interpolate_path_points(self, path, target_point, step_size=0.02):
         interpolated_points = []
 
         for i in range(len(path)):
             p1, p2 = path[i]['points']
             current_nodes = path[i]['nodes']
 
-            passage_vector = np.array(p2) - np.array(p1)
+            # If this is the last passage, find closest point to target
+            if i == len(path) - 1:
+                segment_vector = np.array(p2) - np.array(p1)
+                segment_length = np.linalg.norm(segment_vector)
+                if segment_length > 0:
+                    # Calculate projection of target point onto passage vector
+                    point_vector = np.array(target_point) - np.array(p1)
+                    projection = np.dot(point_vector, segment_vector) / segment_length
+                    
+                    # Clamp projection to segment length
+                    projection = min(segment_length, max(0, projection))
+                    
+                    # Find closest point on segment
+                    closest_point = np.array(p1) + (projection / segment_length) * segment_vector
+                    passage_vector = closest_point - np.array(p1)
+            else:
+                passage_vector = np.array(p2) - np.array(p1)
+                
             passage_length = np.linalg.norm(passage_vector)
-            direction = passage_vector / passage_length
+            
+            if passage_length == 0:
+                direction = 0
+            else:
+                direction = passage_vector / passage_length
             
             # How many points we need on this passage
-            num_points = int(passage_length / step_size)
+            if passage_length < step_size:
+                num_points = 1
+            else:
+                num_points = int(passage_length / step_size)
 
             for j in range(num_points):
-                point_pos = np.array(p1) + j * step_size * direction
-
-                dist_to_target = np.linalg.norm(np.array(target_point) - point_pos)
-                if dist_to_target < threshold:
-                    return interpolated_points
-                
+                point_pos = np.array(p1) + j * step_size * direction                
                 interpolated_points.append({
                     'pos': point_pos,
+                    'nodes': current_nodes
+                })
+
+            if i == len(path) - 1 and passage_length != 0:
+                interpolated_points.append({
+                    'pos': closest_point,
                     'nodes': current_nodes
                 })
 
@@ -1993,7 +2018,10 @@ def generate_trajectory(q_ref_trajectory, horizon_N=20, dt=0.1):
     optimal_control_sequence = []
     current_q = q_ref_trajectory[0]
 
+    print(len(q_ref_trajectory))
+
     for i in range(len(q_ref_trajectory) - horizon_N):
+        print(i)
         agent.config = current_q
         q_ref_horizon = q_ref_trajectory[i:i+horizon_N]
         
@@ -2174,18 +2202,20 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
     lu1_square, = plt.plot([], [], color=grey_color, linewidth=2)
     lu2_square, = plt.plot([], [], color=grey_color, linewidth=2)
 
-    # vss1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
-    # vss2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
-    # conn1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
-    # conn2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
-    # lu1_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
-    # lu2_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    vss1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    vss2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    conn1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    conn2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    lu1_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    lu2_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
 
     class AnimationState:
         def __init__(self):
             self.iteration = 0
             self.idx = 0
             self.traversed_path = [[], []]
+            self.counter = 0
+            self.pause_frames_n = 5
     
     state = AnimationState()
 
@@ -2199,13 +2229,17 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
             orientation = theta_seq[state.idx]
 
             q_ref_i = q_ref[state.idx]
-            # q_optim_i = q_optim[state.idx]
-            # s_optim_i = s_optimal[state.idx]
+            if q_optim is not None and s_optimal is not None:
+                q_optim_i = q_optim[state.idx]
+                s_optim_i = s_optimal[state.idx]
             
         if state.iteration == 0:
             # Iteration 0: Just show Voronoi diagram (empty plot_components)
-            if frame > 10:
+            if state.counter > state.pause_frames_n:
+                state.counter = 0
                 state.iteration += 1
+            else:
+                state.counter += 1
         
         elif state.iteration == 1:
             # Iteration 1: rear point and its path only
@@ -2213,14 +2247,17 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
             rear_point.set_color(red_color)
             plotPoints([rear_pos], (rear_point,), plot_components)
 
-            if state.idx < len(rear_path_points) - 1:
+            if state.idx < len(rear_path_points)-1:
                 state.idx += 1
             else:
-                state.iteration += 1
-                state.idx = 0
+                if state.counter > state.pause_frames_n:
+                    state.counter = 0
+                    state.idx = 0
+                    state.iteration += 1
 
-                state.traversed_path = [[], []]
-                traversed_line.set_data(state.traversed_path)
+                    state.traversed_path = [[], []]
+                else:
+                    state.counter += 1
             
         elif state.iteration == 2:
             # Iteration 2: all points, path, and orientation
@@ -2229,14 +2266,18 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
                         (front_point, middle_point, rear_point), plot_components)
             plotOrientation(middle_pos, orientation, orientation_line, plot_components)
 
-            if state.idx < len(rear_path_points) - 1:
+            if state.idx < len(rear_path_points)-1:
                 state.idx += 1
             else:
-                state.iteration += 1
-                state.idx = 0
+                if state.counter > state.pause_frames_n:
+                    state.counter = 0
+                    state.idx = 0
+                    state.iteration += 1
 
-                state.traversed_path = [[], []]
-                traversed_line.set_data(state.traversed_path)
+                    state.traversed_path = [[], []]
+                    traversed_line.set_data(state.traversed_path)
+                else:
+                    state.counter += 1
             
         elif state.iteration == 3:
             # Iteration 3: all points, orientation, robot, rear point in blue
@@ -2249,54 +2290,56 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
                                     lu1_square, lu2_square)
             plotRobot(q_ref_i, plot_components, robot_ref_components)
 
-            if state.idx < len(rear_path_points) - 1:
+            if state.idx < len(rear_path_points)-1:
                 state.idx += 1
             else:
-                state.iteration += 1
-                state.idx = 0
-                
-                front_point.set_data([[], []])
-                front_point.set_data([[], []])
-                middle_point.set_data([[], []])
+                if state.counter > state.pause_frames_n:
+                    state.counter = 0
+                    state.idx = 0
+                    state.iteration += 1
+
+                    front_point.set_data([[], []])
+                    middle_point.set_data([[], []])
+                    rear_point.set_data([[], []])
+                else:
+                    state.counter += 1
         
-        # else:
-        #     robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
-        #                             lu1_square, lu2_square)
-        #     for robot_ref_component in robot_ref_components:
-        #         robot_ref_component.set_alpha = 0.5
-        #     plotRobot(q_ref_i, plot_components, robot_ref_components)
+        elif q_optim is not None and s_optimal is not None:
+            robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
+                                    lu1_square, lu2_square)
+            for robot_ref_component in robot_ref_components:
+                robot_ref_component.set_alpha = 0.5
+            plotRobot(q_ref_i, plot_components, robot_ref_components)
 
-        #     robot_optim_components = (vss1_line_optim, vss2_line_optim, conn1_line_optim, conn2_line_optim, 
-        #                               lu1_square_optim, lu2_square_optim)
+            robot_optim_components = (vss1_line_optim, vss2_line_optim, conn1_line_optim, conn2_line_optim, 
+                                      lu1_square_optim, lu2_square_optim)
             
-        #     if s_optim_i[0] == 1:
-        #         vss1_line_optim.set_color(red_color)
-        #     else:
-        #         vss1_line_optim.set_color(grey_color)
+            if s_optim_i[0] == 1:
+                vss1_line_optim.set_color(red_color)
+            else:
+                vss1_line_optim.set_color(grey_color)
             
-        #     if s_optim_i[1] == 1:
-        #         vss2_line_optim.set_color(red_color)
-        #     else:
-        #         vss2_line_optim.set_color(grey_color)
+            if s_optim_i[1] == 1:
+                vss2_line_optim.set_color(red_color)
+            else:
+                vss2_line_optim.set_color(grey_color)
 
-        #     plotRobot(q_optim_i, plot_components, robot_optim_components)
+            plotRobot(q_optim_i, plot_components, robot_optim_components)
 
 
         return tuple(plot_components)
 
     # Create animation
-    # 160 frames total: 40 frames per iteration (4 iterations)
     anim = animation.FuncAnimation(
-        fig, animate, frames=3*len(rear_path_points)+50,
-        interval=50,  # 50ms between frames
+        fig, animate, frames=3*len(rear_path_points)+30,
+        interval=1,  # 50ms between frames
         blit=True,
         repeat=False
     )
-    anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=20)  # Save the animation as an MP4 file
+    anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=8)  # Save the animation as an MP4 file
     
     plt.title('Voronoi Diagram with 3-Point Segment Motion')
     plt.show()
-
 # ---------------------------------------------------------------------------
 
 
@@ -2409,7 +2452,7 @@ if __name__ == "__main__":
     # Find passage sequence
     print('Find passage route...')
     print()
-    rear_path_points, front_path_points, middle_path_points, theta_seq = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
+    rear_path_points, front_path_points, middle_path_points, theta_seq = analyzer.find_passage_sequence(agent.pose, target_pose, agent_length)
     
     # Afterprocess theta_seq
     connection_indices = []
@@ -2445,6 +2488,7 @@ if __name__ == "__main__":
     q_ref = fitter.fit_configurations(middle_path_points, front_path_points,
                                       rear_path_points, theta_seq)
 
+    q_optimal, s_optimal = None, None
     # print('Optimize robot\'s trajectory...')
     # print()
     # q_optimal, s_optimal, u_optimal = generate_trajectory(q_ref)
@@ -2453,7 +2497,7 @@ if __name__ == "__main__":
     print()
 
     if rear_path_points:
-        runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref)
+        runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref, q_optimal, s_optimal)
 
     print()
     print('Finished!')
