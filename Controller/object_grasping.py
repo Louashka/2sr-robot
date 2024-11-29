@@ -1009,14 +1009,6 @@ class VoronoiPassageAnalyzer:
         
         return np.array(boundary_points)
     
-    def is_line_collision_free(self, p1, p2):
-        """Check if line segment between p1 and p2 collides with any obstacle"""
-        line = LineString([p1, p2])
-        for obstacle in self.obstacles:
-            if line.intersects(obstacle):
-                return False
-        return True
-
     def create_passage_graph(self):
         graph = nx.Graph()
         
@@ -1048,6 +1040,37 @@ class VoronoiPassageAnalyzer:
         
         return graph
 
+    def find_nearest_node(self, pos):
+        closest_node = None
+        min_distance = float('inf')
+
+        for node in self.allowed_passage_graph.nodes:
+            node_pos = self.allowed_passage_graph.nodes[node]['pos']
+            distance = np.linalg.norm(np.array(node_pos) - np.array(pos))
+            if distance < min_distance:
+                min_distance = distance
+                closest_node = node
+
+        return closest_node, min_distance
+
+    def add_new_edge(self, new_point, closest_node):
+        new_node_id = max(self.allowed_passage_graph.nodes()) + 1
+        self.allowed_passage_graph.add_node(new_node_id, 
+                                        pos=new_point,
+                                        clearance=self.get_clearance(new_point))
+        
+        closest_node_pos = self.allowed_passage_graph.nodes[closest_node]['pos']
+        edge_length = np.linalg.norm(new_point - np.array(closest_node_pos))
+        min_clearance = min(self.get_clearance(new_point),
+                        self.allowed_passage_graph.nodes[closest_node]['clearance'])
+        
+        edge = (new_node_id, closest_node)
+        self.allowed_passage_graph.add_edge(new_node_id, closest_node,
+                                        length=edge_length,
+                                        clearance=min_clearance)
+        
+        return new_node_id, edge, min_clearance, edge_length
+    
     def identify_passages(self, min_clearance_threshold=0.5):
         passages = []
         self.allowed_passage_graph = nx.Graph()  # Create new graph for passages
@@ -1073,13 +1096,81 @@ class VoronoiPassageAnalyzer:
                                                     length=passage['length'],
                                                     clearance=passage['clearance'])  # Add edge with passage data
         
-        return passages
+        # Find open end nodes (nodes with degree 1)
+        open_end_nodes = [node for node, degree in self.allowed_passage_graph.degree() if degree == 1]
+        
+        if not open_end_nodes:
+            return passages, None
+        
+        # Find closest open end node to agent
+        closest_node = None
+        min_distance = float('inf')
+        for node in open_end_nodes:
+            node_pos = self.allowed_passage_graph.nodes[node]['pos']
+            distance = np.linalg.norm(np.array(node_pos) - np.array(agent.position))
+            if distance < min_distance:
+                min_distance = distance
+                closest_node = node
+        
+        # Get position of closest node
+        closest_node_pos = self.allowed_passage_graph.nodes[closest_node]['pos']
+        
+        # Calculate direction vector from closest node to agent
+        direction = np.array(agent.position) - np.array(closest_node_pos)
+        angle = np.arctan2(direction[1], direction[0])
+        direction = direction / np.linalg.norm(direction)
+        
+        # Find new point position
+        # Start from the closest node and move towards agent until clearance becomes too small
+        step_size = 0.05  # Adjust as needed
+        current_pos = np.array(closest_node_pos)
+        new_point = None
+        
+        while True:
+            next_pos = current_pos + step_size * direction
+            clearance = self.get_clearance(next_pos)
+            
+            if clearance > 1.5 * agent_length:
+                new_point = current_pos  # Use last valid position
+                break
+            
+            if np.linalg.norm(next_pos - np.array(agent.position)) < step_size:
+                new_point = next_pos
+                break
+                
+            current_pos = next_pos
+        
+        if new_point is not None:
+            # Create new node and edge
+            new_node_id, edge, clearance, edge_length = self.add_new_edge(new_point, closest_node)
+            
+            # Add new passage
+            new_passage = {
+                'points': (new_point, closest_node_pos),
+                'nodes': edge,
+                'clearance': clearance,
+                'length': edge_length,
+                'orientation': angle
+            }
+            passages.append(new_passage)
+            
+            return passages, (*new_point, angle)
+        
+        return passages, None
     
     def is_point_collision_free(self, point):
         """Check if point is inside any obstacle"""
         point_obj = Point(point)
         for obstacle in self.obstacles:
             if obstacle.contains(point_obj) or obstacle.boundary.contains(point_obj):
+                return False
+        return True
+
+    def is_line_collision_free(self, p1, p2):
+        """Check if line segment between p1 and p2 collides with any obstacle"""
+        line = LineString([p1, p2])
+        for obstacle in self.obstacles:
+            if line.intersects(obstacle):
                 return False
         return True
 
@@ -1157,10 +1248,13 @@ class VoronoiPassageAnalyzer:
             return None
         
         # Initialize the queue of nodes between the rear and front points
-        path_between_rear_front = self.find_point_path(rear_path[0]['points'][0],
-                                                       front_path[0]['points'][1])
+        if rear_path[0] == front_path[0]:
+            path_between_rear_front = [rear_path[0]]
+        else:
+            path_between_rear_front = self.find_point_path(rear_path[0]['points'][0],
+                                                        front_path[0]['points'][1])
         passages_between_rear_front = deque()
-        for item in path_between_rear_front[:-1]:
+        for item in path_between_rear_front:
             passages_between_rear_front.append(item['nodes'])
 
         # Main loop
@@ -1171,7 +1265,11 @@ class VoronoiPassageAnalyzer:
 
         front_current_idx = 0
 
+        rpp_idx = 0
+
         for rear_path_point in interpoltaed_rear_path_points:
+            # print(f'Index of the rear path point: {rpp_idx}')
+
             front_pos_new = None
             middle_pos_new = None
             middle_orientation = None
@@ -1249,10 +1347,23 @@ class VoronoiPassageAnalyzer:
                                     nodes_to_append = (nodes[0], neighbor)
                                     break
                     else:
-                        for neighbor in self.allowed_passage_graph.neighbors(passages_between_rear_front[-1][1]):
+                        neighbors = self.allowed_passage_graph.neighbors(passages_between_rear_front[-1][1])
+                        neighbors_list = list(neighbors)
+                        # print(neighbors_list)
+                        # print('Reached the end of the front path')
+
+                        max_degree = 0
+                        chosen_neighbor = None
+
+                        for neighbor in neighbors_list:
+                            # print(neighbor)
                             if neighbor != passages_between_rear_front[-1][0]:
-                                nodes_to_append = (passages_between_rear_front[-1][1], neighbor)
-                                break
+                                if self.allowed_passage_graph.degree(neighbor) > max_degree:
+                                    max_degree = self.allowed_passage_graph.degree(neighbor)
+                                    chosen_neighbor = neighbor
+                        
+                        if chosen_neighbor is not None:
+                            nodes_to_append = (passages_between_rear_front[-1][1], chosen_neighbor)
                                 
                     if nodes_to_append is not None:
                         passages_between_rear_front.append(nodes_to_append)
@@ -1262,6 +1373,8 @@ class VoronoiPassageAnalyzer:
             front_path_points.append(front_pos_new)
             middle_path_points.append(middle_pos_new)
             theta_seq.append(middle_orientation)
+
+            rpp_idx += 1
 
         return rear_path_points, front_path_points, middle_path_points, theta_seq
     
@@ -1288,15 +1401,16 @@ class VoronoiPassageAnalyzer:
         for item in front_path:
             front_nodes.append(item['nodes'])
         print(f'Front point nodes: {front_nodes}')
+        print()
 
         interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
 
         return rear_path, front_path, interpoltaed_rear_path_points
 
-    def interpolate_path_points(self, path, target_point, step_size=0.01, threshold=0.01):
+    def interpolate_path_points(self, path, target_point, step_size=0.005, threshold=0.001):
         interpolated_points = []
 
-        for i in range(len(path)-1):
+        for i in range(len(path)):
             p1, p2 = path[i]['points']
             current_nodes = path[i]['nodes']
 
@@ -1321,9 +1435,8 @@ class VoronoiPassageAnalyzer:
 
         return interpolated_points
     
-    def find_nearest_passage(self, point):
+    def find_nearest_passage(self, point, goal=False):
         """Find nearest passage to a point"""
-        # Convert voronoi vertices to array for efficient computation
         point_array = np.array(point)
         nearest_passage = None
         min_distance = float('inf')
@@ -1331,6 +1444,11 @@ class VoronoiPassageAnalyzer:
         # Check each edge in the passage graph
         for edge in self.allowed_passage_graph.edges():
             v1, v2 = edge
+
+            if goal:
+                if self.allowed_passage_graph.degree(v1) == 1 or self.allowed_passage_graph.degree(v2) == 1:
+                    continue
+
             p1 = np.array(self.allowed_passage_graph.nodes[v1]['pos'])
             p2 = np.array(self.allowed_passage_graph.nodes[v2]['pos'])
             
@@ -1363,31 +1481,23 @@ class VoronoiPassageAnalyzer:
                 }
         
         return nearest_passage
-    
-    def calculate_passage_orientation(self, passage):
-        """Calculate orientation of a passage"""
-        if not passage:
-            return 0
-            
-        # Get passage endpoints
-        p1, p2 = passage['points']
         
-        # Calculate orientation angle from p1 to p2
-        return np.arctan2(p2[1] - p1[1], p2[0] - p1[0])
-    
     def find_point_path(self, start_point, goal_point):
         """Find path for a point through passages"""
-        # Find nearest passages to start and goal
         start_passage = self.find_nearest_passage(start_point)
-        goal_passage = self.find_nearest_passage(goal_point)
+        goal_passage = self.find_nearest_passage(goal_point, goal=True)
         
         if not start_passage or not goal_passage:
             return None
             
         # Get nodes from passages
         start_nodes = start_passage['nodes']
-        goal_nodes = goal_passage['nodes']
-        
+        goal_nodes = goal_passage['nodes']  
+
+        # print(f'Start point: {start_point}, start nodes: {start_nodes}')
+        # print(f'Goal point: {goal_point}, goal nodes: {goal_nodes}')
+        # print()
+
         # Try to find path between any combination of start and goal nodes
         shortest_path = None
         min_length = float('inf')
@@ -1418,13 +1528,17 @@ class VoronoiPassageAnalyzer:
             
         # Convert node path to passage sequence
         passage_sequence = []
-        
-        # Add initial passage from start point to first node
+
+        # Add initial passage
         first_node = shortest_path[0]
         first_pos = self.allowed_passage_graph.nodes[first_node]['pos']
+
+        zero_node = next(node for node in start_nodes if node != first_node)
+        zero_pos = self.allowed_passage_graph.nodes[zero_node]['pos']
+        
         passage_sequence.append({
-            'points': (start_point, first_pos),
-            'nodes': (None, first_node),
+            'points': (zero_pos, first_pos),
+            'nodes': (zero_node, first_node),
             'clearance': start_passage['clearance']
         })
         
@@ -1440,13 +1554,17 @@ class VoronoiPassageAnalyzer:
                 'nodes': (n1, n2),
                 'clearance': clearance
             })
-        
-        # Add final passage from last node to goal point
+
+        # Add final passage 
         last_node = shortest_path[-1]
         last_pos = self.allowed_passage_graph.nodes[last_node]['pos']
+
+        goal_node = next(node for node in goal_nodes if node != last_node)
+        goal_pos = self.allowed_passage_graph.nodes[goal_node]['pos']
+
         passage_sequence.append({
-            'points': (last_pos, goal_point),
-            'nodes': (last_node, None),
+            'points': (last_pos, goal_pos),
+            'nodes': (last_node, goal_node),
             'clearance': goal_passage['clearance']
         })
         
@@ -1605,17 +1723,48 @@ class VoronoiVisualizer:
     def highlight_narrow_passages(self, passages, linewidth=2):
         """Highlight identified narrow passages"""
         # Plot first passage with label
+        offset = -3
         if passages:
             p1, p2 = passages[0]['points']
+            node1, node2 = passages[0]['nodes']
             self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 
                         color=self.passage_color, linewidth=linewidth, 
                         label='Passages')
             
-            # Plot remaining passages without labels
+            # # Add node IDs for first passage
+            # self.ax.annotate(str(node1), 
+            #                 (p1[0], p1[1]),
+            #                 xytext=(offset, offset),
+            #                 textcoords='offset points',
+            #                 fontsize=8,
+            #                 color='red')
+            # self.ax.annotate(str(node2), 
+            #                 (p2[0], p2[1]),
+            #                 xytext=(offset, offset),
+            #                 textcoords='offset points',
+            #                 fontsize=8,
+            #                 color='red')
+                
+            # Plot remaining passages without labels but with node IDs
             for passage in passages[1:]:
                 p1, p2 = passage['points']
+                node1, node2 = passage['nodes']
                 self.ax.plot([p1[0], p2[0]], [p1[1], p2[1]], 
                             color=self.passage_color, linewidth=linewidth)
+                
+                # # Add node IDs
+                # self.ax.annotate(str(node1), 
+                #             (p1[0], p1[1]),
+                #             xytext=(offset, offset),
+                #             textcoords='offset points',
+                #             fontsize=8,
+                #             color='red')
+                # self.ax.annotate(str(node2), 
+                #             (p2[0], p2[1]),
+                #             xytext=(offset, offset),
+                #             textcoords='offset points',
+                #             fontsize=8,
+                #             color='red')
         
         # Add legend
         self.ax.legend()
@@ -1772,6 +1921,114 @@ class RobotConfigurationFitter:
             
         return configurations
 
+def runVoronoi():
+    global fig 
+
+    bounds = [
+        (-0.606, -0.8), # Lower left corner (x_min, y_min)
+        (0.319, 0.5)  # Upper right corner (x_max, y_max)
+    ]
+
+    visualizer = VoronoiVisualizer(expanded_obstacles, bounds)
+    
+    # Plot basic Voronoi diagram
+    fig, ax = visualizer.plot_voronoi(show_points=True)
+    
+    # Create analyzer and find passages
+    analyzer = VoronoiPassageAnalyzer(expanded_obstacles, bounds)
+    passages, initial_pose = analyzer.identify_passages()
+
+    # passages_list = [passage['nodes'] for passage in passages]
+    # print(passages_list)
+    
+    # Highlight narrow passages
+    visualizer.highlight_narrow_passages(passages)
+
+    return analyzer, initial_pose
+
+
+def optimize_single_mode(current_q, q_ref_horizon, stiffness, horizon_N, dt):
+    """
+    Optimize control sequence for a single stiffness mode
+    Returns optimal control and resulting cost
+    """
+    dim_u = 5
+    u_bounds = [(-0.06, 0.06) for _ in range(dim_u * horizon_N)]
+    u_bounds[2] = (-0.5, 0.5)
+    
+    def objective_function(u_flat):
+        u_sequence = u_flat.reshape(-1, dim_u)
+        cost = 0
+        q_pred = current_q
+        
+        for k in range(len(u_sequence)):
+            J = agent.jacobian(stiffness)
+            q_dot = J @ u_sequence[k]
+            q_pred = q_pred + dt * q_dot
+            tracking_error = np.linalg.norm(q_pred - q_ref_horizon[k])
+            cost += tracking_error
+        
+        return cost
+    
+    result = minimize(
+        objective_function,
+        x0=np.zeros(dim_u * horizon_N),
+        bounds=u_bounds,
+        method='SLSQP'
+    )
+    
+    return result.x[:dim_u], result.fun  # Return first control input and cost
+
+def generate_trajectory(q_ref_trajectory, horizon_N=20, dt=0.1):
+    # All possible stiffness modes
+    stiffness_modes = [
+        [0, 0],  # both segments compliant
+        [1, 0],  # first segment stiff
+        [0, 1],  # second segment stiff
+        [1, 1]   # both segments stiff
+    ]
+    
+    optimal_trajectory = []
+    optimal_stiffness_sequence = []
+    optimal_control_sequence = []
+    current_q = q_ref_trajectory[0]
+
+    for i in range(len(q_ref_trajectory) - horizon_N):
+        agent.config = current_q
+        q_ref_horizon = q_ref_trajectory[i:i+horizon_N]
+        
+        # Try all stiffness modes
+        best_cost = float('inf')
+        best_u = None
+        best_s = None
+        
+        for stiffness in stiffness_modes:
+            # Optimize control for this stiffness mode
+            u_optimal, cost = optimize_single_mode(
+                current_q,
+                q_ref_horizon,
+                stiffness,
+                horizon_N,
+                dt
+            )
+            
+            if cost < best_cost:
+                best_cost = cost
+                best_u = u_optimal
+                best_s = stiffness
+        
+        # Apply best control and stiffness
+        J = agent.jacobian(best_s)
+        q_dot = J @ best_u
+        current_q = current_q + dt * q_dot
+        
+        # Store results
+        optimal_trajectory.append(current_q)
+        optimal_stiffness_sequence.append(best_s)
+        optimal_control_sequence.append(best_u)
+    
+    return np.array(optimal_trajectory), optimal_stiffness_sequence, optimal_control_sequence
+
 # ------------------------------ Grasp Control ------------------------------
 
 def grasp(target_pose: list) -> None:
@@ -1808,8 +2065,6 @@ def grasp(target_pose: list) -> None:
             break
 
 # -------------------------------- Animation --------------------------------
-
-# ---------------------------------------------------------------------------
 
 def plotPath(traversed_path: list, rear_pos: list, traversed_line, plot_components) -> None:
     traversed_path[0].append(rear_pos[0])
@@ -1896,7 +2151,7 @@ def plotRobot(q: list, plot_components: list, components: tuple) -> None:
     lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
     plot_components.append(lu2_square)
 
-def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array) -> None:
+def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref, q_optim=None, s_optimal=None) -> None:
     # Colors
     red_color = '#ec5353'
     blue_color = '#3471A8'
@@ -1919,6 +2174,13 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
     lu1_square, = plt.plot([], [], color=grey_color, linewidth=2)
     lu2_square, = plt.plot([], [], color=grey_color, linewidth=2)
 
+    # vss1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    # vss2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    # conn1_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    # conn2_line_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    # lu1_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+    # lu2_square_optim, = plt.plot([], [], color=grey_color, linewidth=2)
+
     class AnimationState:
         def __init__(self):
             self.iteration = 0
@@ -1935,60 +2197,90 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
             front_pos = front_path_points[state.idx]
             middle_pos = middle_path_points[state.idx]
             orientation = theta_seq[state.idx]
+
+            q_ref_i = q_ref[state.idx]
+            # q_optim_i = q_optim[state.idx]
+            # s_optim_i = s_optimal[state.idx]
             
-            if state.iteration == 0:
-                # Iteration 0: Just show Voronoi diagram (empty plot_components)
-                if frame > 10:
-                    state.iteration += 1
+        if state.iteration == 0:
+            # Iteration 0: Just show Voronoi diagram (empty plot_components)
+            if frame > 10:
+                state.iteration += 1
+        
+        elif state.iteration == 1:
+            # Iteration 1: rear point and its path only
+            plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+            rear_point.set_color(red_color)
+            plotPoints([rear_pos], (rear_point,), plot_components)
+
+            if state.idx < len(rear_path_points) - 1:
+                state.idx += 1
+            else:
+                state.iteration += 1
+                state.idx = 0
+
+                state.traversed_path = [[], []]
+                traversed_line.set_data(state.traversed_path)
             
-            elif state.iteration == 1:
-                # Iteration 1: rear point and its path only
-                plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
-                rear_point.set_color(red_color)
-                plotPoints([rear_pos], (rear_point,), plot_components)
+        elif state.iteration == 2:
+            # Iteration 2: all points, path, and orientation
+            plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+            plotPoints([front_pos, middle_pos, rear_pos], 
+                        (front_point, middle_point, rear_point), plot_components)
+            plotOrientation(middle_pos, orientation, orientation_line, plot_components)
 
-                if state.idx < len(rear_path_points) - 1:
-                    state.idx += 1
-                else:
-                    state.iteration += 1
-                    state.idx = 0
+            if state.idx < len(rear_path_points) - 1:
+                state.idx += 1
+            else:
+                state.iteration += 1
+                state.idx = 0
 
-                    state.traversed_path = [[], []]
-                    traversed_line.set_data(state.traversed_path)
+                state.traversed_path = [[], []]
+                traversed_line.set_data(state.traversed_path)
+            
+        elif state.iteration == 3:
+            # Iteration 3: all points, orientation, robot, rear point in blue
+            rear_point.set_color(blue_color)
+            plotPoints([front_pos, middle_pos, rear_pos], 
+                        (front_point, middle_point, rear_point), plot_components)
+            plotOrientation(middle_pos, orientation, orientation_line, plot_components)
+            
+            robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
+                                    lu1_square, lu2_square)
+            plotRobot(q_ref_i, plot_components, robot_ref_components)
+
+            if state.idx < len(rear_path_points) - 1:
+                state.idx += 1
+            else:
+                state.iteration += 1
+                state.idx = 0
                 
-            elif state.iteration == 2:
-                # Iteration 2: all points, path, and orientation
-                plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
-                plotPoints([front_pos, middle_pos, rear_pos], 
-                         (front_point, middle_point, rear_point), plot_components)
-                plotOrientation(middle_pos, orientation, orientation_line, plot_components)
+                front_point.set_data([[], []])
+                front_point.set_data([[], []])
+                middle_point.set_data([[], []])
+        
+        # else:
+        #     robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
+        #                             lu1_square, lu2_square)
+        #     for robot_ref_component in robot_ref_components:
+        #         robot_ref_component.set_alpha = 0.5
+        #     plotRobot(q_ref_i, plot_components, robot_ref_components)
 
-                if state.idx < len(rear_path_points) - 1:
-                    state.idx += 1
-                else:
-                    state.iteration += 1
-                    state.idx = 0
+        #     robot_optim_components = (vss1_line_optim, vss2_line_optim, conn1_line_optim, conn2_line_optim, 
+        #                               lu1_square_optim, lu2_square_optim)
+            
+        #     if s_optim_i[0] == 1:
+        #         vss1_line_optim.set_color(red_color)
+        #     else:
+        #         vss1_line_optim.set_color(grey_color)
+            
+        #     if s_optim_i[1] == 1:
+        #         vss2_line_optim.set_color(red_color)
+        #     else:
+        #         vss2_line_optim.set_color(grey_color)
 
-                    state.traversed_path = [[], []]
-                    traversed_line.set_data(state.traversed_path)
-                
-            elif state.iteration == 3:
-                # Iteration 3: all points, orientation, robot, rear point in blue
-                rear_point.set_color(blue_color)
-                plotPoints([front_pos, middle_pos, rear_pos], 
-                         (front_point, middle_point, rear_point), plot_components)
-                plotOrientation(middle_pos, orientation, orientation_line, plot_components)
-                
-                q = q_array[state.idx]
-                robot_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
-                                 lu1_square, lu2_square)
-                plotRobot(q, plot_components, robot_components)
+        #     plotRobot(q_optim_i, plot_components, robot_optim_components)
 
-                if state.idx < len(rear_path_points) - 1:
-                    state.idx += 1
-                else:
-                    state.iteration += 1
-                    state.idx = 0
 
         return tuple(plot_components)
 
@@ -2004,6 +2296,8 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
     
     plt.title('Voronoi Diagram with 3-Point Segment Motion')
     plt.show()
+
+# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
@@ -2103,25 +2397,18 @@ if __name__ == "__main__":
     # runRigidPlanner()
 
     # ---------------------------------------------------------------
-    bounds = [
-        (-0.606, -0.8), # Lower left corner (x_min, y_min)
-        (0.319, 0.5)  # Upper right corner (x_max, y_max)
-    ]
+    
+    # run Voronoi analysis
+    analyzer, initial_pose = runVoronoi()
+    # plt.show()
 
-    visualizer = VoronoiVisualizer(expanded_obstacles, bounds)
-    
-    # Plot basic Voronoi diagram
-    fig, ax = visualizer.plot_voronoi(show_points=True)
-    
-    # Create analyzer and find passages
-    analyzer = VoronoiPassageAnalyzer(expanded_obstacles, bounds)
-    passages = analyzer.identify_passages()
-    
-    # Highlight narrow passages
-    visualizer.highlight_narrow_passages(passages)
+    # Update the agent's pose
+    if simulation:
+        agent.pose = initial_pose
     
     # Find passage sequence
-    # passage_sequence = analyzer.find_passage_sequence(agent.position, target_pose[:-1], agent_length)
+    print('Find passage route...')
+    print()
     rear_path_points, front_path_points, middle_path_points, theta_seq = analyzer.find_passage_sequence(agent.pose, target_pose[:-1], agent_length)
     
     # Afterprocess theta_seq
@@ -2151,18 +2438,22 @@ if __name__ == "__main__":
         theta_seq[idx] = tangent_angle
 
     # Fit robot's configuration
+    print('Calculate the robot\'s reference path...')
     print()
-    print('Fit robot\'s configurations...')
 
     fitter = RobotConfigurationFitter(gv.L_VSS, gv.L_CONN + gv.LU_SIDE)
-    q_array = fitter.fit_configurations(middle_path_points, front_path_points, 
-                                        rear_path_points, theta_seq)
-    
-    print()
+    q_ref = fitter.fit_configurations(middle_path_points, front_path_points,
+                                      rear_path_points, theta_seq)
+
+    # print('Optimize robot\'s trajectory...')
+    # print()
+    # q_optimal, s_optimal, u_optimal = generate_trajectory(q_ref)
+
     print('Start animation...')
+    print()
 
     if rear_path_points:
-        runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_array)
+        runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref)
 
     print()
     print('Finished!')
