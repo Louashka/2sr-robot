@@ -17,6 +17,7 @@ from typing import List
 from scipy.optimize import minimize
 from skopt import gp_minimize
 from scipy.spatial import Voronoi
+from scipy.signal import find_peaks
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as PlotPolygon
@@ -141,193 +142,122 @@ def expandObstacles() -> None:
             extended_corners.append((x, y))
         rgb_camera.expanded_obstacles_global.append(extended_corners)
 
+def setUpEnv() -> None:
+    # ------------------------ Start tracking -----------------------
+    '''
+    Detect locations and geometries of:
+        - robot
+        - object to grasp
+        - obstacles
+    '''
 
+    print('Start Motive streaming...')
+    mocap.startDataListener() 
 
-def adjustPathSegments(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_deviation=10):
-    """
-    Merges segments if angle is small and removes zigzags.
-    path_points: Nx2 array of (x,y) coordinates
-    angle_threshold: maximum angle difference (in degrees) to consider segments parallel
-    max_merge_angle: maximum angle between adjacent segments to allow merging
-    max_zigzag_deviation: maximum overall direction change to consider a pattern as zigzag
-    """
-    path = path_points.copy()
-    n_points = len(path)
+    update_thread = threading.Thread(target=updateConfigLoop)
+    update_thread.daemon = True  
+    update_thread.start()
+
+    while not agent or not object:
+        pass
+
+    date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    filename = f"{directory}/obtacles_heart_{date_title}.json"
+    rgb_camera.startVideo(date_title, task='object_grasp')
+
+    print('Waiting for the video to start...')
+    while not rgb_camera.wait_video:
+        pass
+
+    print('Video started')
+    print()
+    # ---------------------------------------------------------------
+
+    # ------------------ Create the environment map -----------------
+    '''
+    Steps:
+        - transform obstacles by expanding them based on robot's 
+        geometry (Minkowski sum)
+    '''
+    # ---------------------------------------------------------------
     
-    # Get vectors between consecutive points
-    vectors = np.diff(path, axis=0)
-    lengths = np.linalg.norm(vectors, axis=1)
-    
-    # Calculate angles between consecutive segments
-    dot_products = np.sum(vectors[:-1] * vectors[1:], axis=1)
-    norms_product = lengths[:-1] * lengths[1:]
-    angles = np.degrees(np.arccos(np.clip(dot_products / norms_product, -1.0, 1.0)))
-    
-    # Identify segments
-    segment_starts = [0]  # First point is always a segment start
-    
-    # Find points where direction changes significantly
-    for i in range(len(angles)):
-        if abs(angles[i]) > angle_threshold:
-            segment_starts.append(i + 1)
-    segment_starts.append(n_points - 1)  # Add last point
-    
-    # Process segments
-    new_path = path.copy()
-    
-    # First pass: merge segments with small angles
-    i = 1
-    while i < len(segment_starts) - 1:
-        prev_start = segment_starts[i-1]
-        curr_start = segment_starts[i]
-        next_start = segment_starts[i + 1]
+    # ---------------- Determine grasping parameters ----------------
+    '''
+    Options:
+        - grasp from the side opposite to the heading direction
+        - optimization approach based on minimum forces and shape
+
+    !! Estimate the grasp feasibility with given obstacles
+    '''
+
+    object.delta_theta = np.pi/2 - object.theta
+    rgb_camera.direction = object.heading_angle
+
+    dir = object.heading_angle - np.pi
+    direction_vector = np.array([np.cos(dir), np.sin(dir)])
+
+    # Find a point on the contour in the opposite direction
+    s_array = np.linspace(0, 1, 200)
+    max_dot_product = 0
+    margin_in = 0.02
+    margin_out = 0.08
+
+    for s in s_array:
+        point = object.getPoint(s)
+        theta = object.getTangent(s)
+
+        vector_to_point = np.array(point) - object.position
+        dot_product = np.dot(vector_to_point, direction_vector)
         
-        # Calculate angle between previous and next segments
-        prev_vector = np.array(path[curr_start]) - path[prev_start]
-        next_vector = np.array(path[next_start]) - path[curr_start]
-        
-        # Normalize vectors
-        prev_vector = prev_vector / np.linalg.norm(prev_vector)
-        next_vector = next_vector / np.linalg.norm(next_vector)
-        
-        # Calculate angle between segments
-        dot_product = np.clip(np.dot(prev_vector, next_vector), -1.0, 1.0)
-        angle_between = np.degrees(np.arccos(dot_product))
-        
-        # Merge if angle is small enough
-        if angle_between <= max_merge_angle:
-            # Create new line from previous segment start to current segment end
-            num_points = next_start - prev_start + 1
-            t = np.linspace(0, 1, num_points)
-            
-            start_point = np.array(new_path[prev_start])
-            end_point = np.array(new_path[next_start])
-            
-            for j in range(num_points):
-                new_path[prev_start + j] = start_point + t[j] * (end_point - start_point)
-            
-            segment_starts.pop(i)
-        else:
-            i += 1
+        if dot_product > max_dot_product:
+            max_dot_product = dot_product
+
+            point_with_margin_out = [point[0] + margin_out * np.cos(dir), 
+                                    point[1] + margin_out * np.sin(dir)]
+            target_pose = point_with_margin_out + [normalizeAngle(theta)]
+
+            point_with_margin_in = [point[0] + margin_in * np.cos(dir), 
+                                    point[1] + margin_in * np.sin(dir)]
+            grasp_pose = point_with_margin_in + [normalizeAngle(theta)]
+
+    rgb_camera.grasp_point = grasp_pose[:2]  # Store the grasp point
+    # ---------------------------------------------------------------
+
+    # ------------------------ Path planning ------------------------
+    '''
+    ** Start first with path planning that does not require reshaping 
+    of the robot 
+    '''
+
+    while True:
+        if rgb_camera.obstacles is not None:
+            break
+
+    expandObstacles()
+
+    # runRigidPlanner()
+
+    # Save the current path points to the file
+    # run Voronoi analysis
+    analyzer, initial_pose = runVoronoi()
+    # plt.show()
+
+    # Update the agent's pose
+    if simulation:
+        agent.pose = initial_pose
     
-    # Second pass: identify and remove zigzags
-    i = 1
-    while i < len(segment_starts) - 2:  # Need at least 3 segments to check for zigzag
-        start1 = segment_starts[i-1]
-        start2 = segment_starts[i]
-        start3 = segment_starts[i+1]
-        end3 = segment_starts[i+2]
-        
-        # Calculate overall direction (first to last point)
-        first_vector = np.array(path[start2]) - path[start1]
-        last_vector = np.array(path[end3]) - path[start3]
-        
-        # Normalize vectors
-        first_dir = first_vector / np.linalg.norm(first_vector)
-        last_dir = last_vector / np.linalg.norm(last_vector)
-        
-        # Calculate angle between overall direction and initial direction
-        dot_product = np.clip(np.dot(last_dir, first_dir), -1.0, 1.0)
-        direction_change = np.degrees(np.arccos(dot_product))
-        
-        # Check if directions are similar (not opposite)
-        directions_similar = dot_product > 0
-        
-        # Remove zigzag only if direction change is small and directions are similar
-        if direction_change <= max_zigzag_deviation and directions_similar:
-            num_points = end3 - start1 + 1
-            t = np.linspace(0, 1, num_points)
-            
-            start_point = np.array(new_path[start1])
-            end_point = np.array(new_path[end3])
-            
-            for j in range(num_points):
-                new_path[start1 + j] = start_point + t[j] * (end_point - start_point)
-            
-            segment_starts.pop(i+1)
-            segment_starts.pop(i)
-        else:
-            i += 1
-    
-    return segment_starts, new_path
+    # Find passage sequence
+    print('Find passage route...')
+    print()
+    rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose, agent_length)
 
-def smoothPath(segment_starts, path_points, window_size=3, smoothing_factor=0.0):
-    """
-    Smooths path using moving average first, then fits a spline
-    """
-    import scipy.interpolate as interpolate
-    
-    # First smooth using moving average to remove small steps
-    def moving_average(points, window):
-        return np.convolve(points, np.ones(window)/window, mode='valid')
-    
-    path_array = np.array(path_points)
-    
-    x = path_array[:, 0]
-    y = path_array[:, 1]
-    
-    # Apply moving average to remove small steps
-    x_smooth = moving_average(x, window_size)
-    y_smooth = moving_average(y, window_size)
-    
-    # Generate parameter for spline fitting
-    t = np.linspace(0, 1, len(x_smooth))
-    
-    # Fit spline to create smooth curves
-    tck, _ = interpolate.splprep([x_smooth, y_smooth], s=smoothing_factor)
-    
-    # Generate more points along the smooth path
-    t_new = np.linspace(0, 1, len(path_points))
-    x_new, y_new = interpolate.splev(t_new, tck)
-    
-    return np.column_stack((x_new, y_new))
+    rear_path_points = [rear_path_points_i.tolist() for rear_path_points_i in rear_path_points]
+    front_path_points = [front_path_points_i.tolist() for front_path_points_i in front_path_points]
+    middle_path_points = [middle_path_points_i.tolist() for middle_path_points_i in middle_path_points]
 
-def calcOrientations(middle_path, rear_path, connection_indices):
-    theta_seq = []
+    savePathPoints(rear_path_points, front_path_points, middle_path_points)
 
-    for i in range(1, len(middle_path)):
-        moddle_point_vector = np.array([middle_path[i][0]-middle_path[i-1][0], 
-                                        middle_path[i][1]-middle_path[i-1][1]])
-        
-        middle_rear_vector = np.array([rear_path[i][0]-middle_path[i-1][0], 
-                                       rear_path[i][1]-middle_path[i-1][1]])
-
-        angle = np.arctan2(moddle_point_vector[1], moddle_point_vector[0])
-
-        if np.dot(moddle_point_vector, middle_rear_vector) < 0:
-            angle = normalizeAngle(angle - np.pi)
-
-        theta_seq.append(angle)
-        
-    theta_seq.append(theta_seq[-1])
-
-    # # Afterprocess theta_seq
-    # connection_indices = []
-
-    # for i in range(1, len(theta_seq)):
-    #     if abs(theta_seq[i] - theta_seq[i-1]) > 0.01:
-    #         connection_indices.append(i)
-
-    for idx in connection_indices:
-        prev_angle = theta_seq[idx-1]  # Angle of previous segment
-        curr_angle = theta_seq[idx]    # Angle of current segment
-        
-        # Calculate the angle that forms equal angles with both segments
-        # This is the average angle between the two segments
-        tangent_angle = (prev_angle + curr_angle) / 2
-
-        # If the difference between angles is more than π radians,
-        # we need to handle the wrap-around case
-        angle_diff = curr_angle - prev_angle
-        if abs(angle_diff) > np.pi:
-            if angle_diff > 0:
-                tangent_angle += np.pi
-            else:
-                tangent_angle -= np.pi
-
-        theta_seq[idx] = tangent_angle
-
-    return theta_seq
+    return rear_path_points, front_path_points, middle_path_points
 
 # ----------------------------- Static Functions ----------------------------
 
@@ -1992,6 +1922,164 @@ def runVoronoi():
 
     return analyzer, initial_pose
 
+
+# Afterprocess robot points paths
+def adjustPath(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_deviation=10):
+    """
+    Merges segments if angle is small and removes zigzags.
+    path_points: Nx2 array of (x,y) coordinates
+    angle_threshold: maximum angle difference (in degrees) to consider segments parallel
+    max_merge_angle: maximum angle between adjacent segments to allow merging
+    max_zigzag_deviation: maximum overall direction change to consider a pattern as zigzag
+    """
+    path = path_points.copy()
+    n_points = len(path)
+    
+    # Get vectors between consecutive points
+    vectors = np.diff(path, axis=0)
+    lengths = np.linalg.norm(vectors, axis=1)
+    
+    # Calculate angles between consecutive segments
+    dot_products = np.sum(vectors[:-1] * vectors[1:], axis=1)
+    norms_product = lengths[:-1] * lengths[1:]
+    angles = np.degrees(np.arccos(np.clip(dot_products / norms_product, -1.0, 1.0)))
+    
+    # Identify segments
+    segment_starts = [0]  # First point is always a segment start
+    
+    # Find points where direction changes significantly
+    for i in range(len(angles)):
+        if abs(angles[i]) > angle_threshold:
+            segment_starts.append(i + 1)
+    segment_starts.append(n_points - 1)  # Add last point
+    
+    # Process segments
+    new_path = path.copy()
+    
+    # First pass: merge segments with small angles
+    i = 1
+    while i < len(segment_starts) - 1:
+        prev_start = segment_starts[i-1]
+        curr_start = segment_starts[i]
+        next_start = segment_starts[i + 1]
+        
+        # Calculate angle between previous and next segments
+        prev_vector = np.array(path[curr_start]) - path[prev_start]
+        next_vector = np.array(path[next_start]) - path[curr_start]
+        
+        # Normalize vectors
+        prev_vector = prev_vector / np.linalg.norm(prev_vector)
+        next_vector = next_vector / np.linalg.norm(next_vector)
+        
+        # Calculate angle between segments
+        dot_product = np.clip(np.dot(prev_vector, next_vector), -1.0, 1.0)
+        angle_between = np.degrees(np.arccos(dot_product))
+        
+        # Merge if angle is small enough
+        if angle_between <= max_merge_angle:
+            # Create new line from previous segment start to current segment end
+            num_points = next_start - prev_start + 1
+            t = np.linspace(0, 1, num_points)
+            
+            start_point = np.array(new_path[prev_start])
+            end_point = np.array(new_path[next_start])
+            
+            for j in range(num_points):
+                new_path[prev_start + j] = start_point + t[j] * (end_point - start_point)
+            
+            segment_starts.pop(i)
+        else:
+            i += 1
+    
+    # Second pass: identify and remove zigzags
+    i = 1
+    while i < len(segment_starts) - 2:  # Need at least 3 segments to check for zigzag
+        start1 = segment_starts[i-1]
+        start2 = segment_starts[i]
+        start3 = segment_starts[i+1]
+        end3 = segment_starts[i+2]
+        
+        # Calculate overall direction (first to last point)
+        first_vector = np.array(path[start2]) - path[start1]
+        last_vector = np.array(path[end3]) - path[start3]
+        
+        # Normalize vectors
+        first_dir = first_vector / np.linalg.norm(first_vector)
+        last_dir = last_vector / np.linalg.norm(last_vector)
+        
+        # Calculate angle between overall direction and initial direction
+        dot_product = np.clip(np.dot(last_dir, first_dir), -1.0, 1.0)
+        direction_change = np.degrees(np.arccos(dot_product))
+        
+        # Check if directions are similar (not opposite)
+        directions_similar = dot_product > 0
+        
+        # Remove zigzag only if direction change is small and directions are similar
+        if direction_change <= max_zigzag_deviation and directions_similar:
+            num_points = end3 - start1 + 1
+            t = np.linspace(0, 1, num_points)
+            
+            start_point = np.array(new_path[start1])
+            end_point = np.array(new_path[end3])
+            
+            for j in range(num_points):
+                new_path[start1 + j] = start_point + t[j] * (end_point - start_point)
+            
+            segment_starts.pop(i+1)
+            segment_starts.pop(i)
+        else:
+            i += 1
+    
+    return segment_starts, new_path
+
+def calcOrientations(middle_path, rear_path, connection_indices):
+    theta_seq = []
+
+    for i in range(1, len(middle_path)):
+        moddle_point_vector = np.array([middle_path[i][0]-middle_path[i-1][0], 
+                                        middle_path[i][1]-middle_path[i-1][1]])
+        
+        middle_rear_vector = np.array([rear_path[i][0]-middle_path[i-1][0], 
+                                       rear_path[i][1]-middle_path[i-1][1]])
+
+        angle = np.arctan2(moddle_point_vector[1], moddle_point_vector[0])
+
+        if np.dot(moddle_point_vector, middle_rear_vector) < 0:
+            angle = normalizeAngle(angle - np.pi)
+
+        theta_seq.append(angle)
+        
+    theta_seq.append(theta_seq[-1])
+
+    # # Afterprocess theta_seq
+    # connection_indices = []
+
+    # for i in range(1, len(theta_seq)):
+    #     if abs(theta_seq[i] - theta_seq[i-1]) > 0.01:
+    #         connection_indices.append(i)
+
+    for idx in connection_indices:
+        prev_angle = theta_seq[idx-1]  # Angle of previous segment
+        curr_angle = theta_seq[idx]    # Angle of current segment
+        
+        # Calculate the angle that forms equal angles with both segments
+        # This is the average angle between the two segments
+        tangent_angle = (prev_angle + curr_angle) / 2
+
+        # If the difference between angles is more than π radians,
+        # we need to handle the wrap-around case
+        angle_diff = curr_angle - prev_angle
+        if abs(angle_diff) > np.pi:
+            if angle_diff > 0:
+                tangent_angle += np.pi
+            else:
+                tangent_angle -= np.pi
+
+        theta_seq[idx] = tangent_angle
+
+    return theta_seq
+
+
 # Optimizer to fit 3 points into the robot's confiduration
 class RobotConfigurationFitter:
     def __init__(self, l_vss, l_conn):
@@ -2082,7 +2170,7 @@ class RobotConfigurationFitter:
             normalized_diff = (q - prev_q) / ranges
             smoothness_error = np.sum(normalized_diff**2)
 
-            objective += 0.001 * (np.abs(q[3]) + np.abs(q[4]))
+            objective += 0.003 * (np.abs(q[3]) + np.abs(q[4]))
             objective += smoothness_weight * smoothness_error
             
         return objective
@@ -2147,281 +2235,133 @@ class RobotConfigurationFitter:
             
         return configurations
 
-# Artificial potential field to adjust the robot's configuration
 
-def getKeyRobotPoints(q):
-    x_vss1, y_vss1, theta_vss1_end = arc(q, seg=1)
-    _, conn1_end = getConnEnds(x_vss1[-1], y_vss1[-1], theta_vss1_end)
-    lu1_center = getLUCenter(conn1_end, theta_vss1_end)
-
-    x_vss2, y_vss2, theta_vss2_end = arc(q, seg=2)
-    _, conn2_end = getConnEnds(x_vss2[-1], y_vss2[-1], theta_vss2_end, 2)
-    lu2_center = getLUCenter(conn2_end, theta_vss2_end)
-
-    middle_idx = int(len(x_vss1)/2)
-
-    robot_points = [lu1_center, lu2_center, np.array([x_vss1[-1], y_vss1[-1]]), np.array([x_vss1[middle_idx], y_vss1[middle_idx]]),
-                    np.array([q[0], q[1]]), np.array([x_vss2[middle_idx], y_vss2[middle_idx]]), np.array([x_vss2[-1], y_vss2[-1]])]
-    
-    return robot_points
-
-def getClosestPoint(point, obstacle_polygon):
+# Generate feasible trajectory
+def findFlatRegions(k, min_length=5, slope_threshold=0.5):
     """
-    point: numpy array [x, y]
-    obstacle_polygon: shapely Polygon
-    returns: numpy array [x, y] of closest point on obstacle
+    Find regions where curvature remains relatively constant.
+    
+    Args:
+        k: curvature array
+        min_length: minimum length of flat region to consider
+        slope_threshold: maximum allowed slope to consider region as flat
+    
+    Returns:
+        list of tuples (start_idx, end_idx) for each flat region
     """
-    # Convert numpy point to shapely Point
-    point_shapely = Point(point[0], point[1])
+    # Calculate local slopes
+    slopes = np.abs(np.gradient(k))
     
-    # Get nearest points (returns tuple of (point_on_point, point_on_polygon))
-    nearest = nearest_points(point_shapely, obstacle_polygon)
+    # Find regions where slope is below threshold
+    flat_mask = slopes < slope_threshold
     
-    # Convert shapely point back to numpy array
-    closest = np.array([nearest[1].x, nearest[1].y])
+    # Find start and end points of flat regions
+    flat_regions = []
+    start_idx = None
     
-    return closest
-
-def getDXTheta(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return 1/k * (np.cos(th_) - np.cos(th))
-
-def getDYTheta(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return 1/k * (np.sin(th_) - np.sin(th))
-
-def getDXCurve(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return 1/(k**2) * (-np.sin(th_) + flag*k*l*np.cos(th_) + np.sin(th))
-
-def getDYCurve(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return 1/(k**2) * (np.cos(th_) + flag*k*l*np.sin(th_) - np.cos(th))
-
-def getDXThetaLU(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return (-flag * (2*gv.L_CONN + gv.LU_SIDE) * np.sin(theta) + gv.LU_SIDE*np.cos(th_)) / 2
-
-def getDYThetaLU(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return (flag * (2*gv.L_CONN + gv.LU_SIDE) * np.cos(theta) + gv.LU_SIDE*np.sin(th_)) / 2
-
-def getDXCurveLU(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return l/2 * (-(2*gv.L_CONN + gv.LU_SIDE) * np.sin(theta) + flag*gv.LU_SIDE*np.cos(th_))
-
-def getDYCurveLU(k, th, l, seg=1):
-    flag = -1 if seg == 1 else 1
-    th_ = th + flag * k * l
-
-    return l/2 * ((2*gv.L_CONN + gv.LU_SIDE) * np.cos(theta) + flag*gv.LU_SIDE*np.sin(th_))
-
-def apfJacobian(q):
-    x, y, theta, k1, k2 = q
-    J_rows = []
-
-    # LU1 point
-    J_lu1 = np.array([
-        [1, 0, getDXTheta(k1, theta, gv.L_VSS) + getDXThetaLU(k1, theta, gv.L_VSS), 
-         getDXCurve(k1, theta, gv.L_VSS) + getDXCurveLU(k1, theta, gv.L_VSS), 0], 
-        [0, 1, getDYTheta(k1, theta, gv.L_VSS) + getDYThetaLU(k1, theta, gv.L_VSS), 
-         getDYCurve(k1, theta, gv.L_VSS) + getDYCurveLU(k1, theta, gv.L_VSS), 0]  #
-    ])
-    J_rows.extend(J_lu1)
-
-    # LU2 point
-    J_lu2 = np.array([
-        [1, 0, getDXTheta(k2, theta, gv.L_VSS, 2) + getDXThetaLU(k2, theta, gv.L_VSS, 2), 0, 
-         getDXCurve(k2, theta, gv.L_VSS, 2) + getDXCurveLU(k2, theta, gv.L_VSS, 2)], 
-        [0, 1, getDYTheta(k2, theta, gv.L_VSS, 2) + getDYThetaLU(k2, theta, gv.L_VSS, 2), 0, 
-         getDYCurve(k2, theta, gv.L_VSS, 2) + getDYCurveLU(k2, theta, gv.L_VSS, 2)]  
-    ])
-    J_rows.extend(J_lu2)
-
-    # VSS1 endpoint
-    J_vss1_end = np.array([
-        [1, 0, getDXTheta(k1, theta, gv.L_VSS), getDXCurve(k1, theta, gv.L_VSS), 0], # dx
-        [0, 1, getDYTheta(k1, theta, gv.L_VSS), getDYCurve(k1, theta, gv.L_VSS), 0]  # dy
-    ])
-    J_rows.extend(J_vss1_end)
-
-    # VSS1 middlepoint
-    J_vss1_middle = np.array([
-        [1, 0, getDXTheta(k1, theta, gv.L_VSS/2), getDXCurve(k1, theta, gv.L_VSS/2), 0], # dx
-        [0, 1, getDYTheta(k1, theta, gv.L_VSS/2), getDYCurve(k1, theta, gv.L_VSS/2), 0]  # dy
-    ])
-    J_rows.extend(J_vss1_middle)
-
-    # Robot's origin
-    J_origin = np.array([
-        [1, 0, 0, 0, 0], # dx
-        [0, 1, 0, 0, 0]  # dy
-    ])
-    J_rows.extend(J_origin)
-
-    # VSS2 middlepoint
-    J_vss2_middle = np.array([
-        [1, 0, getDXTheta(k2, theta, gv.L_VSS/2, 2), 0, getDXCurve(k2, theta, gv.L_VSS/2, 2)], # dx
-        [0, 1, getDYTheta(k2, theta, gv.L_VSS/2, 2), 0, getDYCurve(k2, theta, gv.L_VSS/2, 2)]  # dy
-    ])
-    J_rows.extend(J_vss2_middle)
-
-    # VSS2 endpoint
-    J_vss2_end = np.array([
-        [1, 0, getDXTheta(k2, theta, gv.L_VSS, 2), 0, getDXCurve(k2, theta, gv.L_VSS, 2)], # dx
-        [0, 1, getDYTheta(k2, theta, gv.L_VSS, 2), 0, getDYCurve(k2, theta, gv.L_VSS, 2)]  # dy
-    ])
-    J_rows.extend(J_vss2_end)
-
-    return np.vstack(J_rows)
-
-def adjustPath(q_ref, obstacles, dt=0.01, iterations=10):
-    safety_threshold = 0.01
-    adjusted_configs = q_ref.copy()
+    for i in range(len(flat_mask)):
+        if flat_mask[i] and start_idx is None:
+            start_idx = i
+        elif not flat_mask[i] and start_idx is not None:
+            if i - start_idx >= min_length:
+                flat_regions.extend([start_idx, i-1])
+            start_idx = None
     
-    for _ in range(iterations):
-        for i in range(len(adjusted_configs)):
-            # Get all robot points (VSS endpoints, connection points, LU points)
-            robot_points = getKeyRobotPoints(adjusted_configs[i])
-            
-            # Calculate repulsive forces from obstacles for each point
-            forces = []  # Will contain [fx, fy] for each point
-            for point in robot_points:
-                point_force = np.zeros(2)  # [fx, fy]
-                for obstacle in obstacles:
-                    closest_point = getClosestPoint(point, obstacle)
-                    dist_vec = point - closest_point  # [dx, dy]
-                    dist = np.linalg.norm(dist_vec)
-                    if dist < safety_threshold:
-                        force = (safety_threshold - dist) * dist_vec/dist  # [fx, fy]
-                        point_force += force
-                forces.append(point_force)  # Each force is [fx, fy]
-            
-            # If we have n points, total_force will be 2n-dimensional
-            # [fx1, fy1, fx2, fy2, ..., fxn, fyn]
-            total_force = np.concatenate(forces)  # 2n-dimensional vector
-            
-            # Jacobian J will be 2n x 5 matrix
-            # (2 rows per point, 5 columns for [x, y, theta, l1, l2])
-            J = apfJacobian(adjusted_configs[i])
-            
-            # delta_q will be 5-dimensional (same as configuration space)
-            delta_q = dt * np.linalg.pinv(J) @ total_force
-            
-            adjusted_configs[i] += delta_q
+    # Check last region
+    if start_idx is not None and len(k) - start_idx >= min_length:
+        flat_regions.extend([start_idx, len(k)-1])
     
-    return adjusted_configs
+    return flat_regions
 
-
-
-
-
-# Generate feasible trajectory for the robot from the path
-def optimize_single_mode(current_q, q_ref_horizon, stiffness, horizon_N, dt):
+def removeCloseIndices(indices, min_distance=3):
     """
-    Optimize control sequence for a single stiffness mode
-    Returns optimal control and resulting cost
+    Remove indices that are too close to each other, keeping the latter one.
+    
+    Args:
+        indices: List of indices in ascending order
+        min_distance: Minimum allowed distance between indices
+    
+    Returns:
+        List of indices with close ones removed
     """
-    dim_u = 5
-    u_bounds = [(-0.5, 0.5) for _ in range(dim_u * horizon_N)]
-    u_bounds[2] = (-1.0, 1.0)
-
-    weights = [50, 50, 1, 0.3, 0.3]
+    if len(indices) <= 1:
+        return indices
     
-    def objective_function(u_flat):
-        u_sequence = u_flat.reshape(-1, dim_u)
-        cost = 0
-        q_pred = current_q
-        
-        for k in range(len(u_sequence)):
-            J = agent.jacobian(stiffness)
-            q_dot = J @ u_sequence[k]
-            q_pred = q_pred + dt * q_dot
-
-            # Calculate component-wise tracking error and apply weights
-            tracking_errors = q_pred - q_ref_horizon[k]
-            weighted_errors = weights * tracking_errors
-            cost += np.sum(weighted_errors**2)  # Sum of squared weighted errors
-        
-        return cost
+    filtered_indices = []
+    i = len(indices) - 1  # Start from the end
     
-    result = minimize(
-        objective_function,
-        x0=np.zeros(dim_u * horizon_N),
-        bounds=u_bounds,
-        method='SLSQP'
-    )
+    while i >= 0:
+        current = indices[i]
+        # Add current index
+        if not filtered_indices or current + min_distance <= filtered_indices[0]:
+            filtered_indices.insert(0, current)
+        i -= 1
     
-    return result.x[:dim_u], result.fun  # Return first control input and cost
+    return filtered_indices
 
-def generate_trajectory(q_ref_trajectory, horizon_N=10, dt=0.1):
-    # All possible stiffness modes
-    stiffness_modes = [
-        [0, 0],  # both segments compliant
-        [1, 0],  # first segment stiff
-        [0, 1],  # second segment stiff
-        [1, 1]   # both segments stiff
-    ]
+def getCrucialConfigs(q_ref_path):
+    q_ref_array = np.array(q_ref_path)
+
+    k1 = q_ref_array[:, 3]  # First segment curvature
+    k2 = q_ref_array[:, 4]  # Second segment curvature
+
+    configs_idx = [0]
+
+    flat_regions_k1 = findFlatRegions(k1)
+    flat_regions_k2 = findFlatRegions(k2)
+
+    configs_idx.extend(flat_regions_k1)
+    configs_idx.extend(flat_regions_k2)
+
+    peak_heaight = 5
+
+    peaks_k1, _ = find_peaks(k1, height=peak_heaight)
+    valleys_k1, _ = find_peaks(-k1, height=peak_heaight)
     
-    optimal_trajectory = []
-    optimal_stiffness_sequence = []
-    optimal_control_sequence = []
-    current_q = q_ref_trajectory[0]
-
-    q_ref_extended = q_ref_trajectory + [q_ref_trajectory[-1]] * horizon_N
-
-    # print(len(q_ref_extended))
-
-    for i in range(len(q_ref_trajectory)):
-        # print(i)
-        agent.config = current_q
-        q_ref_horizon = q_ref_extended[i:i+horizon_N]
-        
-        # Try all stiffness modes
-        best_cost = float('inf')
-        best_u = None
-        best_s = None
-        
-        for stiffness in stiffness_modes:
-            # Optimize control for this stiffness mode
-            u_optimal, cost = optimize_single_mode(
-                current_q,
-                q_ref_horizon,
-                stiffness,
-                horizon_N,
-                dt
-            )
-            
-            if cost < best_cost:
-                best_cost = cost
-                best_u = u_optimal
-                best_s = stiffness
-        
-        # Apply best control and stiffness
-        J = agent.jacobian(best_s)
-        q_dot = J @ best_u
-        current_q = current_q + dt * q_dot
-        
-        # Store results
-        optimal_trajectory.append(current_q)
-        optimal_stiffness_sequence.append(best_s)
-        optimal_control_sequence.append(best_u.tolist())
+    # Find local extrema of k2
+    peaks_k2, _ = find_peaks(k2, height=peak_heaight)
+    valleys_k2, _ = find_peaks(-k2, height=peak_heaight)
     
-    return np.array(optimal_trajectory), optimal_stiffness_sequence, optimal_control_sequence
+    # Combine all crucial points
+    configs_idx.extend(peaks_k1)
+    configs_idx.extend(valleys_k1)
+    configs_idx.extend(peaks_k2)
+    configs_idx.extend(valleys_k2)
+    
+    # Add last configuration
+    configs_idx.append(len(q_ref) - 1)
+    
+    # Sort and remove duplicates
+    configs_idx = sorted(list(set(configs_idx)))
+
+    crucial_configs_idx = removeCloseIndices(configs_idx)
+
+    # print(crucial_configs_idx)
+    # print()
+
+    # fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    # axs = axs.flatten()  # Flatten the 2D array of axes for easy indexing
+
+    # for i in range(2):
+    #     axs[i].plot(np.array(q_ref)[:, i+3], 'k-')
+    #     axs[i].set_title(f'Plot of k_{i+1}')
+    #     axs[i].set_xlabel('Time Step')
+    #     axs[i].set_ylabel('Value')
+
+    # # axs[0].plot(peaks_k1, q_ref[peaks_k1, 3], 'ro')
+    # # axs[0].plot(valleys_k1, q_ref[valleys_k1, 3], 'bo')
+    
+    # # axs[1].plot(peaks_k2, q_ref[peaks_k2, 4], 'ro')
+    # # axs[1].plot(valleys_k2, q_ref[valleys_k2, 4], 'bo')
+
+    # axs[0].plot(crucial_configs_idx, q_ref[crucial_configs_idx, 3], 'ro')
+    # axs[1].plot(crucial_configs_idx, q_ref[crucial_configs_idx, 4], 'ro')
+
+
+    # plt.tight_layout()
+    # plt.show()
+
+    return crucial_configs_idx
 
 # ------------------------------ Grasp Control ------------------------------
 
@@ -2458,7 +2398,54 @@ def grasp(target_pose: list) -> None:
         if finish:
             break
 
-# -------------------------------- Animation --------------------------------
+# --------------------------- Plotting & Animation --------------------------
+
+def plotDotPaths():
+    rear_seg_points = [rear_path_points[i] for i in rear_seg_idx]
+    front_seg_points = [front_path_points[i] for i in front_seg_idx]
+    middle_seg_points = [middle_path_points[i] for i in middle_seg_idx]
+
+    # Create subplots
+    fig, axs = plt.subplots(1, 3, figsize=(16, 8))
+
+    # Plot rear_path_points
+    axs[0].plot(*zip(*rear_path_points), 'k--', label='Rear Path Points original')
+    axs[0].plot(*zip(*rear_path_adjusted), 'r-', label='Rear Path Points smooth')
+    axs[0].plot(*zip(*rear_seg_points), 'r.', label='Rear Path Points endpoints')
+    # axs[0].plot(rear_smooth[:,0], rear_smooth[:,1], 'r-', label='Rear Path Points smooth')
+    axs[0].set_title('Rear Path Points')
+    axs[0].set_xlabel('X')
+    axs[0].set_ylabel('Y')
+    axs[0].axis('equal')
+    axs[0].grid()
+    axs[0].legend() 
+
+    # Plot front_path_points
+    axs[1].plot(*zip(*front_path_points), 'k--', label='Front Path Points original')
+    axs[1].plot(*zip(*front_path_adjusted), 'g-', label='Rear Path Points smooth')
+    axs[1].plot(*zip(*front_seg_points), 'g.', label='Front Path Points endpoints')
+    # axs[1].plot(front_smooth[:,0], front_smooth[:,1], 'g-', label='Front Path Points smooth')
+    axs[1].set_title('Front Path Points')
+    axs[1].set_xlabel('X')
+    axs[1].set_ylabel('Y')
+    axs[1].axis('equal')
+    axs[1].grid()
+    axs[1].legend()
+
+    # Plot middle_path_points
+    axs[2].plot(*zip(*middle_path_points), 'k--', label='Middle Path Points original')
+    axs[2].plot(*zip(*middle_path_adjusted), 'b-', label='Rear Path Points smooth')
+    axs[2].plot(*zip(*middle_seg_points), 'b.', label='Middle Path Points endpoints')
+    # axs[2].plot(middle_smooth[:,0], middle_smooth[:,1], 'b-', label='Middle Path Points smooth')
+    axs[2].set_title('Middle Path Points')
+    axs[2].set_xlabel('X')
+    axs[2].set_ylabel('Y')
+    axs[2].axis('equal')
+    axs[2].grid()
+    axs[2].legend()
+
+    plt.tight_layout()
+    plt.show()
 
 def arc(config: list, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
         k = config[2+seg]
@@ -2730,70 +2717,25 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
     plt.title('Voronoi Diagram with 3-Point Segment Motion')
     plt.show()
 
-
-def plotDotPaths():
-    rear_seg_points = [rear_path_points[i] for i in rear_seg_idx]
-    front_seg_points = [front_path_points[i] for i in front_seg_idx]
-    middle_seg_points = [middle_path_points[i] for i in middle_seg_idx]
-
-    # Create subplots
-    fig, axs = plt.subplots(1, 3, figsize=(16, 8))
-
-    # Plot rear_path_points
-    axs[0].plot(*zip(*rear_path_points), 'k--', label='Rear Path Points original')
-    axs[0].plot(*zip(*rear_path_adjusted), 'r-', label='Rear Path Points smooth')
-    axs[0].plot(*zip(*rear_seg_points), 'r.', label='Rear Path Points endpoints')
-    # axs[0].plot(rear_smooth[:,0], rear_smooth[:,1], 'r-', label='Rear Path Points smooth')
-    axs[0].set_title('Rear Path Points')
-    axs[0].set_xlabel('X')
-    axs[0].set_ylabel('Y')
-    axs[0].axis('equal')
-    axs[0].grid()
-    axs[0].legend() 
-
-    # Plot front_path_points
-    axs[1].plot(*zip(*front_path_points), 'k--', label='Front Path Points original')
-    axs[1].plot(*zip(*front_path_adjusted), 'g-', label='Rear Path Points smooth')
-    axs[1].plot(*zip(*front_seg_points), 'g.', label='Front Path Points endpoints')
-    # axs[1].plot(front_smooth[:,0], front_smooth[:,1], 'g-', label='Front Path Points smooth')
-    axs[1].set_title('Front Path Points')
-    axs[1].set_xlabel('X')
-    axs[1].set_ylabel('Y')
-    axs[1].axis('equal')
-    axs[1].grid()
-    axs[1].legend()
-
-    # Plot middle_path_points
-    axs[2].plot(*zip(*middle_path_points), 'k--', label='Middle Path Points original')
-    axs[2].plot(*zip(*middle_path_adjusted), 'b-', label='Rear Path Points smooth')
-    axs[2].plot(*zip(*middle_seg_points), 'b.', label='Middle Path Points endpoints')
-    # axs[2].plot(middle_smooth[:,0], middle_smooth[:,1], 'b-', label='Middle Path Points smooth')
-    axs[2].set_title('Middle Path Points')
-    axs[2].set_xlabel('X')
-    axs[2].set_ylabel('Y')
-    axs[2].axis('equal')
-    axs[2].grid()
-    axs[2].legend()
-
-    plt.tight_layout()
-    plt.show()
-
 # ---------------------------------------------------------------------------
+
 
 
 if __name__ == "__main__":
 
+    # -------------------------------- Load Data --------------------------------
+    
     if os.path.exists('voronoi_plot.pkl') and os.path.getsize('voronoi_plot.pkl') > 0:
         with open('voronoi_plot.pkl', 'rb') as file:
             plot_data = pickle.load(file)
             fig = plot_data['figure']
             ax = plot_data['axes']
         
-    # Define the file path
+    # Define the file path to
     file_path = 'path_points.json'
 
     # Function to save path points to a file
-    def save_path_points(rear, front, middle):
+    def savePathPoints(rear, front, middle):
         with open(file_path, 'w') as f:
             json.dump({'rear': rear, 'front': front, 'middle': middle}, f)
 
@@ -2811,133 +2753,16 @@ if __name__ == "__main__":
         front_path_points = loaded_path_points['front']
         middle_path_points = loaded_path_points['middle']
     else:
-
-        # ------------------------ Start tracking -----------------------
-        '''
-        Detect locations and geometries of:
-            - robot
-            - object to grasp
-            - obstacles
-        '''
-
-        print('Start Motive streaming...')
-        mocap.startDataListener() 
-
-        update_thread = threading.Thread(target=updateConfigLoop)
-        update_thread.daemon = True  
-        update_thread.start()
-
-        while not agent or not object:
-            pass
-
-        date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        filename = f"{directory}/obtacles_heart_{date_title}.json"
-        rgb_camera.startVideo(date_title, task='object_grasp')
-
-        print('Waiting for the video to start...')
-        while not rgb_camera.wait_video:
-            pass
-
-        print('Video started')
-        print()
-        # ---------------------------------------------------------------
-
-        # ------------------ Create the environment map -----------------
-        '''
-        Steps:
-            - transform obstacles by expanding them based on robot's 
-            geometry (Minkowski sum)
-        '''
-        # ---------------------------------------------------------------
+        rear_path_points, front_path_points, middle_path_points = setUpEnv()
         
-        # ---------------- Determine grasping parameters ----------------
-        '''
-        Options:
-            - grasp from the side opposite to the heading direction
-            - optimization approach based on minimum forces and shape
-
-        !! Estimate the grasp feasibility with given obstacles
-        '''
-
-        object.delta_theta = np.pi/2 - object.theta
-        rgb_camera.direction = object.heading_angle
-
-        dir = object.heading_angle - np.pi
-        direction_vector = np.array([np.cos(dir), np.sin(dir)])
-
-        # Find a point on the contour in the opposite direction
-        s_array = np.linspace(0, 1, 200)
-        max_dot_product = 0
-        margin_in = 0.02
-        margin_out = 0.08
-
-        for s in s_array:
-            point = object.getPoint(s)
-            theta = object.getTangent(s)
-
-            vector_to_point = np.array(point) - object.position
-            dot_product = np.dot(vector_to_point, direction_vector)
-            
-            if dot_product > max_dot_product:
-                max_dot_product = dot_product
-
-                point_with_margin_out = [point[0] + margin_out * np.cos(dir), 
-                                        point[1] + margin_out * np.sin(dir)]
-                target_pose = point_with_margin_out + [normalizeAngle(theta)]
-
-                point_with_margin_in = [point[0] + margin_in * np.cos(dir), 
-                                        point[1] + margin_in * np.sin(dir)]
-                grasp_pose = point_with_margin_in + [normalizeAngle(theta)]
-
-        rgb_camera.grasp_point = grasp_pose[:2]  # Store the grasp point
-        # ---------------------------------------------------------------
-
-        # ------------------------ Path planning ------------------------
-        '''
-        ** Start first with path planning that does not require reshaping 
-        of the robot 
-        '''
-
-        while True:
-            if rgb_camera.obstacles is not None:
-                break
-
-        expandObstacles()
-
-        # runRigidPlanner()
-
-        # ---------------------------------------------------------------
-
-        # Save the current path points to the file
-        # run Voronoi analysis
-        analyzer, initial_pose = runVoronoi()
-        # plt.show()
-
-        # Update the agent's pose
-        if simulation:
-            agent.pose = initial_pose
-        
-        # Find passage sequence
-        print('Find passage route...')
-        print()
-        rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose, agent_length)
-
-        rear_path_points = [rear_path_points_i.tolist() for rear_path_points_i in rear_path_points]
-        front_path_points = [front_path_points_i.tolist() for front_path_points_i in front_path_points]
-        middle_path_points = [middle_path_points_i.tolist() for middle_path_points_i in middle_path_points]
-
-        save_path_points(rear_path_points, front_path_points, middle_path_points)
-
-    # Smooth each path
-    rear_seg_idx, rear_path_adjusted = adjustPathSegments(rear_path_points)
-    front_seg_idx, front_path_adjusted = adjustPathSegments(front_path_points)
-    middle_seg_idx, middle_path_adjusted = adjustPathSegments(middle_path_points)
+    # -------------------------------- Process Data --------------------------------
+    
+    # Adjust each path
+    rear_seg_idx, rear_path_adjusted = adjustPath(rear_path_points)
+    front_seg_idx, front_path_adjusted = adjustPath(front_path_points)
+    middle_seg_idx, middle_path_adjusted = adjustPath(middle_path_points)
 
     # plotDotPaths()
-
-    # rear_smooth = smoothPath(rear_seg_idx, rear_path_merged)
-    # front_smooth = smoothPath(front_seg_idx, front_path_merged)
-    # middle_smooth = smoothPath(middle_seg_idx, middle_path_merged)
 
     theta_seq = calcOrientations(middle_path_adjusted, rear_path_adjusted, middle_seg_idx[1:-1])
 
@@ -2948,30 +2773,28 @@ if __name__ == "__main__":
     fitter = RobotConfigurationFitter(gv.L_VSS, gv.L_CONN + gv.LU_SIDE)
     q_ref = fitter.fit_configurations(middle_path_adjusted, front_path_adjusted,
                                       rear_path_adjusted, theta_seq)
+    
 
-    q_optimal, s_optimal = None, None
-    # # q_optimal = q_ref
-    # s_optimal = [[0, 0]] * len(q_ref)
-    # # print('Optimize robot\'s trajectory...')
-    # # print()
-    # # q_optimal, s_optimal, u_optimal = generate_trajectory(q_ref)
+    # q_optimal, s_optimal = None, None
+    
+    # print('Start animation...')
+    # print()
 
-    # print('Adjust the path...')
-    # q_optimal = adjustPath(q_ref, expanded_obstacles)
+    # if rear_path_points:
+    #     runAnimation(rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, q_ref, q_optimal, s_optimal)
 
-    # # print(s_optimal)
-    # # (print)
-    # # print(u_optimal)
-    # # (print)
+    # print()
+    # print('Finished!')
 
-    print('Start animation...')
+    print('Determine crucial shapes...')
     print()
+    crucial_configs_idx = getCrucialConfigs(q_ref)
+    
 
-    if rear_path_points:
-        runAnimation(rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, q_ref, q_optimal, s_optimal)
+    
+    
+    
 
-    print()
-    print('Finished!')
 
 
     
