@@ -57,6 +57,8 @@ class Aligner:
         #--------------------------------------------------
         self.new_pos = None
         self.all_nodes = []
+        #--------------------------------------------------
+        self.target_robot_config = None
 
         #--------------------------------------------------
 
@@ -343,7 +345,16 @@ class Aligner:
             #     p_end, _ = self.globalToImage(end_x_global, end_y_global, mean_z)
 
             #     cv2.arrowedLine(undistorted_frame, p_start, p_end, (0, 0, 255), 2)
+            #-----------------------------------------------------------------------------------
+            
+            if self.target_robot_config is not None:
+                arc1 = self.__arc(self.target_robot_config, mean_z)
+                arc2 = self.__arc(self.target_robot_config, mean_z, 2)
 
+                cv2.polylines(undistorted_frame, [arc1], False, (255, 255, 255), 2)
+                cv2.polylines(undistorted_frame, [arc2], False, (255, 255, 255), 2)
+
+            #-----------------------------------------------------------------------------------            
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]
             crop_margin = 100  # Adjust this value to increase or decrease the crop amount

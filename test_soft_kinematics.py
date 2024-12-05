@@ -64,9 +64,9 @@ fig, ax = plt.subplots()
 dt = 0.1  # step size
 
 q = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
-s = [1, 0]
+s = [1, 1]
 
-v = np.array([0.0, 0.1])
+v = np.array([-0.045, 0.045])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")
@@ -74,6 +74,7 @@ centre, = ax.plot([], [], lw=5, marker="o", color="black")
 end_points, = ax.plot([], [], 'ro', markersize=2)  # New line for end points
 
 end_point_history = []  # List to store end point coordinates
+q_dot_history = []
 
 def init():
     global ax
@@ -83,7 +84,7 @@ def init():
     ax.set_aspect("equal")
 
 def update(i):
-    global q, arc1, arc2, centre, end_points, end_point_history
+    global q, arc1, arc2, centre, end_points, end_point_history, q_dot_history
 
     # delta = np.array([
     #                     int(s[0] and not s[1]),    # delta1
@@ -101,6 +102,7 @@ def update(i):
     J = get_jacobian(q, s)
     
     q_dot = J@v
+    q_dot_history.append(q_dot.tolist())
     q += q_dot * dt
 
     q[3] = round(q[3], 4)
@@ -154,3 +156,19 @@ if __name__ == "__main__":
     anim = FuncAnimation(fig, update, frames=30, init_func=init, interval=100, repeat=False)
 
     plt.show()
+
+    q_dot_history = np.array(q_dot_history)
+
+    fig, axs = plt.subplots(2, 2, figsize=(16, 8))
+
+    axs[0,0].plot(1000 * q_dot_history[:,0], 'k-')
+    axs[0,1].plot(1000 * q_dot_history[:,1], 'k-')
+    axs[1,0].plot(q_dot_history[:,3], 'k-')
+    axs[1,1].plot(q_dot_history[:,4], 'k-')
+
+    for i in range(2):
+        for j in range(2):
+            axs[i,j].axis('equal')
+
+    plt.show()
+

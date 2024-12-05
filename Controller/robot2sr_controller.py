@@ -277,15 +277,15 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        v_x = m.MV(value=v_current[0], lb=-0.2, ub=0.2)
+        v_x = m.MV(value=v_current[0], lb=-0.15, ub=0.15)
         v_x.STATUS = 1
-        # v_x.DCOST = 10
+        # v_x.DCOST = 0.001
 
-        v_y = m.MV(value=v_current[1], lb=-0.2, ub=0.2)
+        v_y = m.MV(value=v_current[1], lb=-0.15, ub=0.15)
         v_y.STATUS = 1
-        # v_y.DCOST = 10
+        # v_y.DCOST = 0.001
 
-        omega = m.MV(value=v_current[2], lb=-0.2, ub=0.2)
+        omega = m.MV(value=v_current[2], lb=-0.5, ub=0.5)
         omega.STATUS = 1
         # omega.DCOST = 10000
 
@@ -313,7 +313,7 @@ class Controller:
         
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              40 * v_x**2 + 30 * v_y**2 + 0.005 * omega**2)
+              10 * v_x**2 + 5 * v_y**2 + 0.8 * omega**2)
         
         # # Constant velocity soft constraint
         # velocity_weight = 1000
@@ -325,21 +325,21 @@ class Controller:
 
         m.solve(disp=False)
 
-        return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1]]
+        return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1]] + agent.curvature
     
 
-    def mpcSM1(self, agent: robot2sr.Robot, target: list, lu1_target: list, lu2_target, v_current: list):
+    def mpcSM1(self, agent: robot2sr.Robot, target: list, v_current: list):
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.2, ub=0.2)
+        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
         u1.STATUS = 1
-        u1.DCOST = 10000
+        u1.DCOST = 10
 
-        u2 = m.MV(value=v_current[1], lb=-0.2, ub=0.2)
+        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
         u2.STATUS = 1
-        u1.DCOST = 10000
+        u2.DCOST = 10
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -386,20 +386,20 @@ class Controller:
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
         m.Equation(w1 <= self.MAX_SPEED)
-        m.Equation(w1_curve >= 0)
+        # m.Equation(w1_curve >= 0)
 
         m.Equation(w2 >= -self.MAX_SPEED)
         m.Equation(w2 <= self.MAX_SPEED)
-        m.Equation(w2_curve >= 0)
+        # m.Equation(w2_curve >= 0)
 
         # Objective function
-        Q = [1, 1, 1, 0.1]
-        R = [0.01, 0.5]
+        Q = [3, 3, 1, 0.01, 0.01]
+        R = [10, 2]
 
-        # m.Obj(Q[0] * x**2 + Q[1] * y**2 + Q[2] * theta**2 + Q[3] * k1**2 + 
-        #       R[0] * u1**2 + R[1] * u2**2)
-        m.Obj((x - target[0])**2 + (y - target[1])**2 + (x_lu1 - lu1_target[0])**2 + 
-              (y_lu1 - lu1_target[1])**2 + (x_lu2 - lu2_target[0])**2 + (y_lu2 - lu2_target[1])**2 + 
+        m.Obj(Q[0] * (x - target[0])**2 + 
+              Q[1] * (y - target[1])**2 +
+              Q[2] * (theta - target[2])**2 + 
+              Q[3] * (k1 - target[3])**2 +  
               R[0] * u1**2 + R[1] * u2**2)
 
         # Options
@@ -407,24 +407,22 @@ class Controller:
         m.options.SOLVER = 3
 
         m.solve(disp=False)
-        # cost = m.options.OBJFCNVAL
-        # print(f'Cost: {cost}')
 
         # Return the optimal control inputs
-        return [u1.NEWVAL, u2.NEWVAL], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
+        return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], k1.PRED[1], agent.k2]
     
-    def mpcSM2(self, agent: robot2sr.Robot, target: list, lu1_target: list, lu2_target, v_current: list):
+    def mpcSM2(self, agent: robot2sr.Robot, target: list, v_current: list):
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
         u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
         u1.STATUS = 1
-        u1.DCOST = 100
+        u1.DCOST = 10
 
         u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
         u2.STATUS = 1
-        u1.DCOST = 100
+        u2.DCOST = 10
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -471,45 +469,30 @@ class Controller:
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
         m.Equation(w1 <= self.MAX_SPEED)
-        m.Equation(w1_curve >= 0)
+        # m.Equation(w1_curve >= 0)
 
         m.Equation(w2 >= -self.MAX_SPEED)
         m.Equation(w2 <= self.MAX_SPEED)
-        m.Equation(w2_curve >= 0)
+        # m.Equation(w2_curve >= 0)
 
         # Objective function
-        # Q = 1
-        Q = [15, 15, 15, 0.05]
-        R = [10, 3000]
-
-        # m.Obj(Q[0] * x**2 + Q[1] * y**2 + Q[2] * theta**2 + Q[3] * k1**2 + 
-        #       R[0] * u1**2 + R[1] * u2**2)
+        Q = [3, 3, 1, 0.01, 0.01]
+        R = [2, 10]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
               Q[2] * (theta - target[2])**2 + 
               Q[3] * (k2 - target[4])**2 +  
               R[0] * u1**2 + R[1] * u2**2)
-        
-        # m.Obj(Q * (x - target[0])**2 + 
-        #       Q * (y - target[1])**2 + 
-        #       Q * (x_lu1 - lu1_target[0])**2 + 
-        #       Q * (y_lu1 - lu1_target[1])**2 + 
-        #       Q * (x_lu2 - lu2_target[0])**2 + 
-        #       Q * (y_lu2 - lu2_target[1])**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
         m.options.SOLVER = 3
 
         m.solve(disp=False)
-        # cost = m.options.OBJFCNVAL
-        # print(f'Cost: {cost}')
-        # print(u1.VALUE)
-        # print(u2.VALUE)
 
         # Return the optimal control inputs
-        return [u1.NEWVAL, u2.NEWVAL], [x.VALUE[1], y.VALUE[1]], [x_lu1.VALUE[1], y_lu1.VALUE[1]], [x_lu2.VALUE[1], y_lu2.VALUE[1]]
+        return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], agent.k1, k2.PRED[1]]
 
 
     def mpcSM3(self, agent: robot2sr.Robot, target: list, v_current: list):
@@ -519,11 +502,11 @@ class Controller:
         # Manipulated variables        
         u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
         u1.STATUS = 1
-        u1.DCOST = 100
+        u1.DCOST = 10
 
         u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
         u2.STATUS = 1
-        u1.DCOST = 100
+        u2.DCOST = 10
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -548,10 +531,10 @@ class Controller:
         
         # Define an intermediate variable for wheel speed
         w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
-        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
+        # w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
 
         w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
-        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
+        # w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
         
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
@@ -562,8 +545,8 @@ class Controller:
         m.Equation(w2 <= self.MAX_SPEED)
         # m.Equation(w2_curve >= 0)
 
-        Q = [3, 3, 1, 0.05, 0.05]
-        R = [10, 200]
+        Q = [3, 3, 1, 0.01, 0.01]
+        R = [10, 10]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
@@ -579,7 +562,7 @@ class Controller:
         m.solve(disp=False)
 
         # Return the optimal control inputs
-        return [u1.NEWVAL, u2.NEWVAL]
+        return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], k1.PRED[1], k2.PRED[1]]
 
     
     def motionPlanner(self, agent: robot2sr.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
