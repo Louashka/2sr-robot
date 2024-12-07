@@ -81,8 +81,7 @@ class LogSpiral:
     
     def get_k_dot(self, k: float):
         return self.get_th_dot(k) / gv.L_VSS
-    
-    
+      
 class Cardioid:
     def __init__(self, n: int):
         self.a = gv.CARDIOID_A[n-1]
@@ -176,8 +175,6 @@ class TrajectoryShape:
 
         self.last_idx = target_idx
         return target_idx
-
-
 
 class Trajectory:
     def __init__(self, traj_x, traj_y, traj_yaw=[]):

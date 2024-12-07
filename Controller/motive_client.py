@@ -117,7 +117,7 @@ class MocapReader:
             msg = 'No markers or rigid bodies are detected!'
         else:
             # Convert values from the Motive frame to the global frame
-            self.__convertData(markers, rigid_bodies)
+            self.__convertData(rigid_bodies)
 
             rb_agents = [rb for rb in rigid_bodies.values() if rb['id'] < 10]
             rb_objects = [rb for rb in rigid_bodies.values() if rb['id'] > 10]
@@ -231,18 +231,8 @@ class MocapReader:
 
         return markers, rigid_bodies
     
-
-    def __convertData(self, markers: dict, rigid_bodies: dict):
-        # for marker in markers.values():
-            # new_pos = self.__positionToGlobal([marker.get(coord) for coord in m_pos])
-            # for i in range(3):
-            #     marker[m_pos[i]] = new_pos[i]
-
+    def __convertData(self, rigid_bodies: dict):
         for rigid_body in rigid_bodies.values():
-            # new_pos = self.__positionToGlobal([rigid_body.get(coord) for coord in rb_pos])
-            # for i in range(3):
-            #     rigid_body[rb_pos[i]] = new_pos[i]
-
             new_params = self.__quaternionToGlobal([rigid_body.get(param) for param in rb_params])
             for i in range(4):
                 rigid_body[rb_params[i]] = new_params[i]
@@ -252,15 +242,8 @@ class MocapReader:
             for i in range(3):
                 rigid_body[rb_angles[i]] = euler_angles[i]
 
-    def __positionToGlobal(self, coords: list):
-        R_motive_to_g = np.array([[-1, 0, 0], [0, 0, 1], [0, 1, 0]])
-
-        return np.matmul(R_motive_to_g, np.array(coords)).tolist()
-
-
     def __quaternionToGlobal(self, args):
         return [-args[0], args[2], args[1], args[3]]
-
 
     def __quaternionToEuler(self, coeffs):
         t0 = +2.0 * (coeffs[3] * coeffs[0] + coeffs[1] * coeffs[2])

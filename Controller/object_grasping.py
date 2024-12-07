@@ -2,30 +2,36 @@ import sys
 sys.path.append('D:/Robot 2SR/2sr-swarm-control')
 from Model import global_var as gv, robot2sr as rsr, manipulandum, splines
 import motive_client, robot2sr_controller as rsr_ctrl, camera_optitrack_synchronizer as cos
+
 import threading
 from datetime import datetime
 import time
-from shapely.geometry import Polygon, Point, LineString
-from shapely.ops import nearest_points
-from shapely import affinity
-import cv2
-import numpy as np
-import cvxpy
 import os
 import json
 from typing import List
+import numpy as np
+from collections import deque
+import cv2
+
+from shapely.geometry import Polygon, Point, LineString
+from shapely.ops import nearest_points
+from shapely import affinity
+
+import networkx as nx
+import cvxpy
 from scipy.optimize import minimize
-from skopt import gp_minimize
 from scipy.spatial import Voronoi
 from scipy.signal import find_peaks
-import networkx as nx
+from skopt import gp_minimize
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as PlotPolygon
 from matplotlib.collections import PatchCollection
 from matplotlib import animation
-from collections import deque
-from scipy.optimize import minimize
 import pickle
+
+
+# ----------------------------- Define Variables ----------------------------
 
 agent: rsr.Robot = None
 object: manipulandum.Shape = None
@@ -42,6 +48,7 @@ original_obstacles = []
 expanded_obstacles = []
 grasp_pose = None
 target_pose = None
+grasp_idx = None
 
 workspace_bounds = [-0.606, 0.319, -1.02, 1.034]
 
@@ -57,18 +64,16 @@ Q = np.diag([10, 10, 0.0]) # cost matrixq
 Qf = Q # final matrix
 Rd = np.diag([10, 10000, 0.001])
 
-directory = "Experiments/Data/Tracking/Grasp"
+voronoi_plot_path = 'Experiments/Figures/voronoi_plot.pkl'
+data_file_path = 'Experiments/Data/Tracking/Grasp/traverse_soft_'
 date_title = None
 filename = None
 
-tracking_data = []
-path_data = []
 elapsed_time = 0
 start_time = None
 
 # simulation = True
 simulation = False
-
 
 # ----------------------------- State Estimation ----------------------------
 
@@ -143,7 +148,7 @@ def expandObstacles() -> None:
         rgb_camera.expanded_obstacles_global.append(extended_corners)
 
 def setUpEnv() -> None:
-    global grasp_pose
+    global date_title, data_file_path, grasp_pose, target_pose, grasp_idx
     # ------------------------ Start tracking -----------------------
     '''
     Detect locations and geometries of:
@@ -152,7 +157,7 @@ def setUpEnv() -> None:
         - obstacles
     '''
 
-    print('Start Motive streaming...')
+    print('Start Motive streaming...\n')
     mocap.startDataListener() 
 
     update_thread = threading.Thread(target=updateConfigLoop)
@@ -163,33 +168,17 @@ def setUpEnv() -> None:
         pass
 
     date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    filename = f"{directory}/obtacles_heart_{date_title}.json"
+    data_file_path += f"{date_title}.json"
     rgb_camera.startVideo(date_title, task='object_grasp')
 
-    print('Waiting for the video to start...')
+    print('Waiting for the video to start...\n')
     while not rgb_camera.wait_video:
         pass
 
-    print('Video started')
-    print()
-    # ---------------------------------------------------------------
-
-    # ------------------ Create the environment map -----------------
-    '''
-    Steps:
-        - transform obstacles by expanding them based on robot's 
-        geometry (Minkowski sum)
-    '''
+    print('Video started\n')
     # ---------------------------------------------------------------
     
     # ---------------- Determine grasping parameters ----------------
-    '''
-    Options:
-        - grasp from the side opposite to the heading direction
-        - optimization approach based on minimum forces and shape
-
-    !! Estimate the grasp feasibility with given obstacles
-    '''
 
     object.delta_theta = np.pi/2 - object.theta
     rgb_camera.direction = object.heading_angle
@@ -211,54 +200,28 @@ def setUpEnv() -> None:
         dot_product = np.dot(vector_to_point, direction_vector)
         
         if dot_product > max_dot_product:
+            grasp_idx = s
             max_dot_product = dot_product
-
-            point_with_margin_out = [point[0] + margin_out * np.cos(dir), 
-                                    point[1] + margin_out * np.sin(dir)]
-            target_pose = point_with_margin_out + [normalizeAngle(theta)]
 
             point_with_margin_in = [point[0] + margin_in * np.cos(dir), 
                                     point[1] + margin_in * np.sin(dir)]
             grasp_pose = point_with_margin_in + [normalizeAngle(theta)]
 
-    rgb_camera.grasp_point = grasp_pose[:2]  # Store the grasp point
+            point_with_margin_out = [point[0] + margin_out * np.cos(dir), 
+                                    point[1] + margin_out * np.sin(dir)]
+            target_pose = point_with_margin_out + [normalizeAngle(theta)]
+
+    # rgb_camera.grasp_point = grasp_pose[:2]  # Store the grasp point
+
     # ---------------------------------------------------------------
 
-    # ------------------------ Path planning ------------------------
-    '''
-    ** Start first with path planning that does not require reshaping 
-    of the robot 
-    '''
+    # ---------------------- Detect Obstacles -----------------------
 
     while True:
         if rgb_camera.obstacles is not None:
             break
 
     expandObstacles()
-
-    # # runRigidPlanner()
-
-    # # Save the current path points to the file
-    # # run Voronoi analysis
-    # analyzer, initial_pose = runVoronoi()
-    # # plt.show()
-
-    # # Update the agent's pose
-    # if simulation:
-    #     agent.pose = initial_pose
-    
-    # # Find passage sequence
-    # print('Find passage route...')
-    # print()
-    # rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose, agent_length)
-
-    # rear_path_points = [rear_path_points_i.tolist() for rear_path_points_i in rear_path_points]
-    # front_path_points = [front_path_points_i.tolist() for front_path_points_i in front_path_points]
-    # middle_path_points = [middle_path_points_i.tolist() for middle_path_points_i in middle_path_points]
-
-    # savePathPoints(rear_path_points, front_path_points, middle_path_points)
-
-    # return rear_path_points, front_path_points, middle_path_points
 
 # ----------------------------- Static Functions ----------------------------
 
@@ -281,8 +244,7 @@ def close2Goal(current: list, target: list) -> bool:
     if distance > distance_threshold:
         status = False
     
-    print(f"Distance to goal: {distance:.3f} m")
-    print()
+    print(f"Distance to goal: {distance:.3f} m\n")
 
     return status
 
@@ -292,11 +254,107 @@ def close2Shape(current_k: list, target_k: list) -> bool:
     k1_diff = abs(current_k[0] - target_k[0])
     k2_diff = abs(current_k[1] - target_k[1])
     print(f'k1 diff: {k1_diff}')
-    print(f'k2 diff: {k2_diff}')
+    print(f'k2 diff: {k2_diff}\n')
 
     if k1_diff > 5.5 or k2_diff > 5.5:
         status = False
     return status
+
+def discretizeConfigs(way_points):
+    target_configs = []
+    initial_config = agent.config
+
+    for way_point in way_points:
+        num_intermediate = 2
+        t = np.linspace(0, 1, num_intermediate + 2)
+
+        # Special handling for angle (theta) to ensure proper interpolation
+        # Unwrap theta to prevent interpolation issues around ±π
+        theta_initial = initial_config[2]
+        theta_target = way_point[2]
+        delta_theta = (theta_target - theta_initial + np.pi) % (2 * np.pi) - np.pi
+        theta_interp = theta_initial + delta_theta * t[1:-1]
+        
+        for i in range(num_intermediate):
+            new_config = initial_config + (way_point - initial_config) * t[i+1]
+            # Replace theta with properly interpolated angle
+            new_config[2] = theta_interp[i]
+            new_config = np.round(new_config, 4)
+            target_configs.append(new_config.tolist())
+
+        target_configs.append(np.round(way_point, 4).tolist())
+        initial_config = way_point
+
+    return target_configs
+
+# ------------------------------ Data Collector -----------------------------
+
+class DataCollector:
+    def __init__(self): 
+        self.data_json = {
+            'metadata': {
+                'description': 'Traverse a cluttered environment (adaptive morphology)',
+                'date': None
+            },
+            'estimation': {
+                'grasp_pose': None,
+                'points_paths': None,
+                'points_paths_adjusted': None,
+                'orientations': None,
+                'robot_reference_path': None,
+                'key_configs': None
+            },
+            'traversing': None,
+        }
+
+    def addDate(self, date_input):
+        self.data_json['metadata']['date'] = date_input
+
+    def addGraspPose(self, grasp_pose):
+        self.data_json['estimation']['grasp_pose'] = grasp_pose
+
+    def addPaths(self, paths):
+        front_path, middle_path, rear_path = paths
+        self.data_json['estimation']['points_paths'] = {
+            'front': front_path,
+            'middle': middle_path,
+            'rear': rear_path
+        }
+
+    def addAdjustedPaths(self, adjusted_paths):
+        front_adjusted_path, middle_adjusted_path, rear_adjusted_path = adjusted_paths
+        self.data_json['estimation']['points_paths_adjusted'] = {
+            'front': front_adjusted_path,
+            'middle': middle_adjusted_path,
+            'rear': rear_adjusted_path
+        }
+
+    def addOrientations(self, orientations):
+        self.data_json['estimation']['orientations'] = orientations
+
+    def addRefPath(self, ref_path):
+        ref = [ref_point.tolist() for ref_point in ref_path]
+        self.data_json['estimation']['robot_reference_path'] = ref
+
+    def addCrucialConfigs(self, key_configs):
+        self.data_json['estimation']['key_configs'] = key_configs
+
+    def addTraversingData(self, traverse_data):
+        self.data_json['traversing'] = traverse_data
+
+    def saveData(self, file_path, simulation=False):
+        """Save collected data to JSON file"""
+        if not simulation:
+            with open(file_path, 'w') as f:
+                json.dump(self.data_json, f, indent=2)
+            print(f"Data written to {file_path}\n")
+
+def loadPathPoints(n):
+    file_path = f'Experiments/Data/Tracking/Grasp/traverse_soft_{n}.json'
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    return None
 
 # --------------------------- Rigid Motion Planning -------------------------
 
@@ -949,7 +1007,7 @@ def mpc(qref: np.ndarray, vref: np.ndarray, heading_angle: float) -> tuple[list,
         q_dot = rot.dot([vx, vy, omega])
         q_new = np.array(agent.pose) + q_dot * gv.DT
     else:
-        print("Error: Cannot solve mpc..")
+        print("Error: Cannot solve mpc..\n")
         vx, vy, omega = None, None, None
         q_new = None
 
@@ -1505,8 +1563,7 @@ class VoronoiPassageAnalyzer:
         front_nodes = []
         for item in front_path:
             front_nodes.append(item['nodes'])
-        print(f'Front point nodes: {front_nodes}')
-        print()
+        print(f'Front point nodes: {front_nodes}\n')
 
         interpoltaed_rear_path_points = self.interpolate_path_points(rear_path, rear_target)
 
@@ -1899,7 +1956,9 @@ class VoronoiVisualizer:
         # Add legend
         self.ax.legend()
 
-def runVoronoi():
+def runVoronoiPlanner() -> tuple[list, list, list]:
+    # Save the current path points to the file
+    # run Voronoi analysis
     global fig 
 
     bounds = [
@@ -1922,10 +1981,23 @@ def runVoronoi():
     # Highlight narrow passages
     visualizer.highlight_narrow_passages(passages)
 
-    with open('voronoi_plot.pkl', 'wb') as file:
+    with open(voronoi_plot_path, 'wb') as file:
         pickle.dump({'figure': fig, 'axes': ax}, file)
+    # plt.show()
 
-    return analyzer, initial_pose
+    # Update the agent's pose
+    if simulation:
+        agent.pose = initial_pose
+    
+    # Find passage sequence
+    print('Find passage route...\n')
+    rear_path_points, front_path_points, middle_path_points = analyzer.find_passage_sequence(agent.pose, target_pose, agent_length)
+
+    front_path_points = [front_path_points_i.tolist() for front_path_points_i in front_path_points]
+    middle_path_points = [middle_path_points_i.tolist() for middle_path_points_i in middle_path_points]
+    rear_path_points = [rear_path_points_i.tolist() for rear_path_points_i in rear_path_points]
+
+    return front_path_points, middle_path_points, rear_path_points
 
 
 # Afterprocess robot points paths
@@ -1990,7 +2062,7 @@ def adjustPath(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_de
             end_point = np.array(new_path[next_start])
             
             for j in range(num_points):
-                new_path[prev_start + j] = start_point + t[j] * (end_point - start_point)
+                new_path[prev_start + j] = (start_point + t[j] * (end_point - start_point)).tolist()
             
             segment_starts.pop(i)
         else:
@@ -2028,7 +2100,7 @@ def adjustPath(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_de
             end_point = np.array(new_path[end3])
             
             for j in range(num_points):
-                new_path[start1 + j] = start_point + t[j] * (end_point - start_point)
+                new_path[start1 + j] = (start_point + t[j] * (end_point - start_point)).tolist()
             
             segment_starts.pop(i+1)
             segment_starts.pop(i)
@@ -2241,7 +2313,7 @@ class RobotConfigurationFitter:
         return configurations
 
 
-# Generate feasible trajectory
+# Identify key robot configurations
 def findFlatRegions(k, min_length=5, slope_threshold=0.5):
     """
     Find regions where curvature remains relatively constant.
@@ -2302,7 +2374,7 @@ def removeCloseIndices(indices, min_distance=3):
             filtered_indices.insert(0, current)
         i -= 1
     
-    return filtered_indices
+    return [int(i) for i in filtered_indices]
 
 def getCrucialConfigs(q_ref_path):
     q_ref_array = np.array(q_ref_path)
@@ -2339,9 +2411,9 @@ def getCrucialConfigs(q_ref_path):
     # Sort and remove duplicates
     configs_idx = sorted(list(set(configs_idx)))
 
-    crucial_configs_idx = removeCloseIndices(configs_idx)
+    key_configs_idx = removeCloseIndices(configs_idx)
 
-    # print(crucial_configs_idx)
+    # print(key_configs_idx)
     # print()
 
     # fig, axs = plt.subplots(1, 2, figsize=(12, 6))
@@ -2359,50 +2431,128 @@ def getCrucialConfigs(q_ref_path):
     # # axs[1].plot(peaks_k2, q_ref[peaks_k2, 4], 'ro')
     # # axs[1].plot(valleys_k2, q_ref[valleys_k2, 4], 'bo')
 
-    # axs[0].plot(crucial_configs_idx, q_ref[crucial_configs_idx, 3], 'ro')
-    # axs[1].plot(crucial_configs_idx, q_ref[crucial_configs_idx, 4], 'ro')
+    # axs[0].plot(key_configs_idx, q_ref[key_configs_idx, 3], 'ro')
+    # axs[1].plot(key_configs_idx, q_ref[key_configs_idx, 4], 'ro')
 
 
     # plt.tight_layout()
     # plt.show()
 
-    return crucial_configs_idx
+    return key_configs_idx
 
-# ------------------------------ Grasp Control ------------------------------
+# --------------------------- Soft Motion Control ---------------------------
 
-def grasp(target_pose: list) -> None:
-    global agent, tracking_data, elapsed_time
+def traverseObstacles(target_configs, start_time) -> None:
+    traverse_data = {}
+    idx = 1
 
-    target_config = target_pose + [15, 15]
-    v_prev = [0.0] * 2
-    s = [1, 1]
-    finish = False
+    grasp_point = object.getPoint(grasp_idx)
+    grasp_theta = object.getTangent(grasp_idx)
+    grasp_target = [*grasp_point, grasp_theta, 15, 15]
 
-    while True:
-        if close2Shape(agent.curvature, target_config[3:]) or rgb_camera.finish:
-            v_soft = [0.0] * 2
-            s = [0, 0]
-            finish = True
-        else:
-            v_soft = agent_controller.mpcSM3(agent, target_config, v_prev)
-        
-        v = [0.0] * 3 + v_soft
-        _, _, s_current, _ = agent_controller.move(agent, v, s)
-        agent.stiffness = s_current
-        
-        v_prev = v_soft
+    target_configs.append(grasp_target)
 
-        current_time = time.perf_counter()
-        elapsed_time = current_time - start_time
+    for tc in target_configs:
+        if idx == len(target_configs):
+            rgb_camera.expanded_obstacles = []
 
-        tracking_data.append({'time': elapsed_time,
-                              'config': agent.config.tolist(),
-                              'stiffness': agent.stiffness,
-                              'target_vel': v})
+        timestamps = []
+        robot_states = []
+        target_mm = []
+        target_vel = []
+        transition_status = []
+        temperature_meas = []
+
+        rgb_camera.target_robot_config = tc
+        finish = False
+
+        v_r = [0.0] * 3
+        v_s = [0.0] * 2
+
+        target_s = [0, 0]
+        for i in range(2):
+            if abs(tc[i+3] - agent.curvature[i]) > 5:
+                target_s[i] = 1
+
+        while True:
+            elapsed_time = time.perf_counter() - start_time
             
-        if finish:
+            timestamps.append(elapsed_time)
+            robot_states.append(agent.config.tolist())
+            
+            if target_s != [0, 0] and close2Shape(agent.curvature, tc[3:]):
+                target_s = [0, 0]
+                v_r = [0.0] * 3
+                v_s = [0.0] * 2
+            if (target_s == [0, 0] and close2Goal(agent.pose, tc[:3])) or rgb_camera.finish:
+                v_r = [0.0] * 3
+                v_s = [0.0] * 2
+                finish = True
+            else:
+                if target_s == [0, 0]:
+                    v_r, q_new = agent_controller.mpcRM(agent, tc[:3], v_r)
+                elif target_s == [1, 0]:
+                    v_s, q_new = agent_controller.mpcSM1(agent, tc, v_s)
+                elif target_s == [0, 1]:
+                    v_s, q_new = agent_controller.mpcSM2(agent, tc, v_s)
+                else:
+                    v_s, q_new = agent_controller.mpcSM3(agent, tc, v_s)
+
+            v = v_r + v_s
+            print(f'Stiffness: {target_s}')
+            print(f'Velocity: {v}')
+
+            target_mm.append(target_s)
+            target_vel.append(v)
+
+            _, _, current_s, sc_feedback = agent_controller.move(agent, v, target_s)
+            print()
+
+            if sc_feedback is None:
+                transition_status.append(False)
+            else:
+                transition_status.append(True)
+
+            temperature_meas.append(sc_feedback)
+            
+            if simulation:
+                agent.config = q_new
+                agent.stiffness = target_s
+            else:
+                agent.stiffness = current_s
+
+            if finish:
+                break
+
+        elapsed_time = time.perf_counter() - start_time
+            
+        timestamps.append(elapsed_time)
+        robot_states.append(agent.config.tolist())
+        target_mm.append(target_s)
+        target_vel.append(v)
+        transition_status.append(False)
+        temperature_meas.append(sc_feedback)
+        
+        traverse_data[idx] = {
+            'target_config': tc,
+            'tracking' : {
+                'time': timestamps,
+                'robot_states': robot_states,
+                'target_mm': target_mm,
+                'target_vel': target_vel,
+                'transitions': transition_status,
+                'temperature': temperature_meas
+            }
+        }
+        idx += 1
+        
+        if rgb_camera.finish:
             break
 
+        print('Next target!\n')
+
+    return traverse_data, elapsed_time
+    
 # --------------------------- Plotting & Animation --------------------------
 
 def plotDotPaths():
@@ -2556,7 +2706,7 @@ def plotRobot(q: list, plot_components: list, components: tuple) -> None:
     lu2_square.set_data(lu2_corners[:, 0], lu2_corners[:, 1])
     plot_components.append(lu2_square)
 
-def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref, q_optim=None, s_optimal=None) -> None:
+def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_seq, q_ref, q_optim=None) -> None:
     # Colors
     red_color = '#ec5353'
     blue_color = '#3471A8'
@@ -2606,9 +2756,8 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
             orientation = theta_seq[state.idx]
 
             q_ref_i = q_ref[state.idx]
-            if q_optim is not None and s_optimal is not None:
+            if q_optim is not None:
                 q_optim_i = q_optim[state.idx]
-                s_optim_i = s_optimal[state.idx]
             
         if state.iteration == 0:
             # Iteration 0: Just show Voronoi diagram (empty plot_components)
@@ -2682,7 +2831,7 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
                 else:
                     state.counter += 1
         
-        elif q_optim is not None and s_optimal is not None:
+        elif q_optim is not None:
             robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
                                     lu1_square, lu2_square)
             for robot_ref_component in robot_ref_components:
@@ -2691,16 +2840,6 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
 
             robot_optim_components = (vss1_line_optim, vss2_line_optim, conn1_line_optim, conn2_line_optim, 
                                       lu1_square_optim, lu2_square_optim)
-            
-            if s_optim_i[0] == 1:
-                vss1_line_optim.set_color(red_color)
-            else:
-                vss1_line_optim.set_color(grey_color)
-            
-            if s_optim_i[1] == 1:
-                vss2_line_optim.set_color(red_color)
-            else:
-                vss2_line_optim.set_color(grey_color)
 
             plotRobot(q_optim_i, plot_components, robot_optim_components)
 
@@ -2724,315 +2863,127 @@ def runAnimation(rear_path_points, front_path_points, middle_path_points, theta_
 
 # ---------------------------------------------------------------------------
 
-
-
 if __name__ == "__main__":
 
-    # -------------------------------- Load Data --------------------------------
+    '''
+    Set up the environment (track the OptiTrack and RGB camera data)
+    '''
+
+    setUpEnv()
     
-    if os.path.exists('voronoi_plot.pkl') and os.path.getsize('voronoi_plot.pkl') > 0:
-        with open('voronoi_plot.pkl', 'rb') as file:
-            plot_data = pickle.load(file)
-            fig = plot_data['figure']
-            ax = plot_data['axes']
-        
-    # Define the file path to
-    file_path = 'path_points.json'
+    # ---------------------------- Load/Save Data ---------------------------
+    '''
+    - Load Voronoi plot if it was saved earlier
+    - Run a Voronoi planner to find paths of 2 robot points (run/load and save)
+    '''
 
-    # Function to save path points to a file
-    def savePathPoints(rear, front, middle):
-        with open(file_path, 'w') as f:
-            json.dump({'rear': rear, 'front': front, 'middle': middle}, f)
+    data_collector = DataCollector()
+    data_collector.addDate(date_title)
+    data_collector.addGraspPose(grasp_pose)
 
-    # Function to load path points from a file
-    def load_path_points():
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            with open(file_path, 'r') as f:
-                return json.load(f)
-        return None
+    # if (os.path.exists(voronoi_plot_path) and 
+    #     os.path.getsize(voronoi_plot_path) > 0):
+    #     with open(voronoi_plot_path, 'rb') as file:
+    #         plot_data = pickle.load(file)
+    #         fig = plot_data['figure']
+    #         ax = plot_data['axes']
+    
 
     # Load existing path points if available
-    loaded_path_points = load_path_points()
-    if loaded_path_points:
-        rear_path_points = loaded_path_points['rear']
-        front_path_points = loaded_path_points['front']
-        middle_path_points = loaded_path_points['middle']
+    loaded_data = loadPathPoints(1)
+    if loaded_data:
+        paths_data = loaded_data['estimation']['points_paths']
+
+        front_path_points = paths_data['front']
+        middle_path_points = paths_data['middle']
+        rear_path_points = paths_data['rear']
     else:
-        rear_path_points, front_path_points, middle_path_points = setUpEnv()
+        front_path_points, middle_path_points, rear_path_points = runVoronoiPlanner()
+
+    data_collector.addPaths([front_path_points, middle_path_points, rear_path_points])
         
-    # -------------------------------- Process Data --------------------------------
+    # --------------------------- Estimate Motion ---------------------------
+    '''
+    Process data from the Voronoi planner
+    '''
     
     # Adjust each path
-    rear_seg_idx, rear_path_adjusted = adjustPath(rear_path_points)
     front_seg_idx, front_path_adjusted = adjustPath(front_path_points)
     middle_seg_idx, middle_path_adjusted = adjustPath(middle_path_points)
+    rear_seg_idx, rear_path_adjusted = adjustPath(rear_path_points)
+
+    data_collector.addAdjustedPaths([front_path_adjusted, middle_path_adjusted, rear_path_adjusted])
 
     # plotDotPaths()
 
     theta_seq = calcOrientations(middle_path_adjusted, rear_path_adjusted, middle_seg_idx[1:-1])
+    data_collector.addOrientations(theta_seq)
 
     # Fit robot's configuration
-    print('Calculate the robot\'s reference path...')
-    print()
+    print('Calculate the robot\'s reference path...\n')
 
     fitter = RobotConfigurationFitter(gv.L_VSS, gv.L_CONN + gv.LU_SIDE)
     q_ref = fitter.fit_configurations(middle_path_adjusted, front_path_adjusted,
                                       rear_path_adjusted, theta_seq)
+    data_collector.addRefPath(q_ref)
 
-    print('Determine crucial shapes...')
-    print()
-    crucial_configs_idx = getCrucialConfigs(q_ref)
-
-    crucial_configs = [q_ref[i] for i in crucial_configs_idx]
-    # print(len(crucial_configs))
-    # print()
+    print('Determine crucial shapes...\n')
+    key_configs_idx = getCrucialConfigs(q_ref)
+    data_collector.addCrucialConfigs(key_configs_idx)
     
-    s_list = []
-    for i in range(len(crucial_configs)-1):
-        s = [0, 0]
+    '''
+    Animate the estimation results
+    '''
 
-        if abs(crucial_configs[i][3] - crucial_configs[i+1][3]) > 3:
-            s[0] = 1
-        if abs(crucial_configs[i][4] - crucial_configs[i+1][4]) > 3:
-            s[1] = 1
+    key_configs_anim = []
 
-        s_list.append(s)
-    s_list.append([0, 0])
-
-    print(s_list)
-    print()
-
-    # crucial_configs_anim = []
-
-    # for i in range(len(crucial_configs_idx)-1):
-    #     crucial_configs_anim.extend([q_ref[crucial_configs_idx[i]]] * (crucial_configs_idx[i+1] - crucial_configs_idx[i]))
-    # crucial_configs_anim.append(q_ref[crucial_configs_idx[-1]])
-
-    # s_optimal = [[0, 0]] * len(crucial_configs_anim)
+    for i in range(len(key_configs_idx)-1):
+        key_configs_anim.extend([q_ref[key_configs_idx[i]]] * (key_configs_idx[i+1] - key_configs_idx[i]))
+    key_configs_anim.append(q_ref[key_configs_idx[-1]])
     
-    # print('Start animation...')
-    # print()
+    print('Start animation...\n')
 
-    # if rear_path_points:
-    #     runAnimation(rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, 
-    #                  q_ref, crucial_configs_anim, s_optimal)
+    if rear_path_points:
+        runAnimation(rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, 
+                     q_ref, key_configs_anim)
 
-    # print()
-    # print('Finished!')
+    # ------------------------- Execute Experiment --------------------------
 
-
-    # kp = [50, 50, 1, 0.5, 0.5]
-
-    # initial_config = crucial_configs[1]
-    # target_config = crucial_configs[2]
-
-    # num_intermediate = 2
-    # t = np.linspace(0, 1, num_intermediate + 2)
-
-    # # Special handling for angle (theta) to ensure proper interpolation
-    # # Unwrap theta to prevent interpolation issues around ±π
-    # theta_initial = initial_config[2]
-    # theta_target = target_config[2]
-    # delta_theta = (theta_target - theta_initial + np.pi) % (2 * np.pi) - np.pi
-    # theta_interp = theta_initial + delta_theta * t[1:-1]
+    continue_flag = False
     
-    # # Interpolate all configurations
-    # target_configs = []
-    
-    # for i in range(num_intermediate):
-    #     new_config = initial_config + (target_config - initial_config) * t[i+1]
-    #     # Replace theta with properly interpolated angle
-    #     new_config[2] = theta_interp[i]
-    #     new_config = np.round(new_config, 4)
-    #     target_configs.append(new_config.tolist())
-    
-    # target_configs.append(np.round(target_config, 4).tolist())
-
-    # print(target_configs)
-
-    # current_config = np.array(initial_config)
-    # agent_sim = rsr.Robot(2, *initial_config)
-
-    
-    # q_tilda = np.array(target_config) - current_config
-    # diff = [np.linalg.norm(q_tilda)]
-
-    # max_iter = 50
-    # counter = 0
-
-    # while counter < max_iter:
-    #     J = agent_sim.jacobian([1, 1])
-    #     v = np.linalg.pinv(J) @ (kp * q_tilda)
-
-    #     q_dot = J @ v * gv.DT
-    #     current_config += q_dot
-    #     agent_sim.config = current_config
-
-    #     q_tilda = np.array(target_config) - current_config
-    #     diff.append(np.linalg.norm(q_tilda))
-    #     counter += 1
+    user_input = input("Proceed? (y/n): ").strip().lower()
+    if user_input == 'y' or user_input == 'yes':
+        print("Proceeding with the experiment!\n")
+        continue_flag = True
+    elif user_input == 'n' or user_input == 'no':
+        print("Operation cancelled.\n")
+    else:
+        print("Invalid input. Please enter 'y' or 'n'.\n")
 
 
-
-
-    # fig, ax = plt.subplots(1, 2, figsize=(16, 8))
-
-    # grey_color = '#474747'
-    # plot_components = []
-
-    # vss1_line, = ax[0].plot([], [], color=grey_color, linewidth=2)
-    # vss2_line, = ax[0].plot([], [], color=grey_color, linewidth=2)
-    # conn1_line, = ax[0].plot([], [], color=grey_color, linewidth=2)
-    # conn2_line, = ax[0].plot([], [], color=grey_color, linewidth=2)
-    # lu1_square, = ax[0].plot([], [], color=grey_color, linewidth=2)
-    # lu2_square, = ax[0].plot([], [], color=grey_color, linewidth=2)
-
-    # robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, lu1_square, lu2_square)
-
-    # vss1_line_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-    # vss2_line_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-    # conn1_line_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-    # conn2_line_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-    # lu1_square_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-    # lu2_square_target, = ax[0].plot([], [], color=grey_color, linewidth=2, alpha=0.5)
-
-    # robot_target_components = (vss1_line_target, vss2_line_target, conn1_line_target, 
-    #                            conn2_line_target, lu1_square_target, lu2_square_target)
-
-
-    # plotRobot(current_config, plot_components, robot_ref_components)
-    # plotRobot(target_config, plot_components, robot_target_components)
-
-    # ax[1].plot(diff, 'k-', linewidth=1)
-
-    # ax[0].axis('equal')
-    # ax[0].set_xlim(-0.7, 0.3)  # Set x-axis range
-    # ax[0].set_ylim(-0.7, 0.3)  # Set y-axis range
-
-    # ax[1].axis('equal')
-    # # ax[1].set_xlim(-1, 15)  # Set x-axis range
-    # # ax[1].set_ylim(0, len(diff))  # Set y-axis range
-
-    # plt.tight_layout()
-    # plt.show()
-
-    setUpEnv()
-
-    # v_r = [0.0] * 5
-    # s = [0, 0]
-
-    # for target_config in crucial_configs[:2]:
-    #     rgb_camera.target_robot_config = target_config
-    #     finish = False
-
-    #     while True:
-    #         if close2Goal(agent.pose, target_config[:3]) or rgb_camera.finish:
-    #             v_r = [0.0] * 3
-    #             q_new = agent.pose
-    #             finish = True
-    #         else:
-    #             v_r, q_new = agent_controller.mpcRM(agent, target_config[:3], v_r)
-
-    #         if simulation:
-    #             agent.pose = q_new
-
-    #         v = v_r + [0.0, 0.0]
-    #         # print(v_r)
-    #         agent_controller.move(agent, v, s)
-
-    #         if finish:
-    #             break
+    if continue_flag:
+        '''
+        Discretize robot target configuration from identified key configurations
+        '''
         
-    #     if rgb_camera.finish:
-    #         break
+        key_configs = [q_ref[i] for i in key_configs_idx]
+        print('Key configurations:')
+        print(key_configs)
 
-    #     print('Next target!')
-    #     print()
+        all_target_configs = discretizeConfigs(key_configs)
+        print('\nDiscrete target configurations:')
+        print(all_target_configs)
 
-
-    initial_config = agent.config
-    target_config = crucial_configs[4]
-
-    num_intermediate = 2
-    t = np.linspace(0, 1, num_intermediate + 2)
-
-    # Special handling for angle (theta) to ensure proper interpolation
-    # Unwrap theta to prevent interpolation issues around ±π
-    theta_initial = initial_config[2]
-    theta_target = target_config[2]
-    delta_theta = (theta_target - theta_initial + np.pi) % (2 * np.pi) - np.pi
-    theta_interp = theta_initial + delta_theta * t[1:-1]
+        print('\nTraverse obstacles...\n')
+        elapsed_time = 0
+        start_time = time.perf_counter()
+        traverse_data, end_time = traverseObstacles(all_target_configs, start_time)
+        data_collector.addTraversingData(traverse_data)
     
-    # Interpolate all configurations
-    target_configs = []
-    
-    for i in range(num_intermediate):
-        new_config = initial_config + (target_config - initial_config) * t[i+1]
-        # Replace theta with properly interpolated angle
-        new_config[2] = theta_interp[i]
-        new_config = np.round(new_config, 4)
-        target_configs.append(new_config.tolist())
+        print('Experiment is finished!\n')
 
-    target_configs.append(np.round(target_config, 4).tolist())
-
-    print(target_configs)
-
-    target_configs = [grasp_pose + [15, 15], 
-                      [grasp_pose[0], grasp_pose[1] + 0.3, grasp_pose[2], 15, 15]]
-
-    
-    for tc in target_configs:
-        rgb_camera.target_robot_config = tc
-        finish = False
-
-        v_r = [0.0] * 3
-        v_s = [0.0] * 2
-
-        s = [0, 0]
-        for i in range(2):
-            if abs(tc[i+3] - agent.curvature[i]) > 5:
-                s[i] = 1
-
-        while True:
-            if s != [0, 0] and close2Shape(agent.curvature, tc[3:]):
-                s = [0, 0]
-                v_r = [0.0] * 3
-                v_s = [0.0] * 2
-            if (s == [0, 0] and close2Goal(agent.pose, tc[:3])) or rgb_camera.finish:
-                v_r = [0.0] * 3
-                v_s = [0.0] * 2
-                finish = True
-            else:
-                if s == [0, 0]:
-                    v_r, q_new = agent_controller.mpcRM(agent, tc[:3], v_r)
-                elif s == [1, 0]:
-                    v_s, q_new = agent_controller.mpcSM1(agent, tc, v_s)
-                elif s == [0, 1]:
-                    v_s, q_new = agent_controller.mpcSM2(agent, tc, v_s)
-                else:
-                    v_s, q_new = agent_controller.mpcSM3(agent, tc, v_s)
-
-            if simulation:
-                agent.config = q_new
-
-            v = v_r + v_s
-            print(f'Stiffness: {s}')
-            print(f'Velocity: {v}')
-
-            agent_controller.move(agent, v, s)
-            print()
-
-            if finish:
-                break
-        
-        if rgb_camera.finish:
-            break
-
-        print('Next target!')
-        print()
-    
-
-    print('Finish!')
+    print('Save data...')
+    data_collector.saveData(data_file_path, False)
 
 
         

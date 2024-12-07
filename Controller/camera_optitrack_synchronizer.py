@@ -44,6 +44,8 @@ class Aligner:
         self.c_dot = []
 
         #--------------------------------------------------
+        self.detect_status = False
+        
         self.obstacles_contour = []
         self.obstacles = None
         self.expanded_obstacles_global = []
@@ -76,18 +78,21 @@ class Aligner:
         self.traversed_trajectory.append(pose)
         self.heading = heading
 
-    def startVideo(self, date_title: str, task: str, args=[]):
-        if task == 'soft_modes':
-            config_target, config0 = args
-            self.config_list.append(config0)
-            thread = threading.Thread(target=self.__run_old, args=(config_target, date_title))
-            thread.start()
-        elif task == 'object_handling':
-            thread = threading.Thread(target=self.__run_tr, args=(date_title,))
-            thread.start()
-        elif task == 'object_grasp':
-            thread = threading.Thread(target=self.__run_gr, args=(date_title,))
-            thread.start()
+    def startVideo(self, date_title: str, task='', args=[]):
+        # if task == 'soft_modes':
+        #     config_target, config0 = args
+        #     self.config_list.append(config0)
+        #     thread = threading.Thread(target=self.__run_old, args=(config_target, date_title))
+        #     thread.start()
+        # elif task == 'object_handling':
+        #     thread = threading.Thread(target=self.__run_tr, args=(date_title,))
+        #     thread.start()
+        # elif task == 'object_grasp':
+        #     thread = threading.Thread(target=self.__run, args=(date_title,))
+        #     thread.start()
+
+        thread = threading.Thread(target=self.__run, args=(date_title,))
+        thread.start()
 
     def __run_tr(self, date_title: str):
         video_path_rgb = f'Experiments/Video/Grasping/transport_bean_{date_title}.mp4'
@@ -212,7 +217,7 @@ class Aligner:
 
         cv2.destroyAllWindows()
     
-    def __run_gr(self, date_title: str):
+    def __run(self, date_title: str):
         video_path_rgb = f'Experiments/Video/Grasping/grasp_heart_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -251,11 +256,29 @@ class Aligner:
                 depth = sum(depth_list) / len(depth_list)
                 
             
-            if self.obstacles is None:
+            if self.detect_status:
                 self.detect_obstacles(undistorted_frame, depth)
 
             # for obstacle_contour in self.obstacles_contour:
             #     cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_green, 1)
+
+            if self.manip_target_contour is not None:
+                target_contour_points = []
+
+                for i in range(self.manip_target_contour.shape[1]):
+                    p, _ = self.globalToImage(*self.manip_target_contour[:,i], mean_z)
+                    target_contour_points.append(p)
+
+                target_contour_array = np.array(target_contour_points).reshape((-1, 1, 2))
+                cv2.polylines(undistorted_frame, [target_contour_array], True, neon_blue, 2)
+            
+            if self.path is not None:
+                points = []
+                for p in self.path:
+                    points.append(self.globalToImage(*p, mean_z)[0])
+                
+                path = np.array(points).reshape((-1, 1, 2))
+                cv2.polylines(undistorted_frame, [path], False, neon_blue, 1)
 
             if self.expanded_obstacles is None:
                 if len(self.expanded_obstacles_global) > 0:
@@ -280,6 +303,9 @@ class Aligner:
 
                 # Draw the vector
                 cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_blue, 2)
+
+            if self.manip_center is not None:
+                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
                 cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)    
 
             if self.grasp_point is not None:

@@ -279,15 +279,14 @@ class Controller:
         # Manipulated variables        
         v_x = m.MV(value=v_current[0], lb=-0.15, ub=0.15)
         v_x.STATUS = 1
-        # v_x.DCOST = 0.001
+        v_x.DCOST = 1
 
         v_y = m.MV(value=v_current[1], lb=-0.15, ub=0.15)
         v_y.STATUS = 1
-        # v_y.DCOST = 0.001
+        v_y.DCOST = 1
 
         omega = m.MV(value=v_current[2], lb=-0.5, ub=0.5)
         omega.STATUS = 1
-        # omega.DCOST = 10000
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -312,8 +311,8 @@ class Controller:
         # m.Equation(v_x**2 + v_y**2 == V_DESIRED**2)
         
         # Objective
-        m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              10 * v_x**2 + 5 * v_y**2 + 0.8 * omega**2)
+        m.Obj(5 * (target[0] - x)**2 + 5 * (target[1] - y)**2 + (target[2] - theta)**2 + 
+              1 * v_x**2 + 5 * v_y**2 + 1 * omega**2)
         
         # # Constant velocity soft constraint
         # velocity_weight = 1000
@@ -546,7 +545,7 @@ class Controller:
         # m.Equation(w2_curve >= 0)
 
         Q = [3, 3, 1, 0.01, 0.01]
-        R = [10, 10]
+        R = [5, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
@@ -676,8 +675,8 @@ class Controller:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
         commands = omega.tolist() + s + [agent.id]
 
-        sc_feedback = [[], []]
-        sc_feedback = self.sc.control_loop(agent.stiffness, s, agent.id)
+        sc_feedback = None
+        # sc_feedback = self.sc.control_loop(agent.stiffness, s, agent.id)
 
         sendCommands(commands)
 
@@ -777,14 +776,22 @@ class StiffnessController:
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
             
-            meas.append(self.temp[1])
+            meas.append(self.temp)
             time_list.append(elapsed_time)
 
             self.applyActions(actions)
 
         self.send_counter = 0
 
-        return [meas, time_list]
+        if meas:
+            response = {
+                'relative_timestamps': time_list,
+                'meas': meas
+            }
+        else:
+            response = None
+
+        return response
 
     def getActions(self, target_states):
         actions = (self.getAction(self.states[0], target_states[0]),
