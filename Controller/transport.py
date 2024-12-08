@@ -47,6 +47,7 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     # Find a point on the contour in the opposite direction
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
+    margin_in = 0.035
     margin_out = 0.08
 
     for s in s_array:
@@ -60,13 +61,15 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
             grasp_idx = s
             max_dot_product = dot_product
 
-            grasp_pose = [*point, func.normalizeAngle(theta)]
+            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) - 0.013, 
+                                    point[1] + margin_in * np.sin(dir_angle)]
+            grasp_pose = point_with_margin_in + [func.normalizeAngle(theta)]
 
             point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle), 
                                     point[1] + margin_out * np.sin(dir_angle)]
             approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
 
-    grasp_config = [*grasp_pose, 15, 15]
+    grasp_config = [*grasp_pose, 13, 13]
     approach_config = [*approach_pose, 0, 0]
 
     return grasp_idx, grasp_config, approach_config
@@ -79,7 +82,7 @@ NX = 3
 NU = 3
 # R = np.diag([10000, 0.08, 0.002]) # input cost matrix (sheescake)
 # R = np.diag([10000, 1.05, 0.021]) # input cost matrix (ellipse)
-R = np.diag([10000, 1.05, 0.018]) # input cost matrix (heart)
+R = np.diag([10000, 1.05, 0.02]) # input cost matrix (heart)
 # R = np.diag([10000, 1.0, 0.017]) # input cost matrix (bean)
 Q = np.diag([10, 10, 0.0]) # cost matrixq
 Qf = Q # final matrix
@@ -287,7 +290,7 @@ def robotVelocities(v_c, agent: robot2sr.Robot, c_frames):
 
     return v_r
 
-def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pose: list, 
+def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pos: list, 
               path:splines.Trajectory, rgb_camera, start_time: float, simulation=False) -> dict:
     TARGET_SPEED = 0.06
 
@@ -301,11 +304,12 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pos
     cx, cy, cyaw, s = path.params
     sp = [TARGET_SPEED] * len(cx)
 
+    rgb_camera.target_robot_config = None
     rgb_camera.add2traj(manip.position)
     agent_controller = rsr_ctrl.Controller()
     
     while True:
-        if func.close2Goal(manip.pose, manip_target_pose) or rgb_camera.finish:
+        if func.close2Pos(manip.position, manip_target_pos) or rgb_camera.finish:
             v_r = np.array([0.0] * 3)
             finish = True
         else:

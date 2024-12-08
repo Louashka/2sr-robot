@@ -19,6 +19,87 @@ class Shape(Enum):
     ELLIPSE = 2
     OTHER = 3
 
+class StatusBar:
+        def __init__(self):
+            self.width = 140  # Status bar width
+            self.height = 90  # Status bar height
+            
+            # Position status bar in bottom-right corner
+            self.x = 800
+            self.y = 120
+            
+            # Colors
+            self.white = (230, 230, 230)
+            self.grey = (200, 200, 200)
+            self.red = (0, 0, 255)
+            self.green = (0, 255, 0)
+            self.black = (0, 0, 0)
+
+        def draw_heat_bar(self, img, y_pos, value, min_val=47, max_val=74):
+            """Draw a heat bar"""
+            bar_width = 66
+            bar_height = 10
+            x_start = self.x + 30
+            
+            # Calculate color based on temperature
+            # Clamp value between min and max
+            value = max(min_val, min(value, max_val))
+            
+            # Calculate percentage (0 to 1)
+            percentage = (value - min_val) / (max_val - min_val)
+            
+            # Color interpolation from dark purple (22°C) to bright red (68°C)
+            if percentage <= 0:
+                color = (80, 0, 80)  # Dark purple
+            elif percentage >= 1:
+                color = (0, 0, 255)    # Bright red
+            else:
+                # Interpolate between purple and red
+                r = int(80 + (255 - 80) * percentage)      # 139 -> 255
+                g = int(0)                                 # 0 -> 0
+                b = int(80 + (0 - 80) * percentage)        # 139 -> 0
+                color = (b, g, r)  # BGR format for OpenCV
+            
+            # Draw the full bar with calculated color
+            cv2.rectangle(img, (x_start, y_pos), 
+                        (x_start + bar_width, y_pos + bar_height), 
+                        color, -1)
+            
+            # Add border for better visibility
+            cv2.rectangle(img, (x_start, y_pos), 
+                        (x_start + bar_width, y_pos + bar_height), 
+                        self.black, 1)
+
+        def draw(self, img, transition, T1, T2, s):
+            """Draw the complete status bar"""
+            # Draw white background
+            cv2.rectangle(img, (self.x, self.y), (self.x + self.width, self.y + self.height), 
+                        self.white, -1)
+            
+            # Draw TRANSITION button
+            button_color = self.green if transition else self.grey
+            cv2.rectangle(img, (self.x + 7, self.y + 7), 
+                        (self.x + self.width - 7, self.y + 40), 
+                        button_color, -1)
+            cv2.putText(img, "TRANSITION", (self.x + 18, self.y + 31),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.black, 1)
+            
+            # Row 2: T1
+            cv2.putText(img, "T1", (self.x + 7, self.y + 58),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.black, 1)
+            self.draw_heat_bar(img, self.y + 50, T1)
+            state_text = "soft" if s[0] == 1 else "rigid"
+            cv2.putText(img, state_text, (self.x + self.width - 36, self.y + 58),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.black, 1)
+            
+            # Row 3: T2
+            cv2.putText(img, "T2", (self.x + 7, self.y + 78),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.black, 1)
+            self.draw_heat_bar(img, self.y + 70, T2)
+            state_text = "soft" if s[1] == 1 else "rigid"
+            cv2.putText(img, state_text, (self.x + self.width - 36, self.y + 78),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.black, 1)
+
 class Aligner:
     def __init__(self) -> None:
         self.file_path = "Controller/calibration_data.json"
@@ -27,22 +108,23 @@ class Aligner:
         self.wait_video = False
         self.finish = False
 
-        self.current_shape = Shape.ELLIPSE
+        self.status_bar = StatusBar()
+
+        self.current_shape = Shape.OTHER
         self.detected_object_contour = None
         
         self.markers = None
 
         self.contour = None
         self.manip_center = None
-
         self.manip_target_contour = None
-        self.traversed_trajectory = []
 
         self.path = None
+        self.traversed_trajectory = []
+        self.heading = None
 
         self.contact_points = []
         self.c_dot = []
-
         #--------------------------------------------------
         self.detect_status = False
         
@@ -50,12 +132,15 @@ class Aligner:
         self.obstacles = None
         self.expanded_obstacles_global = []
         self.expanded_obstacles = None
-
+        #--------------------------------------------------
+        self.transition = False
+        self.s = [0, 0]
+        self.T = [0, 0]
+        #--------------------------------------------------
         self.direction = None
         self.grasp_point = None
 
         self.rrt_path = None
-        self.heading = None
         #--------------------------------------------------
         self.new_pos = None
         self.all_nodes = []
@@ -218,7 +303,7 @@ class Aligner:
         cv2.destroyAllWindows()
     
     def __run(self, date_title: str):
-        video_path_rgb = f'Experiments/Video/Grasping/grasp_heart_{date_title}.mp4'
+        video_path_rgb = f'Experiments/Video/Grasping/traverse_heart_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
@@ -262,6 +347,33 @@ class Aligner:
             # for obstacle_contour in self.obstacles_contour:
             #     cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_green, 1)
 
+            if self.expanded_obstacles is None:
+                if len(self.expanded_obstacles_global) > 0:
+                    self.expanded_obstacles = []
+                    for expanded_obstacle_global in self.expanded_obstacles_global:
+                        expanded_obstacle = []
+                        for x, y in expanded_obstacle_global:
+                            x_, y_ = self.globalToImage(x, y, mean_z)[0]
+                            expanded_obstacle.append([[x_, y_]])
+                        self.expanded_obstacles.append(np.array(expanded_obstacle))
+            else:
+                for obstacle_contour in self.expanded_obstacles:
+                    cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_blue, 1)
+            
+            if self.manip_center is not None:
+                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
+
+                if self.direction is not None:
+                    end_x_global = self.manip_center[0] + np.cos(self.direction) * 0.15
+                    end_y_global = self.manip_center[1] + np.sin(self.direction) * 0.15
+
+                    (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
+
+                    # Draw the vector
+                    cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_blue, 2)
+
+                cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)
+
             if self.manip_target_contour is not None:
                 target_contour_points = []
 
@@ -280,37 +392,19 @@ class Aligner:
                 path = np.array(points).reshape((-1, 1, 2))
                 cv2.polylines(undistorted_frame, [path], False, neon_blue, 1)
 
-            if self.expanded_obstacles is None:
-                if len(self.expanded_obstacles_global) > 0:
-                    self.expanded_obstacles = []
-                    for expanded_obstacle_global in self.expanded_obstacles_global:
-                        expanded_obstacle = []
-                        for x, y in expanded_obstacle_global:
-                            x_, y_ = self.globalToImage(x, y, mean_z)[0]
-                            expanded_obstacle.append([[x_, y_]])
-                        self.expanded_obstacles.append(np.array(expanded_obstacle))
-            else:
-                for obstacle_contour in self.expanded_obstacles:
-                    cv2.polylines(undistorted_frame, [obstacle_contour], True, neon_blue, 1)
-
-            if self.direction is not None:
-                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
-
-                end_x_global = self.manip_center[0] + np.cos(self.direction) * 0.15
-                end_y_global = self.manip_center[1] + np.sin(self.direction) * 0.15
-
-                (end_x, end_y), _ = self.globalToImage(end_x_global, end_y_global, mean_z)
-
-                # Draw the vector
-                cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_blue, 2)
-
-            if self.manip_center is not None:
-                (x, y), _ = self.globalToImage(*self.manip_center[:-1], mean_z)
-                cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)    
-
             if self.grasp_point is not None:
                 (x, y), _ = self.globalToImage(*self.grasp_point, mean_z)
                 cv2.circle(undistorted_frame, (x, y), 3, neon_blue, -1)
+
+            if self.target_robot_config is not None:
+                arc1 = self.__arc(self.target_robot_config, mean_z)
+                arc2 = self.__arc(self.target_robot_config, mean_z, 2)
+
+                cv2.polylines(undistorted_frame, [arc1], False, (255, 255, 255), 2)
+                cv2.polylines(undistorted_frame, [arc2], False, (255, 255, 255), 2)
+            #-----------------------------------------------------------------------------------
+
+            self.status_bar.draw(undistorted_frame, self.transition, *self.T, self.s)        
 
             #-----------------------------------------------------------------------------------
             if self.new_pos is not None:
@@ -331,9 +425,6 @@ class Aligner:
                     (x0, y0), _ = self.globalToImage(node.parent.position[0], node.parent.position[1], mean_z)
                     cv2.line(undistorted_frame, (int(x0), int(y0)), (int(x), int(y)), (255, 255, 255), 1)
 
-
-            #-----------------------------------------------------------------------------------
-
             if self.rrt_path is not None:
                 points = []
                 arrow_points = []
@@ -352,6 +443,8 @@ class Aligner:
                 # for p, ap in zip(points, arrow_points):
                 #     cv2.circle(undistorted_frame, p, 3, (0, 255, 0), -1)
                 #     cv2.arrowedLine(undistorted_frame, p, ap, neon_red, 2)
+
+            #-----------------------------------------------------------------------------------
 
             tracked_points = []
             for p in self.traversed_trajectory:
@@ -372,15 +465,7 @@ class Aligner:
 
             #     cv2.arrowedLine(undistorted_frame, p_start, p_end, (0, 0, 255), 2)
             #-----------------------------------------------------------------------------------
-            
-            if self.target_robot_config is not None:
-                arc1 = self.__arc(self.target_robot_config, mean_z)
-                arc2 = self.__arc(self.target_robot_config, mean_z, 2)
-
-                cv2.polylines(undistorted_frame, [arc1], False, (255, 255, 255), 2)
-                cv2.polylines(undistorted_frame, [arc2], False, (255, 255, 255), 2)
-
-            #-----------------------------------------------------------------------------------            
+                      
             # Crop undistorted_frame from all sides
             h, w = undistorted_frame.shape[:2]
             crop_margin = 100  # Adjust this value to increase or decrease the crop amount
@@ -408,8 +493,7 @@ class Aligner:
         out.release()
 
         cv2.destroyAllWindows()
-    
-    
+        
     def detect_shape(self, frame, depth):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (7, 7), 0)

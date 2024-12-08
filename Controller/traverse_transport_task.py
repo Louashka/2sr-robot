@@ -7,8 +7,8 @@ from Model import global_var as gv
 obj_dir = np.pi/2
 obj_go_dist = 0.5
 
-simulation = True
-# simulation = False
+# simulation = True
+simulation = False
 
 class DataCollector:
     def __init__(self): 
@@ -101,8 +101,8 @@ if __name__ == "__main__":
 
     # Grasp parameters
     grasp_idx, grasp_config, traverse_target = trans.defineGrasp(env_observer.object)
-    print(traverse_target)
     data_collector.addGraspConfig(grasp_config)
+    # env_observer.rgb_camera.target_robot_config = grasp_config
 
     # ------------------------- Conduct Motion Planning -------------------------
     
@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
         print('\nTransport the object...\n')
         transport_data = trans.transport(env_observer.agent, env_observer.object, 
-        env_observer.object_target.pose, obj_path, env_observer.rgb_camera,end_time, simulation)
+        env_observer.object_target.position, obj_path, env_observer.rgb_camera, start_time, simulation)
         data_collector.addTransportData(transport_data)
     
         print('Experiment is finished!\n')

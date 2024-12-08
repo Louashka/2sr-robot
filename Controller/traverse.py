@@ -1106,7 +1106,7 @@ class RobotConfigurationFitter:
             normalized_diff = (q - prev_q) / ranges
             smoothness_error = np.sum(normalized_diff**2)
 
-            objective += 0.004 * (np.abs(q[3]) + np.abs(q[4]))
+            objective += 0.005 * (np.abs(q[3]) + np.abs(q[4]))
             objective += smoothness_weight * smoothness_error
             
         return objective
@@ -1465,27 +1465,30 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
 def discretizeConfigs(initial_config, way_points):
     target_configs = []
     initial_config = initial_config
+    i = 0
 
     for way_point in way_points:
-        num_intermediate = 2
-        t = np.linspace(0, 1, num_intermediate + 2)
+        if i > 1:
+            num_intermediate = 2
+            t = np.linspace(0, 1, num_intermediate + 2)
 
-        # Special handling for angle (theta) to ensure proper interpolation
-        # Unwrap theta to prevent interpolation issues around ±π
-        theta_initial = initial_config[2]
-        theta_target = way_point[2]
-        delta_theta = (theta_target - theta_initial + np.pi) % (2 * np.pi) - np.pi
-        theta_interp = theta_initial + delta_theta * t[1:-1]
-        
-        for i in range(num_intermediate):
-            new_config = initial_config + (way_point - initial_config) * t[i+1]
-            # Replace theta with properly interpolated angle
-            new_config[2] = theta_interp[i]
-            new_config = np.round(new_config, 4)
-            target_configs.append(new_config.tolist())
+            # Special handling for angle (theta) to ensure proper interpolation
+            # Unwrap theta to prevent interpolation issues around ±π
+            theta_initial = initial_config[2]
+            theta_target = way_point[2]
+            delta_theta = (theta_target - theta_initial + np.pi) % (2 * np.pi) - np.pi
+            theta_interp = theta_initial + delta_theta * t[1:-1]
+            
+            for i in range(num_intermediate):
+                new_config = initial_config + (way_point - initial_config) * t[i+1]
+                # Replace theta with properly interpolated angle
+                new_config[2] = theta_interp[i]
+                new_config = np.round(new_config, 4)
+                target_configs.append(new_config.tolist())
 
         target_configs.append(np.round(way_point, 4).tolist())
         initial_config = way_point
+        i += 1
 
     return target_configs
 
@@ -1528,7 +1531,7 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
                 target_s = [0, 0]
                 v_r = [0.0] * 3
                 v_s = [0.0] * 2
-            if (target_s == [0, 0] and func.close2Goal(agent.pose, tc[:3])) or rgb_camera.finish:
+            if (target_s == [0, 0] and func.close2Pose(agent.pose, tc[:3])) or rgb_camera.finish:
                 v_r = [0.0] * 3
                 v_s = [0.0] * 2
                 finish = True
@@ -1549,11 +1552,12 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
             target_mm.append(target_s)
             target_vel.append(v)
 
-            _, _, current_s, sc_feedback = agent_controller.move(agent, v, target_s)
+            _, _, current_s, sc_feedback = agent_controller.move(agent, v, target_s, rgb_camera)
             print()
 
             if sc_feedback is None:
                 transition_status.append(False)
+                # rgb_camera.T = [25, 25]
             else:
                 transition_status.append(True)
 
@@ -1562,8 +1566,10 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
             if simulation:
                 agent.config = q_new
                 agent.stiffness = target_s
+                rgb_camera.s = target_s
             else:
                 agent.stiffness = current_s
+                rgb_camera.s = current_s
 
             if finish:
                 break

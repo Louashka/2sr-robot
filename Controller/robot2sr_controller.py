@@ -37,7 +37,7 @@ class Controller:
         self.Rd = np.diag([10, 10000, 0.001])
 
         self.TARGET_SPEED = 0.08
-        self.MAX_SPEED = 15  # Maximum speed in rad/s
+        self.MAX_SPEED = 10  # Maximum speed in rad/s
         self.MIN_SPEED = 0.5  # Minimum non-zero speed in rad/s 
 
         self.sc = StiffnessController()
@@ -266,9 +266,6 @@ class Controller:
         return q_ref
     
     def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
-        # Desired constant linear velocity
-        V_DESIRED = 0.08
-
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -277,23 +274,23 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        v_x = m.MV(value=v_current[0], lb=-0.15, ub=0.15)
+        v_x = m.MV(value=v_current[0], lb=-0.07, ub=0.07)
         v_x.STATUS = 1
-        v_x.DCOST = 1
+        v_x.DCOST = 0.5
 
-        v_y = m.MV(value=v_current[1], lb=-0.15, ub=0.15)
+        v_y = m.MV(value=v_current[1], lb=-0.06, ub=0.06)
         v_y.STATUS = 1
-        v_y.DCOST = 1
+        v_y.DCOST = 0.5
 
-        omega = m.MV(value=v_current[2], lb=-0.5, ub=0.5)
+        omega = m.MV(value=v_current[2], lb=-0.7, ub=0.7)
         omega.STATUS = 1
+        omega.DCOST = 3
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
         theta = m.SV(value=agent.theta)
 
         w = [m.Var(value=0.0) for _ in range(4)]
-        z = [m.Var(integer=True, lb=0, ub=1) for _ in range(4)]
 
         m.Equation(x.dt() == m.cos(theta) * v_x - m.sin(theta) * v_y)
         m.Equation(y.dt() == m.sin(theta) * v_x + m.cos(theta) * v_y)
@@ -304,19 +301,13 @@ class Controller:
                                                         np.sin(wheels[i][2]) * v_y +
                                                         (wheels[i][0] * np.sin(wheels[i][2]) - wheels[i][1] * np.cos(wheels[i][2])) * omega)
              for i in range(4)])
-        
-        m.Equations([w[i] >= self.MIN_SPEED - (self.MAX_SPEED + self.MIN_SPEED) * z[i] for i in range(4)])
-        m.Equations([w[i] <= -self.MIN_SPEED + (self.MAX_SPEED + self.MIN_SPEED) * (1 - z[i]) for i in range(4)])
 
-        # m.Equation(v_x**2 + v_y**2 == V_DESIRED**2)
+        m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
+        m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
         
         # Objective
-        m.Obj(5 * (target[0] - x)**2 + 5 * (target[1] - y)**2 + (target[2] - theta)**2 + 
-              1 * v_x**2 + 5 * v_y**2 + 1 * omega**2)
-        
-        # # Constant velocity soft constraint
-        # velocity_weight = 1000
-        # m.Obj(velocity_weight * (v_x**2 + v_y**2 - V_DESIRED**2)**2)
+        m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
+              2 * v_x**2 + 2 * v_y**2 + 0.4 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -332,13 +323,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
+        u1 = m.MV(value=v_current[0], lb=-0.1, ub=0.1)
         u1.STATUS = 1
-        u1.DCOST = 10
+        u1.DCOST = 5
 
-        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
+        u2 = m.MV(value=v_current[1], lb=-0.1, ub=0.1)
         u2.STATUS = 1
-        u2.DCOST = 10
+        u2.DCOST = 5
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -393,7 +384,7 @@ class Controller:
 
         # Objective function
         Q = [3, 3, 1, 0.01, 0.01]
-        R = [10, 2]
+        R = [10, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 +
@@ -415,13 +406,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
+        u1 = m.MV(value=v_current[0], lb=-0.1, ub=0.1)
         u1.STATUS = 1
-        u1.DCOST = 10
+        u1.DCOST = 5
 
-        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
+        u2 = m.MV(value=v_current[1], lb=-0.1, ub=0.1)
         u2.STATUS = 1
-        u2.DCOST = 10
+        u2.DCOST = 5
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -476,7 +467,7 @@ class Controller:
 
         # Objective function
         Q = [3, 3, 1, 0.01, 0.01]
-        R = [2, 10]
+        R = [5, 10]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
@@ -499,13 +490,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.16, ub=0.16)
+        u1 = m.MV(value=v_current[0], lb=-0.1, ub=0.1)
         u1.STATUS = 1
-        u1.DCOST = 10
+        u1.DCOST = 5
 
-        u2 = m.MV(value=v_current[1], lb=-0.16, ub=0.16)
+        u2 = m.MV(value=v_current[1], lb=-0.1, ub=0.1)
         u2.STATUS = 1
-        u2.DCOST = 10
+        u2.DCOST = 5
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -666,17 +657,18 @@ class Controller:
 
         V = self._wheelsConfigMatrix(wheels, v, s)
         omega = np.round(V @ v, 3)
+        omega = np.clip(omega, -12, 12)
         v_new = np.linalg.pinv(V) @ omega
 
         print(f'Wheels\' vel: {omega}')
         return omega, wheels, self.get_config(agent, v_new, s)
 
-    def move(self, agent: robot2sr.Robot, v: List[float], s: List[float]) -> tuple[List[List[float]], List[float]]:
+    def move(self, agent: robot2sr.Robot, v: List[float], s: List[float], rgb_camera=None) -> tuple[List[List[float]], List[float]]:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
         commands = omega.tolist() + s + [agent.id]
 
         sc_feedback = None
-        # sc_feedback = self.sc.control_loop(agent.stiffness, s, agent.id)
+        sc_feedback = self.sc.control_loop(agent.stiffness, s, agent.id, rgb_camera)
 
         sendCommands(commands)
 
@@ -751,7 +743,7 @@ class StiffnessController:
 
         self.send_counter = 0
 
-    def control_loop(self, current_states: list, target_states: list, agent_id: int):
+    def control_loop(self, current_states: list, target_states: list, agent_id: int, rgb_camera=None):
         self.states = current_states
 
         meas = []
@@ -764,6 +756,8 @@ class StiffnessController:
 
             if actions == (0, 0):
                 break
+            elif rgb_camera is not None:
+                rgb_camera.transition = True
 
             if self.send_counter < 3:
                 sendCommands([0] * 4 + target_states + [agent_id])
@@ -775,13 +769,18 @@ class StiffnessController:
 
             current_time = time.perf_counter()
             elapsed_time = current_time - start_time
-            
-            meas.append(self.temp)
-            time_list.append(elapsed_time)
 
             self.applyActions(actions)
+            
+            meas.append(self.temp.copy())
+            time_list.append(elapsed_time)
+
+            if rgb_camera is not None:
+                rgb_camera.T = self.temp
 
         self.send_counter = 0
+        if rgb_camera is not None:
+            rgb_camera.transition = False
 
         if meas:
             response = {
