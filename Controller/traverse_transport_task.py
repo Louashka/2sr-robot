@@ -4,8 +4,8 @@ import json
 import time
 from Model import global_var as gv
 
-obj_dir = np.pi/2
-obj_go_dist = 0.5
+obj_dir = 1.3
+obj_go_dist = 0.7
 
 # simulation = True
 simulation = False
@@ -94,7 +94,7 @@ if __name__ == "__main__":
                       env_observer.object.y + obj_go_dist * np.sin(obj_dir)]
 
     obj_path, obj_path_points, obj_d_th, obj_target_th = trans.generatePath(env_observer.object.pose, 
-                                                                         obj_target_pos, obj_dir)
+                                                obj_target_pos, obj_dir, np.pi/4-obj_dir)
     env_observer.object.delta_theta = obj_d_th
     env_observer.defineTargetObject([*obj_target_pos, obj_target_th])
     env_observer.showObjPath(obj_path_points)
@@ -142,7 +142,9 @@ if __name__ == "__main__":
 
     for i in range(len(key_configs_idx)-1):
         key_configs_anim.extend([q_ref[key_configs_idx[i]]] * (key_configs_idx[i+1] - key_configs_idx[i]))
-    key_configs_anim.append(q_ref[key_configs_idx[-1]])
+    # key_configs_anim.append(q_ref[key_configs_idx[-1]])
+    key_configs_anim.extend([q_ref[key_configs_idx[-1]]]*(len(rear_path) - len(key_configs_anim)))
+    
     
     print('Start animation...\n')
 
@@ -169,6 +171,13 @@ if __name__ == "__main__":
         '''
         
         key_configs = [q_ref[i] for i in key_configs_idx]
+
+        # start_config = key_configs[0]
+        # zero_config = np.array([start_config[0]-0.0, start_config[1]-0.3, 
+        #                         start_config[2]-1.5, 0, 0])
+        # key_configs = [zero_config] + key_configs
+
+
         print('Key configurations:')
         print(key_configs)
 

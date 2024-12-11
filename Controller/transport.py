@@ -8,18 +8,19 @@ import cvxpy
 def bezierCurve(t, p0, p1, p2, p3):
     return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
 
-def generatePath(manip_pose: list, manip_target_pos: list, obj_dir: float, beta=0) -> tuple[splines.Trajectory, float, float]:
+def generatePath(manip_pose: list, manip_target_pos: list, obj_dir: float, beta=0.0) -> tuple[splines.Trajectory, float, float]:
 
     # Start and end points
     start = np.array(manip_pose[:-1])
     end = np.array(manip_target_pos)
 
     # Calculate control points for smooth exit and entrance
-    exit_distance = 0.6  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.6  # Adjust this value to control the "smoothness" of the entrance
+    exit_distance = 0.2  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.2 # Adjust this value to control the "smoothness" of the entrance
 
     p0 = start
     p1 = start + exit_distance * np.array([np.cos(obj_dir), np.sin(obj_dir)])
+    p1 = start + exit_distance * np.array([np.cos(np.pi/2), np.sin(np.pi/2)])
     p2 = end - entrance_distance * np.array([np.cos(obj_dir + beta), 
                                              np.sin(obj_dir + beta)])
     p3 = end
@@ -47,7 +48,7 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     # Find a point on the contour in the opposite direction
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
-    margin_in = 0.035
+    margin_in = 0.055
     margin_out = 0.08
 
     for s in s_array:
@@ -69,7 +70,7 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
                                     point[1] + margin_out * np.sin(dir_angle)]
             approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
 
-    grasp_config = [*grasp_pose, 13, 13]
+    grasp_config = [*grasp_pose, 9, 9]
     approach_config = [*approach_pose, 0, 0]
 
     return grasp_idx, grasp_config, approach_config
@@ -82,11 +83,11 @@ NX = 3
 NU = 3
 # R = np.diag([10000, 0.08, 0.002]) # input cost matrix (sheescake)
 # R = np.diag([10000, 1.05, 0.021]) # input cost matrix (ellipse)
-R = np.diag([10000, 1.05, 0.02]) # input cost matrix (heart)
+R = np.diag([10000, 1.05, 0.019]) # input cost matrix (heart)
 # R = np.diag([10000, 1.0, 0.017]) # input cost matrix (bean)
 Q = np.diag([10, 10, 0.0]) # cost matrixq
 Qf = Q # final matrix
-Rd = np.diag([10, 10000, 0.001])
+Rd = np.diag([5, 0.01, 0.001])
 
 def arcEndPoints(agent: robot2sr.Robot, seg=1):
     if seg == 1:
@@ -200,6 +201,9 @@ def mpc(qref, vref, manip: manipulandum.Shape):
         cost += cvxpy.quad_form(u[:, t], R)
         if t != 0:
             cost += cvxpy.quad_form(q[:, t], Q)        
+            # Add smoothness cost (penalize control input changes)
+            cost += cvxpy.quad_form(u[:, t] - u[:, t-1], Rd)
+        
         A, B = getLinearModelMatrix(vref[0, t], qref[2, t])  
 
         constraints += [q[:, t + 1] == A @ q[:, t] + B @ u[:, t]]  

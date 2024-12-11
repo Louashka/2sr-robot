@@ -19,7 +19,7 @@ import robot2sr_controller as rsr_ctrl
 
 voronoi_plot_path = 'Experiments/Figures/voronoi_plot.pkl'
 agent_width = 0.07
-agent_length = 0.33
+agent_length = 0.34
 
 
 # ----------------------------- Motion Planning -----------------------------
@@ -156,7 +156,8 @@ class VoronoiPassageAnalyzer:
         closest_node_pos = self.allowed_passage_graph.nodes[closest_node]['pos']
         
         # Calculate direction vector from closest node to agent
-        direction = np.array(agent_pos) - np.array(closest_node_pos)
+        # direction = np.array(agent_pos) - np.array(closest_node_pos)
+        direction = np.array([-0.9, -1])
         angle = np.arctan2(direction[1], direction[0])
         direction = direction / np.linalg.norm(direction)
         
@@ -170,7 +171,7 @@ class VoronoiPassageAnalyzer:
             next_pos = current_pos + step_size * direction
             clearance = self.get_clearance(next_pos)
             
-            if clearance > 1.3 * agent_length:
+            if clearance > 0.3 * agent_length:
                 new_point = current_pos  # Use last valid position
                 break
             
@@ -288,7 +289,7 @@ class VoronoiPassageAnalyzer:
             return None
         
         # Initialize the queue of nodes between the rear and front points
-        if rear_path[0] == front_path[0]:
+        if rear_path[0]['nodes'] == front_path[0]['nodes']:
             path_between_rear_front = [rear_path[0]]
         else:
             path_between_rear_front = self.find_point_path(rear_path[0]['points'][0],
@@ -418,12 +419,19 @@ class VoronoiPassageAnalyzer:
     def _calc_robot_paths(self, start_pose, goal_pose, segment_length):
         segment_half = segment_length / 2
 
-        front_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
-        rear_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
+        # front_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
+        # rear_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
+
+        # # Calculate target positions for endpoints
+        # front_target = np.array(goal_pose[:-1]) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
+        # rear_target = np.array(goal_pose[:-1]) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+
+        front_start = np.array(start_pose[:-1]) + segment_half * np.array([np.cos(start_pose[-1]), np.sin(start_pose[-1])])
+        rear_start = np.array(start_pose[:-1]) + segment_half * np.array([-np.cos(start_pose[-1]), -np.sin(start_pose[-1])])
 
         # Calculate target positions for endpoints
-        front_target = np.array(goal_pose[:-1]) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
-        rear_target = np.array(goal_pose[:-1]) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+        front_target = np.array(goal_pose[:-1]) + segment_half * np.array([np.cos(goal_pose[-1]), np.sin(goal_pose[-1])])
+        rear_target = np.array(goal_pose[:-1]) + segment_half * np.array([-np.cos(goal_pose[-1]), -np.sin(goal_pose[-1])])
         
         # Find path for rear point (leading the motion)
         rear_path = self.find_point_path(rear_start, rear_target)
@@ -832,8 +840,8 @@ class VoronoiVisualizer:
 
 def voronoiAnalysis(obstacles: list, initial_pose: list, target_pose: list) -> tuple[list, list, list, tuple]:
     bounds = [
-        (-0.606, -0.8), # Lower left corner (x_min, y_min)
-        (0.319, 0.5)  # Upper right corner (x_max, y_max)
+        (-0.7, -1.0), # Lower left corner (x_min, y_min)
+        (0.4, 0.55)  # Upper right corner (x_max, y_max)
     ]
 
     visualizer = VoronoiVisualizer(obstacles, bounds)
@@ -867,7 +875,7 @@ def voronoiAnalysis(obstacles: list, initial_pose: list, target_pose: list) -> t
 
 
 # Process Voronoi paths
-def adjustPath(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_deviation=10) -> tuple[list, list]:
+def adjustPath(path_points, angle_threshold=2, max_merge_angle=15, max_zigzag_deviation=15) -> tuple[list, list]:
     """
     Merges segments if angle is small and removes zigzags.
     path_points: Nx2 array of (x,y) coordinates
@@ -979,15 +987,15 @@ def calcOrientations(middle_path, rear_path, connection_indices) -> list:
     theta_seq = []
 
     for i in range(1, len(middle_path)):
-        moddle_point_vector = np.array([middle_path[i][0]-middle_path[i-1][0], 
+        middle_point_vector = np.array([middle_path[i][0]-middle_path[i-1][0], 
                                         middle_path[i][1]-middle_path[i-1][1]])
         
         middle_rear_vector = np.array([rear_path[i][0]-middle_path[i-1][0], 
                                        rear_path[i][1]-middle_path[i-1][1]])
 
-        angle = np.arctan2(moddle_point_vector[1], moddle_point_vector[0])
+        angle = np.arctan2(middle_point_vector[1], middle_point_vector[0])
 
-        if np.dot(moddle_point_vector, middle_rear_vector) < 0:
+        if np.dot(middle_point_vector, middle_rear_vector) > 0:
             angle = func.normalizeAngle(angle - np.pi)
 
         theta_seq.append(angle)
@@ -1085,8 +1093,10 @@ class RobotConfigurationFitter:
         base_pos = np.array([x, y])
         
         # Compute actual positions
-        front_pos = self._compute_segment_end(base_pos, theta, k1, True)
-        rear_pos = self._compute_segment_end(base_pos, theta, k2, False)
+        # front_pos = self._compute_segment_end(base_pos, theta, k1, True)
+        # rear_pos = self._compute_segment_end(base_pos, theta, k2, False)
+        front_pos = self._compute_segment_end(base_pos, theta, k1, False)
+        rear_pos = self._compute_segment_end(base_pos, theta, k2, True)
         
         # Compute objective terms
         pos_error = np.linalg.norm(base_pos - p_0)
@@ -1095,7 +1105,7 @@ class RobotConfigurationFitter:
         orientation_error = abs(gamma - theta)
         
         # Base objective
-        objective = 10 * pos_error + front_error + rear_error + 0.001 * orientation_error
+        objective = 4 * (pos_error + front_error + rear_error) + 0.001 * orientation_error
         
         # Add smoothness term if previous configuration exists
         if prev_q is not None and bounds is not None:
@@ -1209,7 +1219,7 @@ def findFlatRegions(k, min_length=5, slope_threshold=0.5):
     
     return flat_regions
 
-def removeCloseIndices(indices, min_distance=3):
+def removeCloseIndices(indices, min_distance=4):
     """
     Remove indices that are too close to each other, keeping the latter one.
     
@@ -1266,6 +1276,10 @@ def getCrucialConfigs(q_ref_path) -> list:
     
     # Add last configuration
     configs_idx.append(len(q_ref_path) - 1)
+
+    # Add index of maximum y
+    max_y_idx = np.argmax(q_ref_array[:, 1])
+    configs_idx.append(max_y_idx)
     
     # Sort and remove duplicates
     configs_idx = sorted(list(set(configs_idx)))
@@ -1397,6 +1411,10 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
 
                     state.traversed_path = [[], []]
                     traversed_line.set_data(state.traversed_path)
+                    front_point.set_data([[], []])
+                    middle_point.set_data([[], []])
+                    rear_point.set_data([[], []])
+                    orientation_line.set_data([[], []])
                 else:
                     state.counter += 1
             
@@ -1465,11 +1483,15 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
 def discretizeConfigs(initial_config, way_points):
     target_configs = []
     initial_config = initial_config
-    i = 0
+    k = 0
 
     for way_point in way_points:
-        if i > 1:
-            num_intermediate = 2
+        if k > 2:
+            # if k == 3:
+            #     num_intermediate = 2
+            # else:
+            num_intermediate = 1
+
             t = np.linspace(0, 1, num_intermediate + 2)
 
             # Special handling for angle (theta) to ensure proper interpolation
@@ -1488,7 +1510,7 @@ def discretizeConfigs(initial_config, way_points):
 
         target_configs.append(np.round(way_point, 4).tolist())
         initial_config = way_point
-        i += 1
+        k += 1
 
     return target_configs
 
@@ -1517,9 +1539,10 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
         v_s = [0.0] * 2
 
         target_s = [0, 0]
-        for i in range(2):
-            if abs(tc[i+3] - agent.curvature[i]) > 5:
-                target_s[i] = 1
+        if idx > 2:
+            for i in range(2):
+                if abs(tc[i+3] - agent.curvature[i]) > 5:
+                    target_s[i] = 1
 
         while True:
             elapsed_time = time.perf_counter() - start_time

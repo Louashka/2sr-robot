@@ -33,7 +33,7 @@ def close2Pose(current: list, target: list) -> bool:
     distance = np.linalg.norm(dist)
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.013
+    distance_threshold = 0.02
 
     if distance >= distance_threshold:
         status = False
