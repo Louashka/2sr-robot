@@ -303,7 +303,7 @@ class Aligner:
         cv2.destroyAllWindows()
     
     def __run(self, date_title: str):
-        video_path_rgb = f'Experiments/Video/Grasping/traverse_heart_{date_title}.mp4'
+        video_path_rgb = f'Experiments/Video/Grasping/traverse_rm_{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
@@ -582,7 +582,7 @@ class Aligner:
             if len(approx) == 4 and cv2.contourArea(approx) > 1000:  # Adjust the area threshold as needed
                 obstacles_contour.append(approx)
         
-        if len(obstacles_contour) == 5:
+        if len(obstacles_contour) == 3:
             if self.obstacles is None:
                 self.obstacles = []
 

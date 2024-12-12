@@ -2,6 +2,7 @@ from scipy.spatial import Voronoi
 from scipy.optimize import minimize
 from scipy.signal import find_peaks
 from shapely.geometry import Polygon, Point, LineString
+from shapely import affinity
 import numpy as np
 import networkx as nx
 from collections import deque
@@ -10,6 +11,7 @@ from matplotlib.patches import Polygon as PlotPolygon
 from matplotlib.collections import PatchCollection
 import pickle
 import time
+from typing import List
 import func
 import matplotlib.pyplot as plt
 from matplotlib import animation
@@ -20,9 +22,327 @@ import robot2sr_controller as rsr_ctrl
 voronoi_plot_path = 'Experiments/Figures/voronoi_plot.pkl'
 agent_width = 0.07
 agent_length = 0.34
+workspace_bounds = [-0.606, 0.319, -1.02, 1.034]
 
 
-# ----------------------------- Motion Planning -----------------------------
+# --------------------------- Rigid Motion Planning -------------------------
+
+class Node:
+    def __init__(self, position, theta=0.0):
+        self.position = position  # [x, y]
+        self.theta = theta
+        self.parent = None
+        self.cost = 0.0
+
+    @property
+    def pose(self):
+        return [*self.position, self.theta]
+
+class RRTStar:
+    def __init__(self, start_pose, target_pose, obstacles, rgb_camera, 
+                 step_size=0.2, max_iter=1000, search_radius=1.0):
+        self.start = Node(np.array(start_pose[:-1]), start_pose[-1])
+        self.goal = Node(np.array(target_pose[:-1]), target_pose[-1])
+        self.obstacles = obstacles
+        self.rgb_camera = rgb_camera
+        self.max_iter = max_iter
+        self.step_size = step_size
+        self.search_radius = search_radius
+        self.nodes = [self.start]
+
+    def getRobotPolygon(self, pose):
+        """Create robot polygon at given pose (x, y, theta)"""
+        # Create rectangle centered at origin
+        l, w = agent_length, agent_width
+        points = [
+            (-l/2, -w/2),
+            (l/2, -w/2),
+            (l/2, w/2),
+            (-l/2, w/2)
+        ]
+        # Create polygon and transform it
+        robot = Polygon(points)
+        # Rotate and translate
+        robot = affinity.rotate(robot, pose[2] * 180/np.pi)
+        robot = affinity.translate(robot, pose[0], pose[1])
+        return robot
+
+    def plan(self):
+        for i in range(self.max_iter):
+            # Sample random pose
+            if np.random.random() < 0.05:  # 5% chance to sample goal
+                sampled_pos = self.goal.position
+            else:
+                sampled_pos = self.sampleRandomPosition()
+            
+            # Find nearest node
+            nearest_node = self.getNearestNode(sampled_pos)
+            
+            # Extend towards sampled position
+            new_pos = self.steer(nearest_node.position, sampled_pos)
+            # self.rgb_camera.new_pos = new_pos
+
+            # Find optimal theta for new position
+            optimal_theta = self.findOptimalTheta(new_pos, nearest_node)
+
+            if optimal_theta is None:
+                continue  # Skip if no valid theta found
+            
+            # Check if new pose is valid
+            if (self.isValidPose(new_pos, optimal_theta) and 
+                self.isPathValid(nearest_node, new_pos, optimal_theta)):
+                
+                new_node = Node(new_pos, optimal_theta)
+
+                # Find nearby nodes for rewiring
+                nearby_nodes = self.getNearbyNodes(new_pos)
+
+                # Choose best parent from nearby nodes
+                best_parent, cost = self.chooseBestParent(new_node, nearby_nodes)
+
+                if best_parent is not None:
+                    new_node.parent = best_parent
+                    new_node.cost = cost
+                    self.nodes.append(new_node)
+                    
+                    # Rewire nearby nodes
+                    self.rewire(new_node, nearby_nodes)
+                    self.rgb_camera.all_nodes = self.nodes
+                    
+                    # time.sleep(0.5)
+                    
+                    # Check if we can connect to goal
+                    distance_to_goal = np.linalg.norm(new_pos - self.goal.position)
+                    
+                    # if (distance_to_goal < self.step_size and dth <= self.max_dth and
+                    #     self.isPathValid(new_node, self.goal.position, self.goal.theta)):
+                    if (distance_to_goal < self.step_size and
+                        self.isPathValid(new_node, self.goal.position, self.goal.theta)):
+                        self.goal.parent = new_node
+                        self.goal.cost = self.calculateCost(new_node, self.goal)
+                        self.rgb_camera.all_nodes.append(self.goal)
+                        return self.extractPath()
+        
+        return None  # No path found
+    
+    def sampleRandomPosition(self):
+        x = np.random.uniform(workspace_bounds[0], workspace_bounds[1])
+        y = np.random.uniform(workspace_bounds[2], workspace_bounds[3])
+        return np.array([x, y])
+    
+    def findOptimalTheta(self, position, from_node: Node):
+        # Parameters for potential field
+        k_obstacle = 1.0  # Obstacle repulsion weight
+        k_goal = 0.5     # Goal attraction weight
+        k_parent = 0.2   # Parent node influence weight
+        obstacle_influence_dist = agent_length * 2  # Distance threshold for obstacle influence
+        num_samples = 16  # Number of theta samples to evaluate
+
+        # Sample candidate orientations
+        theta_candidates = np.linspace(-np.pi, np.pi, num_samples)
+        best_theta = None
+        min_potential = float('inf')
+
+        for theta in theta_candidates:
+            # Calculate total potential
+            potential = 0.0
+            robot_polygon = self.getRobotPolygon([position[0], position[1], theta])
+            
+            # 1. Obstacle repulsion
+            for obs in self.obstacles:
+                dist = robot_polygon.distance(obs)
+                if dist < obstacle_influence_dist:
+                    # Calculate angle between robot's long axis and obstacle
+                    robot_direction = np.array([np.cos(theta), np.sin(theta)])
+                    obstacle_center = np.array(obs.centroid.coords[0])
+                    robot_center = np.array([position[0], position[1]])
+                    obstacle_vector = obstacle_center - robot_center
+                    
+                    # Angle between robot's direction and obstacle vector
+                    angle_diff = abs(np.arctan2(
+                        np.cross(robot_direction, obstacle_vector/np.linalg.norm(obstacle_vector)),
+                        np.dot(robot_direction, obstacle_vector/np.linalg.norm(obstacle_vector))
+                    ))
+                    
+                    # We want the robot to be parallel to obstacles (angle_diff = π/2)
+                    parallel_potential = abs(angle_diff - np.pi/2)
+                    
+                    # Add distance-based repulsion
+                    potential += k_obstacle * (parallel_potential / (dist + 0.1))
+
+            # 2. Goal attraction
+            # Calculate desired orientation towards goal
+            goal_vector = self.goal.position - position
+            goal_dist = np.linalg.norm(goal_vector)
+            
+            # Add goal orientation influence (stronger when closer to goal)
+            angle_to_goal = func.normalizeAngle(theta - self.goal.theta)
+            potential += k_goal * abs(angle_to_goal) / (goal_dist + 1)
+
+            # 3. Parent node influence (for smoothness)
+            if from_node is not None:
+                parent_angle = func.normalizeAngle(theta - from_node.theta)
+                potential += k_parent * abs(parent_angle)
+
+            # Update best theta if current potential is lower
+            if potential < min_potential:
+                min_potential = potential
+                best_theta = theta
+
+        return best_theta
+    
+    def getNearestNode(self, position):
+        distances = [np.linalg.norm(node.position - position) for node in self.nodes]
+        return self.nodes[np.argmin(distances)]
+    
+    def getNearbyNodes(self, position):
+        nearby = []
+        for node in self.nodes:
+            if self.calculateDistance(node.position, position) <= self.search_radius:
+                nearby.append(node)
+        return nearby
+    
+    def calculateCost(self, node_parent: Node, node: Node):
+        # Include both distance and orientation change in cost
+        distance_cost = np.linalg.norm(node.position - node_parent.position)
+        angle_cost = abs(node.theta - node_parent.theta)
+        return node_parent.cost + distance_cost + 0.3 * angle_cost  # Weight can be adjusted
+    
+    def chooseBestParent(self, new_node: Node, nearby_nodes: List[Node]):
+        min_cost = float('inf')
+        best_parent = None
+        
+        for node in nearby_nodes:
+            # Calculate potential cost through this node
+            potential_cost = self.calculateCost(node, new_node)
+            
+            # Check if this path is valid and better than current best
+            if (self.isPathValid(node, new_node.position, new_node.theta) and 
+                potential_cost < min_cost):
+                min_cost = potential_cost
+                best_parent = node
+                
+        return best_parent, min_cost
+    
+    def steer(self, from_pos, to_pos):
+        direction = to_pos - from_pos
+        distance = np.linalg.norm(direction)
+        if distance > self.step_size:
+            direction = direction / distance * self.step_size
+        return from_pos + direction
+    
+    def rewire(self, new_node: Node, nearby_nodes: List[Node]):
+        for node in nearby_nodes:
+            if node == new_node.parent:
+                continue
+            
+            potential_cost = self.calculateCost(new_node, node)
+            
+            if (potential_cost < node.cost and 
+                self.isPathValid(new_node, node.position, node.theta)):
+                node.parent = new_node
+                node.cost = potential_cost
+    
+    def calculateDistance(self, pose1, pose2):
+        # Euclidean distance for position, weighted angular difference
+        pos_diff = np.sqrt((pose1[0] - pose2[0])**2 + (pose1[1] - pose2[1])**2)
+        # angle_diff = abs(normalizeAngle(pose1[2] - pose2[2]))
+        # return pos_diff + 0.2 * angle_diff  # Weight for angular component
+        return pos_diff
+    
+    def isValidPose(self, position, theta):
+        # Check bounds
+        if (position[0] < workspace_bounds[0] or position[0] > workspace_bounds[1] or
+            position[1] < workspace_bounds[2] or position[1] > workspace_bounds[3]):
+            return False
+        
+        # Check robot collision
+        robot_polygon = self.getRobotPolygon([position[0], position[1], theta])
+        if any(obs.intersects(robot_polygon) for obs in self.obstacles):
+            return False
+        return True
+    
+    def isPathValid(self, from_node: Node, to_pos, to_theta):
+        # Check straight line path
+        line = LineString([(from_node.position[0], from_node.position[1]), 
+                          (to_pos[0], to_pos[1])])
+        
+        # Check collision at intermediate points
+        num_checks = 10
+        for i in range(num_checks):
+            t = i / (num_checks - 1)
+            point = line.interpolate(t, normalized=True)
+            # Interpolate theta
+            theta = from_node.theta + t * (to_theta - from_node.theta)
+            
+            if not self.isValidPose(np.array([point.x, point.y]), theta):
+                return False
+        return True
+
+    def extractPath(self):
+        if self.goal.parent is None:
+            return None
+        
+        path = []
+        node = self.goal
+        while node is not None:
+            path.append(node.pose)
+            node = node.parent
+        return path[::-1]  # Reverse path to get start-to-goal order
+
+
+def runRigidPlanner(agent_pose, target_pose, grasp_pose, obstacles, rgb_camera=None):
+     while True:
+        # rrt = RRT(agent.pose, target_pose, workspace_bounds)
+        rrt = RRTStar(agent_pose, target_pose, obstacles, rgb_camera)
+        
+        path = rrt.plan()
+
+        if path is not None:
+            print("Path found!")
+            print(path)
+
+            if rgb_camera is not None:
+                rgb_camera.rrt_path = path
+            
+            # Ask for user confirmation
+            user_input = input("Is this path acceptable? (yes/no): ").lower()
+            
+            if user_input == 'yes' or user_input == 'y':
+                # Continue with the original code
+                interpolated_path = []
+                num_interpolated_points = 2
+
+                for i in range(len(path) - 1):
+                    start = path[i]
+                    end = path[i + 1]
+                    for j in range(num_interpolated_points + 1):
+                        t = j / num_interpolated_points
+                        x = start[0] + t * (end[0] - start[0])
+                        y = start[1] + t * (end[1] - start[1])
+                        theta = func.normalizeAngle(start[2] + t * (end[2] - start[2]))
+                        interpolated_path.append([x, y, theta])
+                    
+                if rgb_camera is not None:
+                    rgb_camera.all_nodes = []
+                
+                return interpolated_path
+                
+            elif user_input == 'no' or user_input == 'n':
+                if rgb_camera is not None:
+                    rgb_camera.rrt_path = None
+                print("Replanning path...")
+                continue  # Continue to next iteration to find a new path
+                
+            else:
+                print("Invalid input. Please enter 'yes' or 'no'.")
+                continue  # Ask for input again if invalid
+                
+        else:
+            print("No path found!")
+            return None
+
+# --------------------------- Soft Motion Planning --------------------------
 
 # Voronoi analysis 
 class VoronoiPassageAnalyzer:
@@ -1514,7 +1834,7 @@ def discretizeConfigs(initial_config, way_points):
 
     return target_configs
 
-def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_time, 
+def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time, 
                       rgb_camera, simulation=False) -> tuple[dict, float]:
     agent_controller = rsr_ctrl.Controller()
 
@@ -1539,7 +1859,7 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
         v_s = [0.0] * 2
 
         target_s = [0, 0]
-        if idx > 2:
+        if idx == len(target_configs):
             for i in range(2):
                 if abs(tc[i+3] - agent.curvature[i]) > 5:
                     target_s[i] = 1
@@ -1593,6 +1913,7 @@ def traverseObstacles(agent: robot2sr.Robot, grasp_idx, target_configs, start_ti
             else:
                 agent.stiffness = current_s
                 rgb_camera.s = current_s
+            # rgb_camera.add2traj(agent.position)
 
             if finish:
                 break

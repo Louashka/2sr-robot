@@ -276,15 +276,15 @@ class Controller:
         # Manipulated variables        
         v_x = m.MV(value=v_current[0], lb=-0.07, ub=0.07)
         v_x.STATUS = 1
-        v_x.DCOST = 0.3
+        v_x.DCOST = 0.1
 
         v_y = m.MV(value=v_current[1], lb=-0.07, ub=0.07)
         v_y.STATUS = 1
-        v_y.DCOST = 0.3
+        v_y.DCOST = 0.2
 
         omega = m.MV(value=v_current[2], lb=-0.7, ub=0.7)
         omega.STATUS = 1
-        omega.DCOST = 2
+        omega.DCOST = 1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -307,7 +307,7 @@ class Controller:
         
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-              1 * v_x**2 + 1 * v_y**2 + 0.35 * omega**2)
+              0.7 * v_x**2 + 0.85 * v_y**2 + 0.35 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode

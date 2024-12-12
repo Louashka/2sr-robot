@@ -16,11 +16,11 @@ def generatePath(manip_pose: list, manip_target_pos: list, obj_dir: float, beta=
 
     # Calculate control points for smooth exit and entrance
     exit_distance = 0.2  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.2 # Adjust this value to control the "smoothness" of the entrance
+    entrance_distance = 0.3 # Adjust this value to control the "smoothness" of the entrance
 
     p0 = start
     p1 = start + exit_distance * np.array([np.cos(obj_dir), np.sin(obj_dir)])
-    p1 = start + exit_distance * np.array([np.cos(np.pi/2), np.sin(np.pi/2)])
+    p1 = start + exit_distance * np.array([np.cos(obj_dir), np.sin(obj_dir)])
     p2 = end - entrance_distance * np.array([np.cos(obj_dir + beta), 
                                              np.sin(obj_dir + beta)])
     p3 = end
@@ -49,7 +49,7 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
     margin_in = 0.055
-    margin_out = 0.08
+    margin_out = 0.16
 
     for s in s_array:
         point = manip.getPoint(s)
@@ -62,11 +62,11 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
             grasp_idx = s
             max_dot_product = dot_product
 
-            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) - 0.013, 
+            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) - 0.0, 
                                     point[1] + margin_in * np.sin(dir_angle)]
             grasp_pose = point_with_margin_in + [func.normalizeAngle(theta)]
 
-            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle), 
+            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle) - 0.0, 
                                     point[1] + margin_out * np.sin(dir_angle)]
             approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
 
@@ -309,6 +309,7 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pos
     sp = [TARGET_SPEED] * len(cx)
 
     rgb_camera.target_robot_config = None
+    rgb_camera.traversed_trajectory = []
     rgb_camera.add2traj(manip.position)
     agent_controller = rsr_ctrl.Controller()
     
