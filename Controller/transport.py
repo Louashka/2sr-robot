@@ -49,7 +49,7 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
     margin_in = 0.055
-    margin_out = 0.16
+    margin_out = 0.08
 
     for s in s_array:
         point = manip.getPoint(s)
@@ -62,11 +62,11 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
             grasp_idx = s
             max_dot_product = dot_product
 
-            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) - 0.0, 
+            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) + 0.013, 
                                     point[1] + margin_in * np.sin(dir_angle)]
             grasp_pose = point_with_margin_in + [func.normalizeAngle(theta)]
 
-            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle) - 0.0, 
+            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle) + 0.013, 
                                     point[1] + margin_out * np.sin(dir_angle)]
             approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
 
@@ -236,6 +236,9 @@ def mpc(qref, vref, manip: manipulandum.Shape):
     return [vx, vy, omega], q_new
 
 def cpVelocities(v_o, manip: manipulandum.Shape, c_frames):
+    '''
+    Change Ad_oc_inv to Ad_co
+    '''
     rot_ow = np.array([[np.cos(-manip.theta), -np.sin(-manip.theta)],
                        [np.sin(-manip.theta), np.cos(-manip.theta)]])
     # B_c = np.array([[1, 0], [0, 1], [0, 0]])

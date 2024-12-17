@@ -4,7 +4,7 @@ import json
 import time
 from Model import global_var as gv
 
-obj_dir = 1.3
+obj_dir = np.pi/2
 obj_go_dist = 0.7
 
 # simulation = True
@@ -94,7 +94,7 @@ if __name__ == "__main__":
                       env_observer.object.y + obj_go_dist * np.sin(obj_dir)]
 
     obj_path, obj_path_points, obj_d_th, obj_target_th = trans.generatePath(env_observer.object.pose, 
-                                                obj_target_pos, obj_dir, np.pi/4-obj_dir)
+                                                obj_target_pos, obj_dir, np.pi/2-obj_dir)
     env_observer.object.delta_theta = obj_d_th
     env_observer.defineTargetObject([*obj_target_pos, obj_target_th])
     env_observer.showObjPath(obj_path_points)

@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "description": "Traverse a cluttered environment (RRT* + APF)",
+    "date": "2024-12-13_15-24-24"
+  },
+  "estimation": {
+    "grasp_config": [
+      -0.16709082314276605,
+      -0.03380319091151073,
+      0.0005807463897091469,
+      9,
+      9
+    ],
+    "robot_reference_path": null
+  },
+  "traversing": null,
+  "transport": null
+}

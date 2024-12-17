@@ -276,11 +276,11 @@ class Controller:
         # Manipulated variables        
         v_x = m.MV(value=v_current[0], lb=-0.07, ub=0.07)
         v_x.STATUS = 1
-        v_x.DCOST = 0.1
+        v_x.DCOST = 1
 
         v_y = m.MV(value=v_current[1], lb=-0.07, ub=0.07)
         v_y.STATUS = 1
-        v_y.DCOST = 0.2
+        v_y.DCOST = 0.3
 
         omega = m.MV(value=v_current[2], lb=-0.7, ub=0.7)
         omega.STATUS = 1
@@ -307,7 +307,7 @@ class Controller:
         
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-              0.7 * v_x**2 + 0.85 * v_y**2 + 0.35 * omega**2)
+              1 * v_x**2 + 1 * v_y**2 + 0.35 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -383,7 +383,7 @@ class Controller:
         # m.Equation(w2_curve >= 0)
 
         # Objective function
-        Q = [3, 3, 1, 0.1, 0.1]
+        Q = [3, 3, 1, 0.05, 0.05]
         R = [10, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
@@ -466,8 +466,8 @@ class Controller:
         # m.Equation(w2_curve >= 0)
 
         # Objective function
-        Q = [3, 3, 1, 0.1, 0.1]
-        R = [3, 10]
+        Q = [3, 3, 1, 0.05, 0.05]
+        R = [5, 10]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
@@ -535,7 +535,7 @@ class Controller:
         m.Equation(w2 <= self.MAX_SPEED)
         # m.Equation(w2_curve >= 0)
 
-        Q = [3, 3, 1, 0.1, 0.1]
+        Q = [3, 3, 1, 0.05, 0.05]
         R = [5, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 

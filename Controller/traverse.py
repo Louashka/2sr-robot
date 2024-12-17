@@ -40,7 +40,7 @@ class Node:
 
 class RRTStar:
     def __init__(self, start_pose, target_pose, obstacles, rgb_camera, 
-                 step_size=0.2, max_iter=1000, search_radius=1.0):
+                 step_size=0.2, max_iter=500, search_radius=1.0):
         self.start = Node(np.array(start_pose[:-1]), start_pose[-1])
         self.goal = Node(np.array(target_pose[:-1]), target_pose[-1])
         self.obstacles = obstacles
@@ -133,8 +133,8 @@ class RRTStar:
     def findOptimalTheta(self, position, from_node: Node):
         # Parameters for potential field
         k_obstacle = 1.0  # Obstacle repulsion weight
-        k_goal = 0.5     # Goal attraction weight
-        k_parent = 0.2   # Parent node influence weight
+        k_goal = 0.1     # Goal attraction weight
+        k_parent = 0.3   # Parent node influence weight
         obstacle_influence_dist = agent_length * 2  # Distance threshold for obstacle influence
         num_samples = 16  # Number of theta samples to evaluate
 
@@ -165,7 +165,12 @@ class RRTStar:
                     ))
                     
                     # We want the robot to be parallel to obstacles (angle_diff = π/2)
-                    parallel_potential = abs(angle_diff - np.pi/2)
+                    angle = angle_diff - np.pi/2
+                    if angle < -np.pi/2:
+                        angle += np.pi
+                    elif angle > np.pi/2:
+                        angle -= np.pi
+                    parallel_potential = abs(angle)
                     
                     # Add distance-based repulsion
                     potential += k_obstacle * (parallel_potential / (dist + 0.1))
@@ -477,7 +482,7 @@ class VoronoiPassageAnalyzer:
         
         # Calculate direction vector from closest node to agent
         # direction = np.array(agent_pos) - np.array(closest_node_pos)
-        direction = np.array([-0.9, -1])
+        direction = np.array([0, -1])
         angle = np.arctan2(direction[1], direction[0])
         direction = direction / np.linalg.norm(direction)
         
@@ -491,7 +496,7 @@ class VoronoiPassageAnalyzer:
             next_pos = current_pos + step_size * direction
             clearance = self.get_clearance(next_pos)
             
-            if clearance > 0.3 * agent_length:
+            if clearance > 1.0 * agent_length:
                 new_point = current_pos  # Use last valid position
                 break
             
@@ -1415,8 +1420,8 @@ class RobotConfigurationFitter:
         # Compute actual positions
         # front_pos = self._compute_segment_end(base_pos, theta, k1, True)
         # rear_pos = self._compute_segment_end(base_pos, theta, k2, False)
-        front_pos = self._compute_segment_end(base_pos, theta, k1, False)
-        rear_pos = self._compute_segment_end(base_pos, theta, k2, True)
+        front_pos = self._compute_segment_end(base_pos, theta, k2, False)
+        rear_pos = self._compute_segment_end(base_pos, theta, k1, True)
         
         # Compute objective terms
         pos_error = np.linalg.norm(base_pos - p_0)
@@ -1425,7 +1430,7 @@ class RobotConfigurationFitter:
         orientation_error = abs(gamma - theta)
         
         # Base objective
-        objective = 4 * (pos_error + front_error + rear_error) + 0.001 * orientation_error
+        objective = 5 * pos_error + front_error + rear_error + 0.001 * orientation_error
         
         # Add smoothness term if previous configuration exists
         if prev_q is not None and bounds is not None:
@@ -1792,7 +1797,8 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
         blit=True,
         repeat=False
     )
-    anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', writer='ffmpeg', fps=8)  # Save the animation as an MP4 file
+    anim.save('D:/Robot 2SR/2sr-swarm-control/Experiments/Video/Grasping/traverse_animation.mp4', 
+              writer='ffmpeg', fps=8, dpi=150)  # Save the animation as an MP4 file
     
     plt.title('Voronoi Diagram with Robot Motion')
     plt.show()
@@ -1806,7 +1812,7 @@ def discretizeConfigs(initial_config, way_points):
     k = 0
 
     for way_point in way_points:
-        if k > 2:
+        if k > 1:
             # if k == 3:
             #     num_intermediate = 2
             # else:
@@ -1859,7 +1865,7 @@ def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time,
         v_s = [0.0] * 2
 
         target_s = [0, 0]
-        if idx == len(target_configs):
+        if idx > 2:
             for i in range(2):
                 if abs(tc[i+3] - agent.curvature[i]) > 5:
                     target_s[i] = 1
