@@ -163,6 +163,8 @@ class RRTStar:
                         np.cross(robot_direction, obstacle_vector/np.linalg.norm(obstacle_vector)),
                         np.dot(robot_direction, obstacle_vector/np.linalg.norm(obstacle_vector))
                     ))
+                    # angle = arccos((v1 · v2)/(||v1|| ||v2||))
+                    # angle_diff = np.arccos(np.dot(robot_direction, obstacle_vector/np.linalg.norm(obstacle_vector)))
                     
                     # We want the robot to be parallel to obstacles (angle_diff = π/2)
                     angle = angle_diff - np.pi/2
@@ -321,12 +323,14 @@ def runRigidPlanner(agent_pose, target_pose, grasp_pose, obstacles, rgb_camera=N
                 for i in range(len(path) - 1):
                     start = path[i]
                     end = path[i + 1]
-                    for j in range(num_interpolated_points + 1):
+                    for j in range(num_interpolated_points):
                         t = j / num_interpolated_points
                         x = start[0] + t * (end[0] - start[0])
                         y = start[1] + t * (end[1] - start[1])
                         theta = func.normalizeAngle(start[2] + t * (end[2] - start[2]))
                         interpolated_path.append([x, y, theta])
+
+                interpolated_path.append(path[-1])
                     
                 if rgb_camera is not None:
                     rgb_camera.all_nodes = []

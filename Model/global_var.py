@@ -10,8 +10,8 @@ DT = 0.1
 scale = 1
 
 # VSF parameters
-# L_VSS = scale * 77 * 10**(-3)  # VSS length
-L_VSS = math.pi/6
+L_VSS = scale * 77 * 10**(-3)  # VSS length
+# L_VSS = math.pi/6
 L_CONN = scale * 32 * 10**(-3)
 D_BRIDGE = scale * 7 * 10**(-3)  # bridge width
 L_VSF = 2 * L_VSS  # VSF length
@@ -62,7 +62,7 @@ RB_ANGLES = ['roll', 'pitch', 'yaw']
 HEAD_CENTER_R = scale * 0.01074968
 HEAD_CENTER_ANGLE = math.radians(-60.2551187)
 
-CARDIOID_A = [0.0215, 0.05, 0.043]
-CARDIOID_TH_MIN = [1.74533, 1.1, 0]
-CARDIOID_TH_MAX = [4.537856, 5.18, 6.2832]
-CARDIOID_OFFSET = [0.0085, 0.045, 0.017]
+CARDIOID_A = [0.021, 0.049, 0.042]
+CARDIOID_TH_MIN = [2.42, 2.19, 1.73]
+CARDIOID_TH_MAX = [3.87, 4.09, 4.56]
+CARDIOID_OFFSET = [0.006, 0.042, 0.015]

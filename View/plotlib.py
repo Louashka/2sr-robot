@@ -172,8 +172,13 @@ class GUI:
     def clear(self) -> None:
         self.__ax.clear()
 
-def plotDotPaths(paths, seg_idx):
+def plotDotPaths(paths, smooth_paths, seg_idx):
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['text.usetex'] = False
+    plt.rcParams['font.size'] = 12
+
     front_path, middle_path, rear_path = paths
+    front_smooth_path, middle_smooth_path, rear_smooth_path = smooth_paths
     front_seg_idx, middle_seg_idx, rear_seg_idx = seg_idx
 
     front_seg_points = [front_path[i] for i in front_seg_idx]
@@ -184,11 +189,11 @@ def plotDotPaths(paths, seg_idx):
     fig, axs = plt.subplots(1, 3, figsize=(16, 8))
 
     # Plot rear_path_points
-    axs[0].plot(*zip(*rear_path), 'k--', label='Rear Path Points original')
-    axs[0].plot(*zip(*rear_path), 'r-', label='Rear Path Points smooth')
-    axs[0].plot(*zip(*rear_seg_points), 'r.', label='Rear Path Points endpoints')
+    axs[0].plot(*zip(*rear_path), 'k--', label='Original')
+    axs[0].plot(*zip(*rear_smooth_path), '-', color='#DC5956', label='Smoothed', lw=2)
+    axs[0].plot(*zip(*rear_seg_points), '.', color='#DC5956', label='Segments endpoints', markersize=10)
     # axs[0].plot(rear_smooth[:,0], rear_smooth[:,1], 'r-', label='Rear Path Points smooth')
-    axs[0].set_title('Rear Path Points')
+    axs[0].set_title('Rear Path')
     axs[0].set_xlabel('X')
     axs[0].set_ylabel('Y')
     axs[0].axis('equal')
@@ -196,11 +201,11 @@ def plotDotPaths(paths, seg_idx):
     axs[0].legend() 
 
     # Plot front_path_points
-    axs[1].plot(*zip(*front_path), 'k--', label='Front Path Points original')
-    axs[1].plot(*zip(*front_path), 'g-', label='Rear Path Points smooth')
-    axs[1].plot(*zip(*front_seg_points), 'g.', label='Front Path Points endpoints')
+    axs[1].plot(*zip(*front_path), 'k--', label='Original')
+    axs[1].plot(*zip(*front_smooth_path), '-', color='#358185', label='Smoothed', lw=2)
+    axs[1].plot(*zip(*front_seg_points), '.', color='#358185', label='Segments endpoints', markersize=10)
     # axs[1].plot(front_smooth[:,0], front_smooth[:,1], 'g-', label='Front Path Points smooth')
-    axs[1].set_title('Front Path Points')
+    axs[1].set_title('Front Path')
     axs[1].set_xlabel('X')
     axs[1].set_ylabel('Y')
     axs[1].axis('equal')
@@ -208,11 +213,11 @@ def plotDotPaths(paths, seg_idx):
     axs[1].legend()
 
     # Plot middle_path_points
-    axs[2].plot(*zip(*middle_path), 'k--', label='Middle Path Points original')
-    axs[2].plot(*zip(*middle_path), 'b-', label='Rear Path Points smooth')
-    axs[2].plot(*zip(*middle_seg_points), 'b.', label='Middle Path Points endpoints')
+    axs[2].plot(*zip(*middle_path), 'k--', label='Original')
+    axs[2].plot(*zip(*middle_smooth_path), '-', color='#C27330', label='Smoothed', lw=2)
+    axs[2].plot(*zip(*middle_seg_points), '.', color='#C27330', label='Segments endpoints', markersize=10)
     # axs[2].plot(middle_smooth[:,0], middle_smooth[:,1], 'b-', label='Middle Path Points smooth')
-    axs[2].set_title('Middle Path Points')
+    axs[2].set_title('Middle Path')
     axs[2].set_xlabel('X')
     axs[2].set_ylabel('Y')
     axs[2].axis('equal')
@@ -220,6 +225,7 @@ def plotDotPaths(paths, seg_idx):
     axs[2].legend()
 
     plt.tight_layout()
+    plt.savefig('paths_smooth.pdf', format='pdf', dpi=150, bbox_inches='tight')
     plt.show()
 
 def arc(config: list, seg=1) -> tuple[np.ndarray, np.ndarray, float]:

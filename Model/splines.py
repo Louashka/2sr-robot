@@ -89,10 +89,11 @@ class Cardioid:
         self.phi_max = gv.CARDIOID_TH_MAX[n-1]
         self.offset = gv.CARDIOID_OFFSET[n-1]
 
-        self.var_phi = 2 * np.pi / (gv.L_VSS * (self.phi_max - self.phi_min))
+        self.delta_phi = self.phi_max - self.phi_min
+        self.var_phi = np.pi / (gv.L_VSS * self.delta_phi)
 
     def phi(self, k: float) -> float:
-        phi = self.phi_min + (1 / self.var_phi) * (k + np.pi / gv.L_VSS)
+        phi = self.phi_min + (1 / self.var_phi) * (np.pi / (2*gv.L_VSS) - k)
         return phi
     
     def rho(self, k: float) -> float:
@@ -104,7 +105,7 @@ class Cardioid:
         rho = self.rho(k)
 
         x = rho * np.cos(phi)
-        y = -rho * np.sin(phi)
+        y = rho * np.sin(phi)
 
         if lu == 2:
             x = -x - self.offset
@@ -116,23 +117,20 @@ class Cardioid:
     
     def pos_dot(self, th0: float, k: float, seg: int = 1, lu: int = 1) -> list:
         phi = self.phi(k)
-        rho = self.rho(k)
   
-        pos_dot_local = np.array([
-            [2 * self.a * (np.sin(phi) - np.sin(2*phi)) / rho],
-            [(-1)**lu * 2 * self.a * (-np.cos(phi) + np.cos(2*phi)) / rho]
-        ])
+        # pos_dot_local = np.array([
+        #     [(-np.sin(phi) + np.sin(2*phi)) / (1 - np.cos(phi))],
+        #     [(-1)**(lu-1) * (np.cos(phi) - np.cos(2*phi)) / (1 - np.cos(phi))]
+        # ])
 
         th = th0 + (-1)**seg * k * gv.L_VSS
     
-        rot_spiral_to_global = np.array([
-            [np.cos(th), -np.sin(th)],
-            [np.sin(th), np.cos(th)]
+        pos_dot = np.array([
+            [2 * self.a * (-np.sin(phi + th) + np.sin(2*phi + th))],
+            [(-1)**(lu-1) * 2 * self.a * (np.cos(phi + th) - np.cos(2*phi + th))]
         ])
-    
-        return (rot_spiral_to_global @ pos_dot_local).flatten().tolist()
 
-        # return pos_dot_local.flatten().tolist()
+        return pos_dot.flatten().tolist()
         
 
     def th_dot(self, k: float) -> float:

@@ -3,6 +3,7 @@ import numpy as np
 import json
 import time
 from Model import global_var as gv
+from View import plotlib
 
 obj_dir = np.pi/2
 obj_go_dist = 0.7
@@ -115,8 +116,12 @@ if __name__ == "__main__":
     front_seg_idx, front_path_adjusted = trav.adjustPath(front_path)
     middle_seg_idx, middle_path_adjusted = trav.adjustPath(middle_path)
     rear_seg_idx, rear_path_adjusted = trav.adjustPath(rear_path)
-
+    
     data_collector.addAdjustedPaths([front_path_adjusted, middle_path_adjusted, rear_path_adjusted])
+
+    plotlib.plotDotPaths((front_path, middle_path, rear_path),
+                         (front_path_adjusted, middle_path_adjusted, rear_path_adjusted),
+                         (front_seg_idx, middle_seg_idx, rear_seg_idx))
 
     theta_seq = trav.calcOrientations(middle_path_adjusted, rear_path_adjusted, middle_seg_idx[1:-1])
     data_collector.addOrientations(theta_seq)
@@ -146,10 +151,10 @@ if __name__ == "__main__":
     key_configs_anim.extend([q_ref[key_configs_idx[-1]]]*(len(rear_path) - len(key_configs_anim)))
     
     
-    print('Start animation...\n')
+    # print('Start animation...\n')
 
-    trav.runAnimation(fig, rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, 
-                      q_ref, key_configs_anim)
+    # trav.runAnimation(fig, rear_path_adjusted, front_path_adjusted, middle_path_adjusted, theta_seq, 
+    #                   q_ref, key_configs_anim)
     
     # --------------------------- Execute Experiment ----------------------------
 

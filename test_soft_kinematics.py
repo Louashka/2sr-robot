@@ -38,8 +38,11 @@ def get_jacobian(q:np.ndarray, s: List[float]) -> np.ndarray:
         spiral1 = cardioid1
         spiral2 = cardioid2
 
-    k1_ratio = spiral2.k_dot(q[4]) / cardioid1.k_dot(q[4])
-    k2_ratio = spiral2.k_dot(q[3]) / cardioid1.k_dot(q[3])
+    # k1_ratio = spiral2.k_dot(q[4]) / cardioid1.k_dot(q[4])
+    # k2_ratio = spiral2.k_dot(q[3]) / cardioid1.k_dot(q[3])
+
+    k1_ratio = cardioid1.delta_phi / (spiral2.delta_phi * spiral2.rho(q[4]))
+    k2_ratio = cardioid1.delta_phi / (spiral2.delta_phi * spiral2.rho(q[3]))
 
     pos_lu1 = cardioid1.pos_dot(q[2], q[4], 2, 1)
     pos_lu2 = cardioid1.pos_dot(q[2], q[3], 1, 2)
@@ -66,7 +69,7 @@ dt = 0.1  # step size
 q = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 s = [1, 1]
 
-v = np.array([-0.045, 0.045])
+v = np.array([0.0, 0.05])
 
 arc1, = ax.plot([], [], lw=3, color="blue")
 arc2, = ax.plot([], [], lw=3, color="blue")
@@ -157,18 +160,18 @@ if __name__ == "__main__":
 
     plt.show()
 
-    q_dot_history = np.array(q_dot_history)
+    # q_dot_history = np.array(q_dot_history)
 
-    fig, axs = plt.subplots(2, 2, figsize=(16, 8))
+    # fig, axs = plt.subplots(2, 2, figsize=(16, 8))
 
-    axs[0,0].plot(1000 * q_dot_history[:,0], 'k-')
-    axs[0,1].plot(1000 * q_dot_history[:,1], 'k-')
-    axs[1,0].plot(q_dot_history[:,3], 'k-')
-    axs[1,1].plot(q_dot_history[:,4], 'k-')
+    # axs[0,0].plot(1000 * q_dot_history[:,0], 'k-')
+    # axs[0,1].plot(1000 * q_dot_history[:,1], 'k-')
+    # axs[1,0].plot(q_dot_history[:,3], 'k-')
+    # axs[1,1].plot(q_dot_history[:,4], 'k-')
 
-    for i in range(2):
-        for j in range(2):
-            axs[i,j].axis('equal')
+    # for i in range(2):
+    #     for j in range(2):
+    #         axs[i,j].axis('equal')
 
-    plt.show()
+    # plt.show()
 

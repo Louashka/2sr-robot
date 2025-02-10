@@ -16,85 +16,123 @@ def arc(theta0, k, seg=1):
 
     theta = theta_array[-1]
         
-    return [x, y, theta % (2 * np.pi)]
+    return [100 * x, 100 * y, theta % (2 * np.pi)]
 
 
-dt = 0.1
-k = 0
-t = 20
-counter = 0
-v = 0.97
+def cardioid(i, lu=1):
+    rho = 100 * 2 * gv.CARDIOID_A[i] * (1 - np.cos(phi1))
+    x = rho * np.cos(phi1) + 100 * gv.CARDIOID_OFFSET[i]
+    y = rho * np.sin(phi1)
 
-# while counter < t:
-#     vss1 = arc(0, k, 2)
+    if lu == 2:
+        x = -x
 
-#     origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+    return x, y
 
-#     vss2 = arc(origin[2], 0, 2)
-#     vss2[0] += origin[0]
-#     vss2[1] += origin[1]
+# Create a figure with 3 subplots in a row
+fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+font_s = 14
 
-#     x, y = spiral2.get_pos(k)
-#     x += center_x
-#     y += center_y
+lw = 2
+marker_s_in = 10
+marker_s_out = 15
 
-#     plt.plot(vss1[0], vss1[1], '-r')
-#     plt.plot(vss2[0], vss2[1], '-b')
+phi1 = np.linspace(0, 2*np.pi, 40) 
+phi2 = np.linspace(0, 2*np.pi, 40) 
+phi3 = np.linspace(0, 2*np.pi, 40) 
 
-#     plt.plot(x, y, '.m')
-
-#     x, y = spiral1.get_pos(k)
-#     x += 0.0115
-#     y += 0.014
-
-#     plt.plot(x, y, '.m')
-
-#     k += spiral2.get_k_dot(k) * v * dt
-#     counter += 1
+k_max = np.pi / (2*gv.L_VSS)
+k_array = np.linspace(-k_max, k_max, 10)
 
 
-# plt.plot(center_x, center_y, '*b')
-   
-# plt.axis('equal')
-# plt.show()
+tan = '#CAB1A3'
+red = '#c44536'
+blue = '#308185'
+grey = '#283d3b'
 
-k_max = np.pi / gv.L_VSS
-k_array = np.linspace(-k_max, k_max, 30)
+plt.rcParams.update({'font.size': font_s})
 
-cardiod = splines.Cardioid(1)
+for ax in axs:
+    # ax.axis('off')
+    ax.set_xlabel('x [cm]', fontsize=font_s)
+    if ax == axs[0]:
+        ax.set_ylabel('y [cm]', fontsize=font_s)
+    ax.tick_params(axis='both', which='major', labelsize=font_s)
+    ax.axis('equal')
 
-vss1 = arc(0, k_array[0], 2)
-x_, y_, th = vss1[0][-1], vss1[1][-1], vss1[2]
+# -------------------------------------------------------------------
+alpha = 0.45
+label = None
+
+vss2 = arc(0, 0, 2)
+axs[0].plot(vss2[0], vss2[1], color=tan, lw = lw, label='rigid VSS')
 
 for k in k_array:
-    vss1 = arc(0, k, 2)
-    th = vss1[2]
-    print(th)
-    
-    plt.plot(vss1[0], vss1[1], '-r')
+    if k == k_array[-1]:
+        alpha = 1
+        label = 'soft VSS'
 
-    # origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
-
-    # vss2 = arc(origin[2], k, 2)
-    # vss2[0] += origin[0]
-    # vss2[1] += origin[1]
-
-    # plt.plot(vss2[0], vss2[1], '-b')
-
-    x, y = cardiod.pos(k, 2)
-
-    if k > 0:
-        plt.plot(x, y, '.m')
-
-    # Generate points based on pos_dot
-    # dx, dy = cardiod.pos_dot(th, k, 1, 2)
-
-    # x_ += dx * v * dt
-    # y_ += dy * v * dt
-
-    # plt.plot(x_, y_, '.g')
+    vss1 = arc(0, k, 1)
+    axs[0].plot(vss1[0], vss1[1], color=red, lw = lw, alpha=alpha, label=label)
 
 
-plt.axis('equal')
+x, y = cardioid(0)
+axs[0].scatter(x, y, color=grey, s=marker_s_out, zorder=2)
+axs[0].legend()
+
+# -------------------------------------------------------------------
+alpha = 0.45
+
+for k in k_array:
+    if k == k_array[-1]:
+        alpha = 1
+
+    vss1 = arc(0, k, 2) 
+    axs[1].plot(vss1[0], vss1[1], color=red, lw = lw, alpha=alpha)
+
+    origin = [vss1[0][-1], vss1[1][-1], vss1[2]]
+
+    vss2 = arc(origin[2], 0, 2)
+    vss2[0] += origin[0]
+    vss2[1] += origin[1]
+    axs[1].plot(vss2[0], vss2[1], color=tan, lw = lw, alpha=alpha)
+
+x, y = cardioid(0, 2)
+axs[1].scatter(x, y, color=blue, s=marker_s_in, zorder=2)
+
+x, y = cardioid(1, 2)
+axs[1].scatter(x, y, color=grey, s=marker_s_out, zorder=2)
+
+# -------------------------------------------------------------------
+alpha = 0.45
+
+for k in k_array:
+    if k == k_array[-1]:
+        alpha = 1
+
+    vss2 = arc(0, k, 1)
+    axs[2].plot(vss2[0], vss2[1], color=red, lw = lw, alpha=alpha)
+
+    origin = [vss2[0][-1], vss2[1][-1], vss2[2]]
+
+    vss1 = arc(origin[2], k, 1)
+    vss1[0] += origin[0]
+    vss1[1] += origin[1]
+    axs[2].plot(vss1[0], vss1[1], color=red, lw = lw, alpha=alpha)
+
+    axs[2].scatter([origin[0]], [origin[1]], color=blue, s=marker_s_in, zorder=2)
+
+x, y = cardioid(2)
+axs[2].scatter(x, y, color=grey, s=marker_s_out, zorder=2)
+
+plt.savefig('Experiments/Figures/cardioid_figures.pdf', dpi=300, bbox_inches='tight')  # Save the figure as a PNG file with high resolution
+
+
+
+plt.tight_layout()  # Adjust layout
 plt.show()
+
+
+
+
 
