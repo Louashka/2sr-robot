@@ -303,7 +303,8 @@ class Aligner:
         cv2.destroyAllWindows()
     
     def __run(self, date_title: str):
-        video_path_rgb = f'Experiments/Video/Grasping/traverse_sm_{date_title}.mp4'
+        # video_path_rgb = f'Experiments/Video/Grasping/traverse_sm_{date_title}.mp4'
+        video_path_rgb = f'Experiments/Video/Grasping/{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))

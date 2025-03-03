@@ -16,7 +16,7 @@ import func
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from View import plotlib
-from Model import robot2sr
+from Model import robot2sr, manipulandum
 import robot2sr_controller as rsr_ctrl
 
 voronoi_plot_path = 'Experiments/Figures/voronoi_plot.pkl'
@@ -1844,8 +1844,8 @@ def discretizeConfigs(initial_config, way_points):
 
     return target_configs
 
-def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time, 
-                      rgb_camera, simulation=False) -> tuple[dict, float]:
+def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_configs, 
+                      start_time, rgb_camera, simulation=False) -> tuple[dict, float]:
     agent_controller = rsr_ctrl.Controller()
 
     traverse_data = {}
@@ -1857,10 +1857,14 @@ def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time,
             
         timestamps = []
         robot_states = []
-        target_mm = []
+        robot_stiffness = []
         target_vel = []
+        target_mm = []
         transition_status = []
-        temperature_meas = []
+        temperature = []
+        fsm_feedback = []
+
+        object_states = []
 
         rgb_camera.target_robot_config = tc
         finish = False
@@ -1869,16 +1873,21 @@ def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time,
         v_s = [0.0] * 2
 
         target_s = [0, 0]
-        if idx > 2:
-            for i in range(2):
-                if abs(tc[i+3] - agent.curvature[i]) > 5:
-                    target_s[i] = 1
+        for i in range(2):
+            curv_diff = abs(tc[i+3] - agent.curvature[i])
+            print(curv_diff)
+            if curv_diff > 4:
+                target_s[i] = 1
 
         while True:
             elapsed_time = time.perf_counter() - start_time
             
             timestamps.append(elapsed_time)
             robot_states.append(agent.config.tolist())
+            robot_stiffness.append(agent.stiffness)
+            temperature.append(agent_controller.sc.readTemperature()[1])
+
+            object_states.append(object.pose)
             
             if target_s != [0, 0] and func.close2Shape(agent.curvature, tc[3:]):
                 target_s = [0, 0]
@@ -1910,11 +1919,10 @@ def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time,
 
             if sc_feedback is None:
                 transition_status.append(False)
-                # rgb_camera.T = [25, 25]
             else:
                 transition_status.append(True)
 
-            temperature_meas.append(sc_feedback)
+            fsm_feedback.append(sc_feedback)
             
             if simulation:
                 agent.config = q_new
@@ -1932,20 +1940,32 @@ def traverseObstacles(agent: robot2sr.Robot, target_configs, start_time,
             
         timestamps.append(elapsed_time)
         robot_states.append(agent.config.tolist())
+        robot_stiffness.append(agent.stiffness)
         target_mm.append(target_s)
         target_vel.append(v)
         transition_status.append(False)
-        temperature_meas.append(sc_feedback)
+        fsm_feedback.append(sc_feedback)
+        temperature.append(agent_controller.sc.readTemperature()[1])
+
+
+        object_states.append(object.pose)
         
         traverse_data[idx] = {
             'target_config': tc,
             'tracking' : {
                 'time': timestamps,
-                'robot_states': robot_states,
-                'target_mm': target_mm,
-                'target_vel': target_vel,
-                'transitions': transition_status,
-                'temperature': temperature_meas
+                'robot' : {
+                    'states': robot_states,
+                    'stiffness': robot_stiffness,
+                    'target_vel': target_vel,
+                    'target_mm': target_mm,
+                    'transitions': transition_status,
+                    'fsm_feedback': fsm_feedback,
+                    'temperature': temperature
+                },
+                'object': {
+                    'states': object_states 
+                }
             }
         }
         idx += 1

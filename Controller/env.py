@@ -9,7 +9,7 @@ import cv2
 from shapely.geometry import Polygon
 
 class Observer:
-    def __init__(self, simulation=False) -> None:
+    def __init__(self, title, simulation=False) -> None:
         self.simulation = simulation
 
         self.markers = None
@@ -23,7 +23,7 @@ class Observer:
         self.mocap = motive_client.MocapReader()
         self.rgb_camera = cos.Aligner()
 
-        self.date_title = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        self.date_title = title + '_' + datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
     def __updateConfig(self) -> None:
         agents_config, objects_config, self.markers, msg = self.mocap.getConfig()

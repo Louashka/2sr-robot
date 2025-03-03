@@ -127,7 +127,7 @@ def process_traverse_data(all_traverse_data):
         if idx == 0:
             ax_theta_error.set_ylabel('Theta error [rad]')    
 
-    plt.savefig('rm_traverse_analysis.pdf', format='pdf', dpi=150, bbox_inches='tight')
+    # plt.savefig('rm_traverse_analysis.pdf', format='pdf', dpi=150, bbox_inches='tight')
     plt.show()
 
 def process_grasp(all_traverse_data):
@@ -335,6 +335,6 @@ def process_transport_data(all_transport_data):
 
 all_traverse_data, all_transport_data = read_rm_files()
 
-# process_traverse_data(all_traverse_data)
-process_grasp(all_traverse_data)
+process_traverse_data(all_traverse_data)
+# process_grasp(all_traverse_data)
 # process_transport_data(all_transport_data)

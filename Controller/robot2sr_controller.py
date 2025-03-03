@@ -274,17 +274,17 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        v_x = m.MV(value=v_current[0], lb=-0.07, ub=0.07)
+        v_x = m.MV(value=v_current[0], lb=-0.1, ub=0.1)
         v_x.STATUS = 1
-        v_x.DCOST = 1
+        v_x.DCOST = 0.1
 
         v_y = m.MV(value=v_current[1], lb=-0.07, ub=0.07)
         v_y.STATUS = 1
-        v_y.DCOST = 0.3
+        # v_y.DCOST = 0.1
 
         omega = m.MV(value=v_current[2], lb=-0.7, ub=0.7)
         omega.STATUS = 1
-        omega.DCOST = 1
+        omega.DCOST = 0.1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -307,7 +307,7 @@ class Controller:
         
         # Objective
         m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-              1 * v_x**2 + 1 * v_y**2 + 0.35 * omega**2)
+              0.7 * v_x**2 + 1 * v_y**2 + 0.7 * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -323,13 +323,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.08, ub=0.08)
+        u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        u1.DCOST = 5
+        # u1.DCOST = 1
 
-        u2 = m.MV(value=v_current[1], lb=-0.08, ub=0.08)
+        u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        u2.DCOST = 5
+        # u2.DCOST = 1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -406,13 +406,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.08, ub=0.08)
+        u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        u1.DCOST = 5
+        # u1.DCOST = 1
 
-        u2 = m.MV(value=v_current[1], lb=-0.08, ub=0.08)
+        u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        u2.DCOST = 5
+        # u2.DCOST = 1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -490,13 +490,13 @@ class Controller:
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
         # Manipulated variables        
-        u1 = m.MV(value=v_current[0], lb=-0.08, ub=0.08)
+        u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        u1.DCOST = 5
+        # u1.DCOST = 1
 
-        u2 = m.MV(value=v_current[1], lb=-0.08, ub=0.08)
+        u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        u2.DCOST = 5
+        # u2.DCOST = 1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -746,6 +746,7 @@ class StiffnessController:
     def control_loop(self, current_states: list, target_states: list, agent_id: int, rgb_camera=None):
         self.states = current_states
 
+        all_actions = []
         meas = []
         time_list = []
 
@@ -763,7 +764,7 @@ class StiffnessController:
                 sendCommands([0] * 4 + target_states + [agent_id])
                 self.send_counter += 1
 
-            status = self.readTemperature()
+            status, _ = self.readTemperature()
             if not status:
                 continue
 
@@ -772,6 +773,7 @@ class StiffnessController:
 
             self.applyActions(actions)
             
+            all_actions.append(actions)
             meas.append(self.temp.copy())
             time_list.append(elapsed_time)
 
@@ -785,6 +787,7 @@ class StiffnessController:
         if meas:
             response = {
                 'relative_timestamps': time_list,
+                'control_input': all_actions,
                 'meas': meas
             }
         else:
@@ -828,23 +831,23 @@ class StiffnessController:
 
 
     def readTemperature(self) -> bool:
-            response = serial_port.readline()
-            response = response.decode('ascii', errors="ignore")
+        response = serial_port.readline()
+        response = response.decode('ascii', errors="ignore")
 
-            try:
-                temperature = float(response[1:])
+        try:
+            temperature = float(response[1:])
 
-                i = -1
-                if response[0] == 'A':
-                    i = 0
-                if response[0] == 'B':
-                    i = 1
+            i = -1
+            if response[0] == 'A':
+                i = 0
+            if response[0] == 'B':
+                i = 1
 
-                if i != -1:
-                    self.temp[i] = temperature
-                else:
-                    return False
-            except ValueError:
-                return False
-            
-            return True
+            if i != -1:
+                self.temp[i] = temperature
+            else:
+                return False, self.temp
+        except ValueError:
+            return False, self.temp
+        
+        return True, self.temp

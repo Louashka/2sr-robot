@@ -48,8 +48,8 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     # Find a point on the contour in the opposite direction
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
-    margin_in = 0.055
-    margin_out = 0.08
+    margin_in = 0.02
+    margin_out = 0.04
 
     for s in s_array:
         point = manip.getPoint(s)
@@ -62,15 +62,15 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
             grasp_idx = s
             max_dot_product = dot_product
 
-            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle) + 0.013, 
+            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle), 
                                     point[1] + margin_in * np.sin(dir_angle)]
             grasp_pose = point_with_margin_in + [func.normalizeAngle(theta)]
 
-            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle) + 0.013, 
+            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle), 
                                     point[1] + margin_out * np.sin(dir_angle)]
             approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
 
-    grasp_config = [*grasp_pose, 9, 9]
+    grasp_config = [*grasp_pose, 12, 12]
     approach_config = [*approach_pose, 0, 0]
 
     return grasp_idx, grasp_config, approach_config
