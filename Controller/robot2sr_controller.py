@@ -15,8 +15,10 @@ serial_port = serial.Serial(port_name, 115200)
 
 class Controller:
     def __init__(self) -> None:
-        self.max_linear_velocity = 0.2  # Maximum desired linear velocity
-        self.max_angular_velocity = 1.0  # Maximum desired angular velocity
+        self.max_acc_x = 0.05  # m/s²
+        self.max_acc_y = 0.05  # m/s²
+        self.max_acc_theta = 0.3  # rad/s²
+
         self.lookahead_distance = 0.005  # Adjust based on your robot's size and desired responsiveness
         self.kp_linear = 3  # Proportional gain for linear velocity
         self.kp_angular = 1  # Proportional gain for angular velocity
@@ -304,10 +306,22 @@ class Controller:
 
         m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
         m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
+
+        m.Equation(v_x.dt() <= self.max_acc_x)
+        m.Equation(v_x.dt() >= -self.max_acc_x)
+        m.Equation(v_y.dt() <= self.max_acc_y)
+        m.Equation(v_y.dt() >= -self.max_acc_y)
+        m.Equation(omega.dt() <= self.max_acc_theta)
+        m.Equation(omega.dt() >= -self.max_acc_theta)
         
-        # Objective
-        m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-              0.7 * v_x**2 + 1 * v_y**2 + 0.7 * omega**2)
+        # # Objective
+        # m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
+        #       0.7 * v_x**2 + 1 * v_y**2 + 0.7 * omega**2)
+        
+        m.Obj(5 * (target[0] - x)**2 + 5 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
+            0.8 * v_x**2 + 0.8 * v_y**2 + 0.7 * omega**2 + 
+            # Add costs for rate of change of velocities
+            5 * v_x.dt()**2 + 5 * v_y.dt()**2 + 3 * omega.dt()**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode

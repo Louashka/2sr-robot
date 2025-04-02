@@ -3,7 +3,7 @@ import numpy as np
 import json
 import time
 
-title = 'grasp_exp_heart'
+title = 'grasp_trial_1'
 
 # simulation = True
 simulation = False
@@ -70,24 +70,32 @@ if __name__ == "__main__":
     
     data_collector.addApproachData(traverse_data)
 
-    # ---------------------------------- Grasp ----------------------------------
-    print('\nGrasp the object...\n')
-    grasp_data, end_time = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [grasp_config], start_time, env_observer.rgb_camera, simulation)
-    
-    data_collector.addGraspData(grasp_data)
+    dj_raw, dj_filtered = env_observer.mocap.filter.calculate_dimensionless_jerk(1)
+    if dj_raw is not None:
+        improvement = 100 * (dj_raw - dj_filtered) / dj_raw
+        print(f"Dimensionless jerk reduced by {improvement:.1f}%")
+        print(f"Raw: {dj_raw:.2f}, Filtered: {dj_filtered:.2f}")
 
-    # -------------------------------- Transport --------------------------------
-    trp_target = env_observer.agent.config.tolist()
-    trp_target[0] -= 0.5 * np.sin(trp_target[2] - np.pi/6)
-    trp_target[1] += 0.5 * np.cos(trp_target[2])
-    trp_target[2] -= np.pi/6
+    env_observer.mocap.filter.create_window_evaluation_plot(1)
+
+    # # ---------------------------------- Grasp ----------------------------------
+    # print('\nGrasp the object...\n')
+    # grasp_data, end_time = trav.traverseObstacles(env_observer.agent, env_observer.object,
+    #             [grasp_config], start_time, env_observer.rgb_camera, simulation)
     
-    print('\nTransport the object...\n')
-    transport_data, end_time = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [trp_target], start_time, env_observer.rgb_camera, simulation)
+    # data_collector.addGraspData(grasp_data)
+
+    # # -------------------------------- Transport --------------------------------
+    # trp_target = env_observer.agent.config.tolist()
+    # trp_target[0] -= 0.5 * np.sin(trp_target[2] - np.pi/6)
+    # trp_target[1] += 0.5 * np.cos(trp_target[2])
+    # trp_target[2] -= np.pi/6
     
-    data_collector.addTransportData(transport_data)
+    # print('\nTransport the object...\n')
+    # transport_data, end_time = trav.traverseObstacles(env_observer.agent, env_observer.object,
+    #             [trp_target], start_time, env_observer.rgb_camera, simulation)
+    
+    # data_collector.addTransportData(transport_data)
 
     # ---------------------------------------s------------------------------------
     print('Save data...')

@@ -7,12 +7,327 @@ from typing import List
 from scipy.optimize import minimize 
 from scipy.interpolate import splprep, splev
 from circle_fit import taubinSVD
+from scipy.signal import savgol_filter, butter, filtfilt
+from collections import deque
+import matplotlib.pyplot as plt
 
 m_pos = ['marker_x', 'marker_y', 'marker_z']
 pos_2d = ['marker_x', 'marker_y']
 rb_pos = ['x', 'y', 'z']
 rb_params = ['a', 'b', 'c', 'd']
 rb_angles = ['roll', 'pitch', 'yaw']
+
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['text.usetex'] = False
+plt.rcParams['font.size'] = 12
+
+class MotionDataFilter:
+    def __init__(self, pose_window_size=11, curvature_window_size=15, history_length=120):
+        """Initialize the filter with parameters.
+        
+        Args:
+            window_size: Size of the Savitzky-Golay filter window
+            history_length: Number of frames to keep in history for filtering
+        """
+        self.pose_window_size = pose_window_size
+        self.curvature_window_size = curvature_window_size
+        self.history_length = history_length
+        
+        # Data history storage
+        self.marker_history = {}       # Store marker position history
+        self.rigid_body_history = {}   # Store rigid body position/orientation history
+        self.config_history = {}       # Store processed configuration history
+        
+    def update_marker_history(self, markers):
+        """Update the history of marker positions."""
+        for marker_id, marker_data in markers.items():
+            if marker_id not in self.marker_history:
+                self.marker_history[marker_id] = {
+                    'x': deque(maxlen=self.history_length),
+                    'y': deque(maxlen=self.history_length),
+                    'z': deque(maxlen=self.history_length)
+                }
+            
+            # Add current position to history
+            self.marker_history[marker_id]['x'].append(marker_data['marker_x'])
+            self.marker_history[marker_id]['y'].append(marker_data['marker_y'])
+            self.marker_history[marker_id]['z'].append(marker_data['marker_z'])
+    
+    def update_rigid_body_history(self, rigid_bodies):
+        """Update the history of rigid body positions and orientations."""
+        for rb_id, rb_data in rigid_bodies.items():
+            if rb_id not in self.rigid_body_history:
+                self.rigid_body_history[rb_id] = {
+                    'x': deque(maxlen=self.history_length),
+                    'y': deque(maxlen=self.history_length),
+                    'z': deque(maxlen=self.history_length),
+                    'a': deque(maxlen=self.history_length),
+                    'b': deque(maxlen=self.history_length),
+                    'c': deque(maxlen=self.history_length),
+                    'd': deque(maxlen=self.history_length)
+                }
+            
+            # Add current position to history
+            self.rigid_body_history[rb_id]['x'].append(rb_data['x'])
+            self.rigid_body_history[rb_id]['y'].append(rb_data['y'])
+            self.rigid_body_history[rb_id]['z'].append(rb_data['z'])
+            self.rigid_body_history[rb_id]['a'].append(rb_data['a'])
+            self.rigid_body_history[rb_id]['b'].append(rb_data['b'])
+            self.rigid_body_history[rb_id]['c'].append(rb_data['c'])
+            self.rigid_body_history[rb_id]['d'].append(rb_data['d'])
+    
+    def update_config_history(self, agent_id, config):
+        """Update the history of robot configuration values."""
+        if agent_id not in self.config_history:
+            self.config_history[agent_id] = {
+                'x': deque(maxlen=self.history_length),
+                'y': deque(maxlen=self.history_length),
+                'theta': deque(maxlen=self.history_length),
+                'k1': deque(maxlen=self.history_length),
+                'k2': deque(maxlen=self.history_length)
+            }
+        
+        # Add current configuration to history
+        self.config_history[agent_id]['x'].append(config['x'])
+        self.config_history[agent_id]['y'].append(config['y'])
+        self.config_history[agent_id]['theta'].append(config['theta'])
+        self.config_history[agent_id]['k1'].append(config['k1'])
+        self.config_history[agent_id]['k2'].append(config['k2'])
+    
+    def filter_markers(self, markers):
+        """Apply filtering to marker positions."""
+        filtered_markers = {}
+        
+        for marker_id, marker_data in markers.items():
+            # First update history
+            if marker_id in self.marker_history:
+                # We need enough data points for filtering
+                x_history = list(self.marker_history[marker_id]['x'])
+                y_history = list(self.marker_history[marker_id]['y'])
+                z_history = list(self.marker_history[marker_id]['z'])
+                
+                if len(x_history) >= self.pose_window_size:
+                    # Apply Savitzky-Golay filter
+                    win_size = min(self.pose_window_size, len(x_history) - (len(x_history) % 2) - 1)
+                    if win_size >= 3:  # Need at least 3 points for quadratic fit
+                        x_filtered = savgol_filter(x_history, win_size, 2)[-1]
+                        y_filtered = savgol_filter(y_history, win_size, 2)[-1]
+                        z_filtered = savgol_filter(z_history, win_size, 2)[-1]
+                        
+                        # Create a filtered marker
+                        filtered_marker = marker_data.copy()
+                        filtered_marker['marker_x'] = x_filtered
+                        filtered_marker['marker_y'] = y_filtered
+                        filtered_marker['marker_z'] = z_filtered
+                        
+                        filtered_markers[marker_id] = filtered_marker
+                    else:
+                        filtered_markers[marker_id] = marker_data
+                else:
+                    filtered_markers[marker_id] = marker_data
+            else:
+                filtered_markers[marker_id] = marker_data
+        
+        return filtered_markers
+    
+    def filter_rigid_bodies(self, rigid_bodies):
+        """Apply filtering to rigid body positions and orientations."""
+        filtered_rigid_bodies = {}
+        
+        for rb_id, rb_data in rigid_bodies.items():
+            if rb_id in self.rigid_body_history:
+                # Get history for this rigid body
+                x_history = list(self.rigid_body_history[rb_id]['x'])
+                y_history = list(self.rigid_body_history[rb_id]['y'])
+                z_history = list(self.rigid_body_history[rb_id]['z'])
+                
+                # For quaternions, we need special handling
+                a_history = list(self.rigid_body_history[rb_id]['a'])
+                b_history = list(self.rigid_body_history[rb_id]['b'])
+                c_history = list(self.rigid_body_history[rb_id]['c'])
+                d_history = list(self.rigid_body_history[rb_id]['d'])
+                
+                if len(x_history) >= self.pose_window_size:
+                    # Apply Savitzky-Golay filter to position
+                    win_size = min(self.pose_window_size, len(x_history) - (len(x_history) % 2) - 1)
+                    if win_size >= 3:
+                        x_filtered = savgol_filter(x_history, win_size, 2)[-1]
+                        y_filtered = savgol_filter(y_history, win_size, 2)[-1]
+                        z_filtered = savgol_filter(z_history, win_size, 2)[-1]
+                        
+                        # Filter quaternions - important to treat as unit quaternions
+                        # For simplicity here just filtering components, but more sophisticated
+                        # approaches exist for quaternion filtering
+                        a_filtered = savgol_filter(a_history, win_size, 2)[-1]
+                        b_filtered = savgol_filter(b_history, win_size, 2)[-1]
+                        c_filtered = savgol_filter(c_history, win_size, 2)[-1]
+                        d_filtered = savgol_filter(d_history, win_size, 2)[-1]
+                        
+                        # Normalize the filtered quaternion
+                        q_norm = np.sqrt(a_filtered**2 + b_filtered**2 + c_filtered**2 + d_filtered**2)
+                        a_filtered /= q_norm
+                        b_filtered /= q_norm
+                        c_filtered /= q_norm
+                        d_filtered /= q_norm
+                        
+                        # Create filtered rigid body
+                        filtered_rb = rb_data.copy()
+                        filtered_rb['x'] = x_filtered
+                        filtered_rb['y'] = y_filtered
+                        filtered_rb['z'] = z_filtered
+                        filtered_rb['a'] = a_filtered
+                        filtered_rb['b'] = b_filtered
+                        filtered_rb['c'] = c_filtered
+                        filtered_rb['d'] = d_filtered
+                        
+                        filtered_rigid_bodies[rb_id] = filtered_rb
+                    else:
+                        filtered_rigid_bodies[rb_id] = rb_data
+                else:
+                    filtered_rigid_bodies[rb_id] = rb_data
+            else:
+                filtered_rigid_bodies[rb_id] = rb_data
+        
+        return filtered_rigid_bodies
+    
+    def filter_config(self, agent_id, config):
+        """Apply filtering to robot configuration parameters."""
+        filtered_config = config.copy()
+        
+        if agent_id in self.config_history:
+            # Get history for this agent
+            x_history = list(self.config_history[agent_id]['x'])
+            y_history = list(self.config_history[agent_id]['y'])
+            theta_history = list(self.config_history[agent_id]['theta'])
+            k1_history = list(self.config_history[agent_id]['k1'])
+            k2_history = list(self.config_history[agent_id]['k2'])
+            
+            if len(x_history) >= self.curvature_window_size:
+                # Apply Savitzky-Golay filter
+                pose_win_size = min(self.pose_window_size, len(x_history) - (len(x_history) % 2) - 1)
+                if pose_win_size >= 3:
+                    # Filter position and theta (angle needs special handling)
+                    filtered_config['x'] = savgol_filter(x_history, pose_win_size, 2)[-1]
+                    filtered_config['y'] = savgol_filter(y_history, pose_win_size, 2)[-1]
+                    
+                    # For theta (angular value), we need to handle circular values
+                    # Convert to complex numbers, filter, then convert back to angle
+                    complex_angles = np.exp(1j * np.array(theta_history))
+                    real_part = savgol_filter(np.real(complex_angles), pose_win_size, 2)[-1]
+                    imag_part = savgol_filter(np.imag(complex_angles), pose_win_size, 2)[-1]
+                    filtered_config['theta'] = np.angle(complex(real_part, imag_part))
+
+                curv_win_size = min(self.curvature_window_size, len(x_history) - (len(x_history) % 2) - 1)
+                if curv_win_size >= 3:
+                    # Filter curvatures with stronger filtering (higher noise expected)
+                    filtered_config['k1'] = savgol_filter(k1_history, curv_win_size, 2)[-1]
+                    filtered_config['k2'] = savgol_filter(k2_history, curv_win_size, 2)[-1]
+        
+        return filtered_config
+
+    def calculate_dimensionless_jerk(self, agent_id, window=30):
+        """Calculate dimensionless jerk before and after filtering."""
+        if agent_id not in self.config_history:
+            return None, None
+        
+        if len(self.config_history[agent_id]['x']) < window:
+            return None, None
+        
+        # Get position histories
+        x_raw = list(self.config_history[agent_id]['x'])[-window:]
+        y_raw = list(self.config_history[agent_id]['y'])[-window:]
+        
+        # Get filtered positions
+        x_filtered = savgol_filter(x_raw, min(9, window - (window % 2) - 1), 2)
+        y_filtered = savgol_filter(y_raw, min(9, window - (window % 2) - 1), 2)
+        
+        # Assume constant time steps of 1 for simplicity
+        time_steps = np.arange(len(x_raw))
+        
+        # Calculate velocities
+        vx_raw = np.gradient(x_raw, time_steps)
+        vy_raw = np.gradient(y_raw, time_steps)
+        
+        vx_filtered = np.gradient(x_filtered, time_steps)
+        vy_filtered = np.gradient(y_filtered, time_steps)
+        
+        # Calculate accelerations
+        ax_raw = np.gradient(vx_raw, time_steps)
+        ay_raw = np.gradient(vy_raw, time_steps)
+        
+        ax_filtered = np.gradient(vx_filtered, time_steps)
+        ay_filtered = np.gradient(vy_filtered, time_steps)
+        
+        # Calculate jerks
+        jx_raw = np.gradient(ax_raw, time_steps)
+        jy_raw = np.gradient(ay_raw, time_steps)
+        
+        jx_filtered = np.gradient(ax_filtered, time_steps)
+        jy_filtered = np.gradient(ay_filtered, time_steps)
+        
+        # Calculate path length
+        path_raw = np.sum(np.sqrt(np.diff(x_raw)**2 + np.diff(y_raw)**2))
+        path_filtered = np.sum(np.sqrt(np.diff(x_filtered)**2 + np.diff(y_filtered)**2))
+        
+        # Calculate movement duration
+        duration = time_steps[-1] - time_steps[0]
+        
+        # Calculate squared jerk
+        squared_jerk_raw = np.sum(jx_raw**2 + jy_raw**2)
+        squared_jerk_filtered = np.sum(jx_filtered**2 + jy_filtered**2)
+        
+        # Calculate dimensionless jerk
+        dj_raw = (duration**5 / path_raw**2) * squared_jerk_raw
+        dj_filtered = (duration**5 / path_filtered**2) * squared_jerk_filtered
+        
+        return dj_raw, dj_filtered
+
+    def create_window_evaluation_plot(self, agent_id):
+        # Get data from history
+        x_raw = list(self.config_history[agent_id]['x'])[-100:]
+        y_raw = list(self.config_history[agent_id]['y'])[-100:]
+        th_raw = list(self.config_history[agent_id]['theta'])[-100:]
+        k1_raw = list(self.config_history[agent_id]['k1'])[-100:]
+        k2_raw = list(self.config_history[agent_id]['k2'])[-100:]
+            
+        plt.figure(figsize=(15, 10))
+        
+        # Position plot
+        plt.subplot(2, 2, 1)
+        x_filtered = savgol_filter(x_raw, self.pose_window_size, 2)
+        y_filtered = savgol_filter(y_raw, self.pose_window_size, 2)
+        
+        plt.plot(x_raw, y_raw, 'r-', alpha=0.5, label='Raw')
+        plt.plot(x_filtered, y_filtered, 'b-', label='Filtered')
+        plt.title(f'Position (Window={self.pose_window_size})')
+        plt.legend()
+
+        # Orientation plot
+        plt.subplot(2, 2, 2)
+        th_filtered = savgol_filter(th_raw, self.pose_window_size, 2)
+        plt.plot(th_raw, 'r-', alpha=0.5, label='Raw')
+        plt.plot(th_filtered, 'b-', label='Filtered')
+        plt.title(f'Orientation (Window={self.pose_window_size})')
+        plt.legend()
+        
+        # Curvature plots
+        plt.subplot(2, 2, 3)
+        k1_filtered = savgol_filter(k1_raw, self.curvature_window_size, 2)
+        plt.plot(k1_raw, 'r-', alpha=0.5, label='Raw')
+        plt.plot(k1_filtered, 'b-', label='Filtered')
+        plt.title(f'Curvature k1 (Window={self.curvature_window_size})')
+        plt.legend()
+        
+        plt.subplot(2, 2, 4)
+        k2_filtered = savgol_filter(k2_raw, self.curvature_window_size, 2)
+        plt.plot(k2_raw, 'r-', alpha=0.5, label='Raw')
+        plt.plot(k2_filtered, 'b-', label='Filtered')
+        plt.title(f'Curvature k2 (Window={self.curvature_window_size})')
+        plt.legend()
+        
+        plt.tight_layout()
+        plt.savefig('signal_filtering.pdf', format='pdf', dpi=150, bbox_inches='tight')
+        plt.show()
 
 class Marker():
     def __init__(self, marker_id: int, x: float, y: float) -> None:
@@ -50,6 +365,8 @@ class MocapReader:
         self.__data = None
         self.__markers_id = set()
         self.agent_theta_prev = None
+
+        self.filter = MotionDataFilter()
 
     @property
     def isRunning(self) -> bool:
@@ -116,24 +433,34 @@ class MocapReader:
         elif not markers or not rigid_bodies:
             msg = 'No markers or rigid bodies are detected!'
         else:
+            self.filter.update_marker_history(markers)
+            self.filter.update_rigid_body_history(rigid_bodies)
+
+            if len(list(self.filter.marker_history.values())[0]['x']) >= 5:
+                filtered_markers = self.filter.filter_markers(markers)
+                filtered_rigid_bodies = self.filter.filter_rigid_bodies(rigid_bodies)
+            else:
+                filtered_markers = markers
+                filtered_rigid_bodies = rigid_bodies
+
             # Convert values from the Motive frame to the global frame
-            self.__convertData(rigid_bodies)
+            self.__convertData(filtered_rigid_bodies)
 
-            rb_agents = [rb for rb in rigid_bodies.values() if rb['id'] < 10]
-            rb_objects = [rb for rb in rigid_bodies.values() if rb['id'] > 10]
+            rb_agents = [rb for rb in filtered_rigid_bodies.values() if rb['id'] < 10]
+            rb_objects = [rb for rb in filtered_rigid_bodies.values() if rb['id'] > 10]
 
-            if len(markers) == 9 * len(rb_agents) + 3 * len(rb_objects):
+            if len(filtered_markers) == 9 * len(rb_agents) + 3 * len(rb_objects):
                 for rb_agent in rb_agents:
                     agent = {}
 
                     agent['id'] = rb_agent['id']
                     # Calculate the pose of the head LU
-                    head_markers = [marker for marker in markers.values() if marker['model_id'] == rb_agent['id']]
+                    head_markers = [marker for marker in filtered_markers.values() if marker['model_id'] == rb_agent['id']]
                     head_pose = self.__calcRbPose(rb_agent, head_markers)
                     agent['head'] = head_pose
 
                     # Sort markers to within the VSF
-                    ranked_markers = self.__rankPoints(markers, head_pose[:-1])
+                    ranked_markers = self.__rankPoints(filtered_markers, head_pose[:-1])
                     # Calculate the pose of the tail LU
                     tail_theta = self.__getAngle(ranked_markers[-2].position, ranked_markers[-1].position) + 0.31615
                     tail_pose = [ranked_markers[-1].x, ranked_markers[-1].y, tail_theta]
@@ -147,6 +474,10 @@ class MocapReader:
                     agent['theta'] = robot_theta
                     agent['k1'] = k1
                     agent['k2'] = k2
+
+                    self.filter.update_config_history(agent['id'], agent)
+                    if len(list(self.filter.config_history.get(agent['id'], {'x': []})['x'])) >= 5:
+                        agent = self.filter.filter_config(agent['id'], agent)
 
                     agents.append(agent)
 
@@ -172,7 +503,7 @@ class MocapReader:
             else:
                 msg = 'Wrong number of the markers or rigid bodies!'
 
-        return agents, objects, markers, msg
+        return agents, objects, filtered_markers if 'filtered_markers' in locals() else markers, msg
     
     
     def __unpackData(self) -> tuple[dict, dict]:
