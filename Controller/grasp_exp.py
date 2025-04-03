@@ -65,10 +65,29 @@ if __name__ == "__main__":
     elapsed_time = 0
     start_time = time.perf_counter()
 
-    traverse_data, end_time = trav.traverseObstacles(env_observer.agent, env_observer.object,
+    traverse_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
                 [approach_target], start_time, env_observer.rgb_camera, simulation)
     
     data_collector.addApproachData(traverse_data)
+
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(15, 4))
+
+    plt.subplot(1, 3, 1)
+    plt.plot(vel[0], label='v_x')
+    plt.legend()
+
+    plt.subplot(1, 3, 2)
+    plt.plot(vel[1], label='v_y')
+    plt.legend()
+
+    plt.subplot(1, 3, 3)
+    plt.plot(vel[2], label='omega')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
 
     dj_raw, dj_filtered = env_observer.mocap.filter.calculate_dimensionless_jerk(1)
     if dj_raw is not None:

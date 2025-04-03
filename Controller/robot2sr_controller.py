@@ -30,7 +30,7 @@ class Controller:
         self.NX = 5  # x = x, y, yaw
         self.NU = 2  # a = [linear velocity, linear velocity, angular velocity ]
         self.NW = 4  # number of wheels
-        self.T = 11  # horizon length
+        self.T = 13  # horizon length
 
         # mpc parameters
         self.R = np.diag([1, 10000, 0.0015])  # input cost matrix
@@ -267,7 +267,7 @@ class Controller:
 
         return q_ref
     
-    def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
+    def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list, dist_0: float):
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -275,18 +275,61 @@ class Controller:
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
-        # Manipulated variables        
-        v_x = m.MV(value=v_current[0], lb=-0.1, ub=0.1)
+        # Calculate distance to target
+        dist_to_target = np.sqrt((agent.x - target[0])**2 + (agent.y - target[1])**2)
+        
+        # Sigmoid function for smooth velocity scaling
+        def sigmoid_scale(distance, steepness, min_value, max_value):
+            """
+            Creates a sigmoid scaling function that transitions smoothly from max to min
+            
+            Args:
+                distance: Current distance to target
+                steepness: How steep the transition is (higher = more abrupt)
+                min_value: Minimum scale value (when distance approaches 0)
+                max_value: Maximum scale value (when distance is large)
+            """
+            # Basic sigmoid function: 1 / (1 + e^(-steepness * (x - midpoint)))
+            # Scaled to range from min_value to max_value
+            # Acceleration sigmoid (start to dist_0 - 0.03)
+            accel_progress = (dist_0 - distance) / 0.03
+            accel_progress = max(0, min(1, accel_progress))  # Clamp to [0,1]
+            accel_sigmoid = 1.0 / (1.0 + np.exp(-steepness * (accel_progress - 0.5) * 4))
+            
+            # Deceleration sigmoid (0.06 to target)
+            decel_progress = distance / 0.03
+            decel_progress = max(0, min(1, decel_progress))  # Clamp to [0,1]
+            decel_sigmoid = 1.0 / (1.0 + np.exp(steepness * (decel_progress - 0.5) * 4))
+            
+            # Combine both (the multiply creates the plateau in the middle)
+            combined = accel_sigmoid * decel_sigmoid
+            return min_value + combined * (max_value - min_value)
+
+        # Apply scaling to velocity limits
+        max_v_x = 0.07 
+        max_v_y = 0.07 
+        max_omega = 0.7
+        
+        # Apply scaling to rate of change limits (DMAX)
+        dmax_x = 0.01 
+        dmax_y = 0.01 
+        dmax_omega = 0.02 
+        
+        # Manipulated variables with dynamic limits       
+        v_x = m.MV(value=v_current[0], lb=-max_v_x, ub=max_v_x)
         v_x.STATUS = 1
-        v_x.DCOST = 0.1
+        v_x.DMAX = dmax_x
+        v_x.DCOST = 0.15
 
-        v_y = m.MV(value=v_current[1], lb=-0.07, ub=0.07)
+        v_y = m.MV(value=v_current[1], lb=-max_v_y, ub=max_v_y)
         v_y.STATUS = 1
-        # v_y.DCOST = 0.1
+        v_y.DMAX = dmax_y
+        v_y.DCOST = 0.2
 
-        omega = m.MV(value=v_current[2], lb=-0.7, ub=0.7)
+        omega = m.MV(value=v_current[2], lb=-max_omega, ub=max_omega)
         omega.STATUS = 1
-        omega.DCOST = 0.1
+        omega.DMAX = dmax_omega
+        omega.DCOST = 0.25
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -298,30 +341,42 @@ class Controller:
         m.Equation(y.dt() == m.sin(theta) * v_x + m.cos(theta) * v_y)
         m.Equation(theta.dt() == omega)
 
-        # Define an intermediate variable for wheel speed
+        # Define wheel speed equations
         m.Equations([w[i] == (1 / global_var.WHEEL_R) * (np.cos(wheels[i][2]) * v_x +
                                                         np.sin(wheels[i][2]) * v_y +
                                                         (wheels[i][0] * np.sin(wheels[i][2]) - wheels[i][1] * np.cos(wheels[i][2])) * omega)
-             for i in range(4)])
+            for i in range(4)])
 
         m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
         m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
 
-        m.Equation(v_x.dt() <= self.max_acc_x)
-        m.Equation(v_x.dt() >= -self.max_acc_x)
-        m.Equation(v_y.dt() <= self.max_acc_y)
-        m.Equation(v_y.dt() >= -self.max_acc_y)
-        m.Equation(omega.dt() <= self.max_acc_theta)
-        m.Equation(omega.dt() >= -self.max_acc_theta)
+        # Also use sigmoid for velocity penalty scaling in cost function
+        penalty_steepness = 4.0     # Sharper transition for penalties
+        min_penalty_factor = 1.0    # Base penalty multiplier
+        max_penalty_factor = 1.9    # Maximum penalty multiplier
         
-        # # Objective
-        # m.Obj(10 * (target[0] - x)**2 + 10 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-        #       0.7 * v_x**2 + 1 * v_y**2 + 0.7 * omega**2)
+        # Calculate penalty scale
+        velocity_penalty_factor = sigmoid_scale(
+            distance=dist_to_target, 
+            steepness=penalty_steepness,
+            min_value=min_penalty_factor,
+            max_value=max_penalty_factor
+        )
         
-        m.Obj(5 * (target[0] - x)**2 + 5 * (target[1] - y)**2 + 2 * (target[2] - theta)**2 + 
-            0.8 * v_x**2 + 0.8 * v_y**2 + 0.7 * omega**2 + 
-            # Add costs for rate of change of velocities
-            5 * v_x.dt()**2 + 5 * v_y.dt()**2 + 3 * omega.dt()**2)
+        # Base weights
+        pos_weight = 5.0
+        ori_weight = 2.0
+        vel_x_weight = 0.6 * velocity_penalty_factor
+        vel_y_weight = 0.8 * velocity_penalty_factor
+        vel_omega_weight = 0.7 * velocity_penalty_factor
+        
+        # Running cost through horizon
+        m.Obj(pos_weight * (target[0] - x)**2 + 
+          pos_weight * (target[1] - y)**2 + 
+          ori_weight * (target[2] - theta)**2 + 
+          vel_x_weight * v_x**2 + 
+          vel_y_weight * v_y**2 + 
+          vel_omega_weight * omega**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
