@@ -36,7 +36,8 @@ class MotionDataFilter:
         # Data history storage
         self.marker_history = {}       # Store marker position history
         self.rigid_body_history = {}   # Store rigid body position/orientation history
-        self.config_history = {}       # Store processed configuration history
+        self.agent_config_history = {}       # Store processed configuration history
+        self.object_config_history = {}
         
     def update_marker_history(self, markers):
         """Update the history of marker positions."""
@@ -76,10 +77,10 @@ class MotionDataFilter:
             self.rigid_body_history[rb_id]['c'].append(rb_data['c'])
             self.rigid_body_history[rb_id]['d'].append(rb_data['d'])
     
-    def update_config_history(self, agent_id, config):
+    def update_agent_config_history(self, agent_id, config):
         """Update the history of robot configuration values."""
-        if agent_id not in self.config_history:
-            self.config_history[agent_id] = {
+        if agent_id not in self.agent_config_history:
+            self.agent_config_history[agent_id] = {
                 'x': deque(maxlen=self.history_length),
                 'y': deque(maxlen=self.history_length),
                 'theta': deque(maxlen=self.history_length),
@@ -88,11 +89,25 @@ class MotionDataFilter:
             }
         
         # Add current configuration to history
-        self.config_history[agent_id]['x'].append(config['x'])
-        self.config_history[agent_id]['y'].append(config['y'])
-        self.config_history[agent_id]['theta'].append(config['theta'])
-        self.config_history[agent_id]['k1'].append(config['k1'])
-        self.config_history[agent_id]['k2'].append(config['k2'])
+        self.agent_config_history[agent_id]['x'].append(config['x'])
+        self.agent_config_history[agent_id]['y'].append(config['y'])
+        self.agent_config_history[agent_id]['theta'].append(config['theta'])
+        self.agent_config_history[agent_id]['k1'].append(config['k1'])
+        self.agent_config_history[agent_id]['k2'].append(config['k2'])
+    
+    def update_object_config_history(self, object_id, config):
+        """Update the history of robot configuration values."""
+        if object_id not in self.object_config_history:
+            self.object_config_history[object_id] = {
+                'x': deque(maxlen=self.history_length),
+                'y': deque(maxlen=self.history_length),
+                'theta': deque(maxlen=self.history_length)
+            }
+        
+        # Add current configuration to history
+        self.object_config_history[object_id]['x'].append(config['x'])
+        self.object_config_history[object_id]['y'].append(config['y'])
+        self.object_config_history[object_id]['theta'].append(config['theta'])
     
     def filter_markers(self, markers):
         """Apply filtering to marker positions."""
@@ -190,20 +205,21 @@ class MotionDataFilter:
         
         return filtered_rigid_bodies
     
-    def filter_config(self, agent_id, config):
-        """Apply filtering to robot configuration parameters."""
+    def filter_pose(self, id_, config, entity='robot'):
         filtered_config = config.copy()
-        
-        if agent_id in self.config_history:
+
+        if entity == 'robot':
+            history = self.agent_config_history
+        elif entity == 'object': 
+            history = self.object_config_history
+
+        if id_ in history:
             # Get history for this agent
-            x_history = list(self.config_history[agent_id]['x'])
-            y_history = list(self.config_history[agent_id]['y'])
-            theta_history = list(self.config_history[agent_id]['theta'])
-            k1_history = list(self.config_history[agent_id]['k1'])
-            k2_history = list(self.config_history[agent_id]['k2'])
-            
-            if len(x_history) >= self.curvature_window_size:
-                # Apply Savitzky-Golay filter
+            x_history = list(history[id_]['x'])
+            y_history = list(history[id_]['y'])
+            theta_history = list(history[id_]['theta'])
+
+            if len(x_history) >= self.pose_window_size:
                 pose_win_size = min(self.pose_window_size, len(x_history) - (len(x_history) % 2) - 1)
                 if pose_win_size >= 3:
                     # Filter position and theta (angle needs special handling)
@@ -217,7 +233,17 @@ class MotionDataFilter:
                     imag_part = savgol_filter(np.imag(complex_angles), pose_win_size, 2)[-1]
                     filtered_config['theta'] = np.angle(complex(real_part, imag_part))
 
-                curv_win_size = min(self.curvature_window_size, len(x_history) - (len(x_history) % 2) - 1)
+        return filtered_config
+    
+    def filter_config(self, agent_id, config):
+        filtered_config = self.filter_pose(agent_id, config)
+        
+        if agent_id in self.agent_config_history:
+            k1_history = list(self.agent_config_history[agent_id]['k1'])
+            k2_history = list(self.agent_config_history[agent_id]['k2'])
+            
+            if len(k1_history) >= self.curvature_window_size:
+                curv_win_size = min(self.curvature_window_size, len(k1_history) - (len(k1_history) % 2) - 1)
                 if curv_win_size >= 3:
                     # Filter curvatures with stronger filtering (higher noise expected)
                     filtered_config['k1'] = savgol_filter(k1_history, curv_win_size, 2)[-1]
@@ -227,15 +253,15 @@ class MotionDataFilter:
 
     def calculate_dimensionless_jerk(self, agent_id, window=30):
         """Calculate dimensionless jerk before and after filtering."""
-        if agent_id not in self.config_history:
+        if agent_id not in self.agent_config_history:
             return None, None
         
-        if len(self.config_history[agent_id]['x']) < window:
+        if len(self.agent_config_history[agent_id]['x']) < window:
             return None, None
         
         # Get position histories
-        x_raw = list(self.config_history[agent_id]['x'])[-window:]
-        y_raw = list(self.config_history[agent_id]['y'])[-window:]
+        x_raw = list(self.agent_config_history[agent_id]['x'])[-window:]
+        y_raw = list(self.agent_config_history[agent_id]['y'])[-window:]
         
         # Get filtered positions
         x_filtered = savgol_filter(x_raw, min(9, window - (window % 2) - 1), 2)
@@ -284,11 +310,11 @@ class MotionDataFilter:
 
     def create_window_evaluation_plot(self, agent_id):
         # Get data from history
-        x_raw = list(self.config_history[agent_id]['x'])[-100:]
-        y_raw = list(self.config_history[agent_id]['y'])[-100:]
-        th_raw = list(self.config_history[agent_id]['theta'])[-100:]
-        k1_raw = list(self.config_history[agent_id]['k1'])[-100:]
-        k2_raw = list(self.config_history[agent_id]['k2'])[-100:]
+        x_raw = list(self.agent_config_history[agent_id]['x'])[-100:]
+        y_raw = list(self.agent_config_history[agent_id]['y'])[-100:]
+        th_raw = list(self.agent_config_history[agent_id]['theta'])[-100:]
+        k1_raw = list(self.agent_config_history[agent_id]['k1'])[-100:]
+        k2_raw = list(self.agent_config_history[agent_id]['k2'])[-100:]
             
         plt.figure(figsize=(15, 10))
         
@@ -475,8 +501,8 @@ class MocapReader:
                     agent['k1'] = k1
                     agent['k2'] = k2
 
-                    self.filter.update_config_history(agent['id'], agent)
-                    if len(list(self.filter.config_history.get(agent['id'], {'x': []})['x'])) >= 5:
+                    self.filter.update_agent_config_history(agent['id'], agent)
+                    if len(list(self.filter.agent_config_history.get(agent['id'], {'x': []})['x'])) >= 5:
                         agent = self.filter.filter_config(agent['id'], agent)
 
                     agents.append(agent)
@@ -492,6 +518,10 @@ class MocapReader:
                     object['x'] = object_pose[0]
                     object['y'] = object_pose[1]
                     object['theta'] = object_pose[2]
+
+                    self.filter.update_object_config_history(object['id'], object)
+                    if len(list(self.filter.object_config_history.get(object['id'], {'x': []})['x'])) >= 5:
+                        object = self.filter.filter_pose(object['id'], object, 'object')
 
                     objects.append(object)
 

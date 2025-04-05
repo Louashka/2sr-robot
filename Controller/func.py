@@ -29,11 +29,11 @@ def close2Pose(current: list, target: list) -> bool:
     status = True
 
     # Calculate Euclidean distance between current and target (x, y)
-    dist = [1, 1, 0.03] * (np.array(current) - np.array(target))
+    dist = [1, 1, 0.05] * (np.array(current) - np.array(target))
     distance = np.linalg.norm(dist)
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.02
+    distance_threshold = 0.015
 
     if distance >= distance_threshold:
         status = False

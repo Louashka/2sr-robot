@@ -1854,6 +1854,8 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
     vel_x_history = []
     vel_y_history = []
     vel_omega_history = []
+    vel_1_history = []
+    vel_2_history = []
 
     for tc in target_configs:
         if idx == len(target_configs):
@@ -1875,8 +1877,6 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
 
         v_r = [0.0] * 3
         v_s = [0.0] * 2
-
-        dist_0 = np.sqrt((agent.x - tc[0])**2 + (agent.y - tc[1])**2)
 
         target_s = [0, 0]
         for i in range(2):
@@ -1905,7 +1905,7 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
                 finish = True
             else:
                 if target_s == [0, 0]:
-                    v_r, q_new = agent_controller.mpcRM(agent, tc[:3], v_r, dist_0)
+                    v_r, q_new = agent_controller.mpcRM(agent, tc[:3], v_r)
                 elif target_s == [1, 0]:
                     v_s, q_new = agent_controller.mpcSM1(agent, tc, v_s)
                 elif target_s == [0, 1]:
@@ -1923,6 +1923,8 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
             vel_x_history.append(v_r[0])
             vel_y_history.append(v_r[1])
             vel_omega_history.append(v_r[2])
+            vel_1_history.append(v_s[0])
+            vel_2_history.append(v_s[1])
 
             _, _, current_s, sc_feedback = agent_controller.move(agent, v, target_s, rgb_camera)
             print()
@@ -1985,4 +1987,4 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
 
         print('Next target!\n')
 
-    return traverse_data, elapsed_time, [vel_x_history, vel_y_history, vel_omega_history]
+    return traverse_data, elapsed_time, [vel_x_history, vel_y_history, vel_omega_history, vel_1_history, vel_2_history]

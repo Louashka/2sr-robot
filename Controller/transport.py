@@ -48,32 +48,42 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     # Find a point on the contour in the opposite direction
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
-    margin_in = 0.02
-    margin_out = 0.04
+    delta = 0.02
+    delta_2 = delta * 2
+    delta_4 = delta * 4
 
     for s in s_array:
         point = manip.getPoint(s)
         theta = manip.getTangent(s)
-
+        
         vector_to_point = np.array(point) - manip.position
         dot_product = np.dot(vector_to_point, direction_vector)
         
         if dot_product > max_dot_product:
             grasp_idx = s
+            optimal_theta = func.normalizeAngle(theta)
             max_dot_product = dot_product
 
-            point_with_margin_in = [point[0] + margin_in * np.cos(dir_angle), 
-                                    point[1] + margin_in * np.sin(dir_angle)]
-            grasp_pose = point_with_margin_in + [func.normalizeAngle(theta)]
+            final_contact_pos = [point[0] + delta * np.cos(dir_angle), 
+                                 point[1] + delta * np.sin(dir_angle)]
 
-            point_with_margin_out = [point[0] + margin_out * np.cos(dir_angle), 
-                                    point[1] + margin_out * np.sin(dir_angle)]
-            approach_pose = point_with_margin_out + [func.normalizeAngle(theta)]
+            pre_grasp_pos = [point[0] + delta_2 * np.cos(dir_angle), 
+                            point[1] + delta_2 * np.sin(dir_angle)]
+            
+            approach_pos = [point[0] + delta_4 * np.cos(dir_angle), 
+                            point[1] + delta_4 * np.sin(dir_angle)]
+            
+    k1 = manip.getMeanCurvature(grasp_idx, gv.L_VSS, 'clockwise')
+    k2 = manip.getMeanCurvature(grasp_idx, gv.L_VSS)
 
-    grasp_config = [*grasp_pose, 12, 12]
-    approach_config = [*approach_pose, 0, 0]
+    k1 += -2 if k1 > 0 else 2
+    k2 += -2 if k2 > 0 else 2
 
-    return grasp_idx, grasp_config, approach_config
+    approach_config = [*approach_pos, optimal_theta, 0, 0]
+    pre_grasp_config = [*pre_grasp_pos, optimal_theta, k1, k2]
+    final_config = [*final_contact_pos, optimal_theta, k1, k2]
+
+    return grasp_idx, approach_config, pre_grasp_config, final_config
 
 # ----------------------------- Motion Control ------------------------------
 

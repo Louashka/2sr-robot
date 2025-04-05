@@ -8,9 +8,32 @@ import cvxpy
 from gekko import GEKKO
 from threading import Thread
 import time
+from collections import deque
+from scipy.signal import savgol_filter
 
 port_name = "COM3"
 serial_port = serial.Serial(port_name, 115200)
+
+# Sigmoid function for smooth velocity scaling
+def sigmoid_scale(distance, start_point, steepness, min_value, max_value):
+    """
+    Creates a sigmoid scaling function that transitions smoothly from max to min
+    
+    Args:
+        distance: Current distance to target
+        steepness: How steep the transition is (higher = more abrupt)
+        min_value: Minimum scale value (when distance approaches 0)
+        max_value: Maximum scale value (when distance is large)
+    """
+    # Basic sigmoid function: 1 / (1 + e^(-steepness * (x - midpoint)))
+    # Scaled to range from min_value to max_value
+    
+    # Deceleration sigmoid (0.06 to target)
+    decel_progress = distance / start_point
+    decel_progress = max(0, min(1, decel_progress))  # Clamp to [0,1]
+    decel_sigmoid = 1.0 / (1.0 + np.exp(steepness * (decel_progress - 0.5) * 4))
+    
+    return min_value + decel_sigmoid * (max_value - min_value)
 
 
 class Controller:
@@ -267,7 +290,7 @@ class Controller:
 
         return q_ref
     
-    def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list, dist_0: float):
+    def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -277,33 +300,6 @@ class Controller:
 
         # Calculate distance to target
         dist_to_target = np.sqrt((agent.x - target[0])**2 + (agent.y - target[1])**2)
-        
-        # Sigmoid function for smooth velocity scaling
-        def sigmoid_scale(distance, steepness, min_value, max_value):
-            """
-            Creates a sigmoid scaling function that transitions smoothly from max to min
-            
-            Args:
-                distance: Current distance to target
-                steepness: How steep the transition is (higher = more abrupt)
-                min_value: Minimum scale value (when distance approaches 0)
-                max_value: Maximum scale value (when distance is large)
-            """
-            # Basic sigmoid function: 1 / (1 + e^(-steepness * (x - midpoint)))
-            # Scaled to range from min_value to max_value
-            # Acceleration sigmoid (start to dist_0 - 0.03)
-            accel_progress = (dist_0 - distance) / 0.03
-            accel_progress = max(0, min(1, accel_progress))  # Clamp to [0,1]
-            accel_sigmoid = 1.0 / (1.0 + np.exp(-steepness * (accel_progress - 0.5) * 4))
-            
-            # Deceleration sigmoid (0.06 to target)
-            decel_progress = distance / 0.03
-            decel_progress = max(0, min(1, decel_progress))  # Clamp to [0,1]
-            decel_sigmoid = 1.0 / (1.0 + np.exp(steepness * (decel_progress - 0.5) * 4))
-            
-            # Combine both (the multiply creates the plateau in the middle)
-            combined = accel_sigmoid * decel_sigmoid
-            return min_value + combined * (max_value - min_value)
 
         # Apply scaling to velocity limits
         max_v_x = 0.07 
@@ -353,11 +349,12 @@ class Controller:
         # Also use sigmoid for velocity penalty scaling in cost function
         penalty_steepness = 4.0     # Sharper transition for penalties
         min_penalty_factor = 1.0    # Base penalty multiplier
-        max_penalty_factor = 1.9    # Maximum penalty multiplier
+        max_penalty_factor = 1.7    # Maximum penalty multiplier
         
         # Calculate penalty scale
         velocity_penalty_factor = sigmoid_scale(
             distance=dist_to_target, 
+            start_point=0.05,
             steepness=penalty_steepness,
             min_value=min_penalty_factor,
             max_value=max_penalty_factor
@@ -394,11 +391,13 @@ class Controller:
         # Manipulated variables        
         u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        # u1.DCOST = 1
+        u1.DMAX = 0.01
+        u1.DCOST = 0.1
 
         u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        # u2.DCOST = 1
+        u2.DMAX = 0.01
+        u2.DCOST = 0.1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -437,29 +436,44 @@ class Controller:
 
         # Define an intermediate variable for wheel speed
         w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
-        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
-
         w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
-        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
         
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
         m.Equation(w1 <= self.MAX_SPEED)
-        # m.Equation(w1_curve >= 0)
 
         m.Equation(w2 >= -self.MAX_SPEED)
         m.Equation(w2 <= self.MAX_SPEED)
-        # m.Equation(w2_curve >= 0)
+
+        # Calculate distance to target
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+
+        # Also use sigmoid for velocity penalty scaling in cost function
+        penalty_steepness = 4.0     # Sharper transition for penalties
+        min_penalty_factor = 1.0    # Base penalty multiplier
+        max_penalty_factor = 5.0    # Maximum penalty multiplier
+        
+        # Calculate penalty scale
+        velocity_penalty_factor = sigmoid_scale(
+            distance=dist_to_target, 
+            start_point=3,
+            steepness=penalty_steepness,
+            min_value=min_penalty_factor,
+            max_value=max_penalty_factor
+        )
+        
+        vel_1_weight = 10 * velocity_penalty_factor
+        vel_2_weight = 5 * velocity_penalty_factor
 
         # Objective function
         Q = [3, 3, 1, 0.05, 0.05]
-        R = [10, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 +
               Q[2] * (theta - target[2])**2 + 
               Q[3] * (k1 - target[3])**2 +  
-              R[0] * u1**2 + R[1] * u2**2)
+              vel_1_weight * u1**2 + 
+              vel_2_weight * u2**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -477,11 +491,13 @@ class Controller:
         # Manipulated variables        
         u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        # u1.DCOST = 1
+        u1.DMAX = 0.01
+        u1.DCOST = 0.1
 
         u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        # u2.DCOST = 1
+        u2.DMAX = 0.01
+        u2.DCOST = 0.1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -520,29 +536,44 @@ class Controller:
 
         # Define an intermediate variable for wheel speed
         w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
-        w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
-
         w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
-        w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
         
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
         m.Equation(w1 <= self.MAX_SPEED)
-        # m.Equation(w1_curve >= 0)
 
         m.Equation(w2 >= -self.MAX_SPEED)
         m.Equation(w2 <= self.MAX_SPEED)
-        # m.Equation(w2_curve >= 0)
+
+        # Calculate distance to target
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+
+        # Also use sigmoid for velocity penalty scaling in cost function
+        penalty_steepness = 4.0     # Sharper transition for penalties
+        min_penalty_factor = 1.0    # Base penalty multiplier
+        max_penalty_factor = 5.0    # Maximum penalty multiplier
+        
+        # Calculate penalty scale
+        velocity_penalty_factor = sigmoid_scale(
+            distance=dist_to_target, 
+            start_point=3,
+            steepness=penalty_steepness,
+            min_value=min_penalty_factor,
+            max_value=max_penalty_factor
+        )
+        
+        vel_1_weight = 5 * velocity_penalty_factor
+        vel_2_weight = 10 * velocity_penalty_factor
 
         # Objective function
         Q = [3, 3, 1, 0.05, 0.05]
-        R = [5, 10]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
               Q[2] * (theta - target[2])**2 + 
               Q[3] * (k2 - target[4])**2 +  
-              R[0] * u1**2 + R[1] * u2**2)
+              vel_1_weight * u1**2 + 
+              vel_2_weight * u2**2)
 
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -561,11 +592,13 @@ class Controller:
         # Manipulated variables        
         u1 = m.MV(value=v_current[0], lb=-0.05, ub=0.05)
         u1.STATUS = 1
-        # u1.DCOST = 1
+        u1.DMAX = 0.01
+        u1.DCOST = 0.1
 
         u2 = m.MV(value=v_current[1], lb=-0.05, ub=0.05)
         u2.STATUS = 1
-        # u2.DCOST = 1
+        u2.DMAX = 0.01
+        u2.DCOST = 0.1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -590,29 +623,44 @@ class Controller:
         
         # Define an intermediate variable for wheel speed
         w1 = m.Intermediate(-(1 / global_var.WHEEL_R) * u1)
-        # w1_curve =m.Intermediate(w1**4 - self.MIN_SPEED * w1**2)
-
         w2 = m.Intermediate(-(1 / global_var.WHEEL_R) * u2)
-        # w2_curve = m.Intermediate(w2**4 - self.MIN_SPEED * w2**2)
         
         # Constraints
         m.Equation(w1 >= -self.MAX_SPEED)
         m.Equation(w1 <= self.MAX_SPEED)
-        # m.Equation(w1_curve >= 0)
 
         m.Equation(w2 >= -self.MAX_SPEED)
         m.Equation(w2 <= self.MAX_SPEED)
-        # m.Equation(w2_curve >= 0)
+
+        # Calculate distance to target
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+
+        # Also use sigmoid for velocity penalty scaling in cost function
+        penalty_steepness = 4.0     # Sharper transition for penalties
+        min_penalty_factor = 1.0    # Base penalty multiplier
+        max_penalty_factor = 5.0    # Maximum penalty multiplier
+        
+        # Calculate penalty scale
+        velocity_penalty_factor = sigmoid_scale(
+            distance=dist_to_target, 
+            start_point=3,
+            steepness=penalty_steepness,
+            min_value=min_penalty_factor,
+            max_value=max_penalty_factor
+        )
+        
+        vel_1_weight = 5 * velocity_penalty_factor
+        vel_2_weight = 5 * velocity_penalty_factor
 
         Q = [3, 3, 1, 0.05, 0.05]
-        R = [5, 5]
 
         m.Obj(Q[0] * (x - target[0])**2 + 
               Q[1] * (y - target[1])**2 + 
               Q[2] * (theta - target[2])**2 + 
               Q[3] * (k1 - target[3])**2 +
               Q[3] * (k2 - target[4])**2 +  
-              R[0] * u1**2 + R[1] * u2**2)
+              vel_1_weight * u1**2 + 
+              vel_2_weight * u2**2)
         
         # Options
         m.options.IMODE = 6  # MPC mode
@@ -802,15 +850,17 @@ def sendCommands(commands: List[float]) -> None:
 
 
 class StiffnessController:
-    def __init__(self):
+    def __init__(self, history_length=120):
         self.states = [0, 0]  # Initial state
 
         self.liquid_threshold = 63
         self.solid_threshold = 53
 
         self.temp = [0, 0]
-
         self.send_counter = 0
+
+        self.win_size = 5
+        self.t_history = [deque(maxlen=history_length), deque(maxlen=history_length)]
 
     def control_loop(self, current_states: list, target_states: list, agent_id: int, rgb_camera=None):
         self.states = current_states
@@ -913,10 +963,20 @@ class StiffnessController:
                 i = 1
 
             if i != -1:
-                self.temp[i] = temperature
+                self.t_history[i].append(temperature)
+                if len(self.t_history[i]) >= 5:
+                    self.temp[i] = self.filter(i)
+                else:
+                   self.temp[i] = temperature
             else:
                 return False, self.temp
         except ValueError:
             return False, self.temp
         
         return True, self.temp
+    
+    def filter(self, idx) -> float:
+        temp_history = list(self.t_history[idx])
+
+        return savgol_filter(temp_history, self.win_size, 2)[-1]
+        
