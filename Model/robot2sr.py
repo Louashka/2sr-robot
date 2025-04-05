@@ -18,7 +18,12 @@ class Robot(Frame):
 
         self.k1 = k1
         self.k2 = k2
-        self.stiffness = stiffness
+
+        self.t1 = None
+        self.t2 = None
+
+        self.stiff1 = stiffness[0]
+        self.stiff2 = stiffness[1]
 
         self.head = Frame(0, 0, 0)
         self.tail = Frame(0, 0, 0)
@@ -44,12 +49,56 @@ class Robot(Frame):
         self.__k2 = value
 
     @property
+    def t1(self) -> float:
+        return self.__t1
+    
+    @t1.setter
+    def t1(self, value) -> None:
+        self.__t1 = value
+
+    @property
+    def t2(self) -> float:
+        return self.__t2
+    
+    @t2.setter
+    def t2(self, value) -> None:
+        self.__t2 = value
+
+    @property
+    def temp(self) -> List[float]:
+        return [self.t1, self.t2]
+    
+    @temp.setter
+    def temp(self, value) -> None:
+        if len(value) != 2:
+            raise ValueError("Wrong number of temperature values!")
+        self.__t1, self.__t2 = value
+
+    @property
+    def stiff1(self) -> float:
+        return self.__stiff1
+    
+    @stiff1.setter
+    def stiff1(self, value) -> None:
+        self.__stiff1 = value
+
+    @property
+    def stiff2(self) -> float:
+        return self.__stiff2
+    
+    @stiff2.setter
+    def stiff2(self, value) -> None:
+        self.__stiff2 = value
+
+    @property
     def stiffness(self) -> List[int]:
-        return self.__stiffness
+        return [self.stiff1, self.stiff2]
     
     @stiffness.setter
     def stiffness(self, value) -> None:
-        self.__stiffness = value
+        if len(value) != 2:
+            raise ValueError("Wrong number of stiffness values!")
+        self.__stiff1, self.__stiff2 = value
 
     @property
     def head(self) -> Frame:

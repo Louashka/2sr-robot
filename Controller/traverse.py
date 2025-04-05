@@ -1844,10 +1844,8 @@ def discretizeConfigs(initial_config, way_points):
 
     return target_configs
 
-def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_configs, 
+def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_controller: rsr_ctrl.Controller, target_configs, 
                       start_time, rgb_camera, simulation=False) -> tuple[dict, float]:
-    agent_controller = rsr_ctrl.Controller()
-
     traverse_data = {}
     idx = 1
 
@@ -1866,7 +1864,6 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
         robot_stiffness = []
         target_vel = []
         target_mm = []
-        transition_status = []
         temperature = []
         fsm_feedback = []
 
@@ -1890,8 +1887,8 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
             
             timestamps.append(elapsed_time)
             robot_states.append(agent.config.tolist())
-            robot_stiffness.append(agent.stiffness)
-            temperature.append(agent_controller.sc.readTemperature()[1])
+            robot_stiffness.append(agent.stiffness.copy())
+            temperature.append(agent.temp.copy())
 
             object_states.append(object.pose)
             
@@ -1918,7 +1915,6 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
             print(f'Velocity: {v}')
 
             target_mm.append(target_s)
-            target_vel.append(v)
 
             vel_x_history.append(v_r[0])
             vel_y_history.append(v_r[1])
@@ -1926,23 +1922,20 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
             vel_1_history.append(v_s[0])
             vel_2_history.append(v_s[1])
 
-            _, _, current_s, sc_feedback = agent_controller.move(agent, v, target_s, rgb_camera)
+            _, _, sc_feedback = agent_controller.move(agent, v, target_s, rgb_camera)
             print()
 
-            if sc_feedback is None:
-                transition_status.append(False)
-            else:
-                transition_status.append(True)
-
             fsm_feedback.append(sc_feedback)
+            if sc_feedback:
+                target_vel.append([0] * 5)
+            else:
+                target_vel.append(v)
             
             if simulation:
                 agent.config = q_new
                 agent.stiffness = target_s
-                rgb_camera.s = target_s
-            else:
-                agent.stiffness = current_s
-                rgb_camera.s = current_s
+
+            rgb_camera.s = agent.stiffness
             # rgb_camera.add2traj(agent.position)
 
             if finish:
@@ -1955,9 +1948,8 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
         robot_stiffness.append(agent.stiffness)
         target_mm.append(target_s)
         target_vel.append(v)
-        transition_status.append(False)
         fsm_feedback.append(sc_feedback)
-        temperature.append(agent_controller.sc.readTemperature()[1])
+        temperature.append(agent.temp)
 
 
         object_states.append(object.pose)
@@ -1971,7 +1963,6 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, target_
                     'stiffness': robot_stiffness,
                     'target_vel': target_vel,
                     'target_mm': target_mm,
-                    'transitions': transition_status,
                     'fsm_feedback': fsm_feedback,
                     'temperature': temperature
                 },

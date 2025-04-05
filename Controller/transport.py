@@ -1,9 +1,9 @@
 from Model import splines, robot2sr, manipulandum, global_var as gv
-import robot2sr_controller as rsr_ctrl
 import func
 import numpy as np
 import time
 import cvxpy
+import robot2sr_controller as rsr_ctrl
 
 def bezierCurve(t, p0, p1, p2, p3):
     return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
@@ -307,7 +307,7 @@ def robotVelocities(v_c, agent: robot2sr.Robot, c_frames):
 
     return v_r
 
-def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pos: list, 
+def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, agent_controller: rsr_ctrl.Controller, manip_target_pos: list, 
               path:splines.Trajectory, rgb_camera, start_time: float, simulation=False) -> dict:
     TARGET_SPEED = 0.06
 
@@ -324,7 +324,6 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, manip_target_pos
     rgb_camera.target_robot_config = None
     rgb_camera.traversed_trajectory = []
     rgb_camera.add2traj(manip.position)
-    agent_controller = rsr_ctrl.Controller()
     
     while True:
         if func.close2Pos(manip.position, manip_target_pos) or rgb_camera.finish:

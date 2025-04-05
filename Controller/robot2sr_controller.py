@@ -6,13 +6,7 @@ from cvxopt import matrix, solvers
 from Model import global_var, robot2sr, splines
 import cvxpy
 from gekko import GEKKO
-from threading import Thread
 import time
-from collections import deque
-from scipy.signal import savgol_filter
-
-port_name = "COM3"
-serial_port = serial.Serial(port_name, 115200)
 
 # Sigmoid function for smooth velocity scaling
 def sigmoid_scale(distance, start_point, steepness, min_value, max_value):
@@ -37,7 +31,9 @@ def sigmoid_scale(distance, start_point, steepness, min_value, max_value):
 
 
 class Controller:
-    def __init__(self) -> None:
+    def __init__(self, serial_port) -> None:
+        self.serial_port = serial_port
+
         self.max_acc_x = 0.05  # m/s²
         self.max_acc_y = 0.05  # m/s²
         self.max_acc_theta = 0.3  # rad/s²
@@ -309,7 +305,7 @@ class Controller:
         # Apply scaling to rate of change limits (DMAX)
         dmax_x = 0.01 
         dmax_y = 0.01 
-        dmax_omega = 0.02 
+        dmax_omega = 0.05 
         
         # Manipulated variables with dynamic limits       
         v_x = m.MV(value=v_current[0], lb=-max_v_x, ub=max_v_x)
@@ -325,7 +321,7 @@ class Controller:
         omega = m.MV(value=v_current[2], lb=-max_omega, ub=max_omega)
         omega.STATUS = 1
         omega.DMAX = dmax_omega
-        omega.DCOST = 0.25
+        omega.DCOST = 0.1
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -784,16 +780,14 @@ class Controller:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
         commands = omega.tolist() + s + [agent.id]
 
-        sc_feedback = None
-        sc_feedback = self.sc.control_loop(agent.stiffness, s, agent.id, rgb_camera)
+        sc_feedback = self.sc.control_loop(agent, s, rgb_camera)
 
-        sendCommands(commands)
+        if sc_feedback:
+            self.sendCommands([0] * 4 + s + [agent.id])
+        else:
+            self.sendCommands(commands)
 
-        return wheels, q, self.sc.states, sc_feedback
-
-    def stop(self, agent: robot2sr.Robot) -> None:
-        commands = [0, 0, 0, 0] + agent.stiffness + [agent.id]
-        self._sendCommands(commands)
+        return wheels, q, sc_feedback
 
     @staticmethod
     def _calcWheelsCoords(agent_pose: List[float], lu_pose: List[float], lu_type='head') -> tuple[List[List[float]], List[List[float]]]:
@@ -844,79 +838,45 @@ class Controller:
 
         return 1 / global_var.WHEEL_R * V
 
-def sendCommands(commands: List[float]) -> None:
-    msg = "s" + "".join(f"{command}\n" for command in commands)
-    serial_port.write(msg.encode())
+    def sendCommands(self, commands: List[float]) -> None:
+        msg = "s" + "".join(f"{command}\n" for command in commands)
+        self.serial_port.write(msg.encode())
 
 
 class StiffnessController:
-    def __init__(self, history_length=120):
-        self.states = [0, 0]  # Initial state
+    def __init__(self):
+        self.agent = None
 
         self.liquid_threshold = 63
         self.solid_threshold = 53
 
-        self.temp = [0, 0]
-        self.send_counter = 0
-
-        self.win_size = 5
-        self.t_history = [deque(maxlen=history_length), deque(maxlen=history_length)]
-
-    def control_loop(self, current_states: list, target_states: list, agent_id: int, rgb_camera=None):
-        self.states = current_states
+    def control_loop(self, agent: robot2sr.Robot, target_states: list, rgb_camera=None) -> bool:
+        self.agent = agent
 
         all_actions = []
-        meas = []
-        time_list = []
 
-        start_time = time.perf_counter()
+        actions = self.getActions(target_states)
 
-        while True:
-            actions = self.getActions(target_states)
-
-            if actions == (0, 0):
-                break
-            elif rgb_camera is not None:
-                rgb_camera.transition = True
-
-            if self.send_counter < 3:
-                sendCommands([0] * 4 + target_states + [agent_id])
-                self.send_counter += 1
-
-            status, _ = self.readTemperature()
-            if not status:
-                continue
-
-            current_time = time.perf_counter()
-            elapsed_time = current_time - start_time
-
-            self.applyActions(actions)
-            
-            all_actions.append(actions)
-            meas.append(self.temp.copy())
-            time_list.append(elapsed_time)
-
+        if actions == (0, 0):
             if rgb_camera is not None:
-                rgb_camera.T = self.temp
+                rgb_camera.transition = False
+            return False
+        
+        elif rgb_camera is not None:
+            rgb_camera.transition = True
 
-        self.send_counter = 0
+        self.applyActions(actions)
+        
+        all_actions.append(actions)
+
         if rgb_camera is not None:
-            rgb_camera.transition = False
+            rgb_camera.T = agent.temp
 
-        if meas:
-            response = {
-                'relative_timestamps': time_list,
-                'control_input': all_actions,
-                'meas': meas
-            }
-        else:
-            response = None
-
-        return response
+        return True
 
     def getActions(self, target_states):
-        actions = (self.getAction(self.states[0], target_states[0]),
-                   self.getAction(self.states[1], target_states[1]))
+        actions = (self.getAction(self.agent.stiff1, target_states[0]),
+                   self.getAction(self.agent.stiff2, target_states[1]))
         
         return actions
 
@@ -934,49 +894,23 @@ class StiffnessController:
 
     def applyAction(self, i, action):
         if action == 1:
-            if self.temp[i] >= self.liquid_threshold:
-                self.states[i] = 1
+            if self.agent.temp[i] >= self.liquid_threshold:
+                if i == 0: 
+                    self.agent.stiff1 = 1
+                else:
+                    self.agent.stiff2 = 1
             else:
                 print(f'Switching segment {i+1} to soft...')
-                print(f'Current temp: {self.temp[i]}')
+                print(f'Current temp: {self.agent.temp[i]}')
                 print()
         if action == -1:
-            if self.temp[i] <= self.solid_threshold:
-                self.states[i] = 0
+            if self.agent.temp[i] <= self.solid_threshold:
+                if i == 0: 
+                    self.agent.stiff1 = 0
+                else:
+                    self.agent.stiff2 = 0
             else:
                 print(f'Switching segment {i+1} to rigid...')
-                print(f'Current temp: {self.temp[i]}')
+                print(f'Current temp: {self.agent.temp[i]}')
                 print()
-
-
-    def readTemperature(self) -> bool:
-        response = serial_port.readline()
-        response = response.decode('ascii', errors="ignore")
-
-        try:
-            temperature = float(response[1:])
-
-            i = -1
-            if response[0] == 'A':
-                i = 0
-            if response[0] == 'B':
-                i = 1
-
-            if i != -1:
-                self.t_history[i].append(temperature)
-                if len(self.t_history[i]) >= 5:
-                    self.temp[i] = self.filter(i)
-                else:
-                   self.temp[i] = temperature
-            else:
-                return False, self.temp
-        except ValueError:
-            return False, self.temp
-        
-        return True, self.temp
-    
-    def filter(self, idx) -> float:
-        temp_history = list(self.t_history[idx])
-
-        return savgol_filter(temp_history, self.win_size, 2)[-1]
         

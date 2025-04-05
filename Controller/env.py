@@ -7,13 +7,20 @@ from datetime import datetime
 import numpy as np
 import cv2
 from shapely.geometry import Polygon
+from collections import deque
+from scipy.signal import savgol_filter
 
 class Observer:
-    def __init__(self, title, simulation=False) -> None:
+    def __init__(self, title, serial_port, simulation=False, history_length=120) -> None:
+        self.serial_port = serial_port
         self.simulation = simulation
 
         self.markers = None
+
         self.agent: rsr.Robot = None
+        self.win_size = 5
+        self.t_history = [deque(maxlen=history_length), deque(maxlen=history_length)]
+
         self.object: manipulandum.Shape = None
         self.object_target: manipulandum.Shape = None
 
@@ -51,6 +58,42 @@ class Observer:
             else:
                 self.object = manipulandum.Shape(object_config['id'], object_pose)
 
+    def __readTemperature(self) -> None:
+        while True:
+            response = self.serial_port.readline()
+            response = response.decode('ascii', errors="ignore")
+
+            try:
+                temperature = float(response[1:])
+
+                i = -1
+                if response[0] == 'A':
+                    i = 0
+                if response[0] == 'B':
+                    i = 1
+
+                if i != -1:
+                    self.t_history[i].append(temperature)
+                    if self.agent is not None:
+                        if len(self.t_history[i]) >= 5:
+                            temp_filtered =  self.__filter(i)
+                            if i == 0: 
+                                self.agent.t1 = temp_filtered
+                            else:
+                                self.agent.t2 = temp_filtered
+                        else:
+                            if i == 0: 
+                                self.agent.t1 = temperature
+                            else:
+                                self.agent.t2 = temperature
+            except ValueError:
+                continue 
+        
+    def __filter(self, idx) -> float:
+        temp_history = list(self.t_history[idx])
+
+        return savgol_filter(temp_history, self.win_size, 2)[-1]
+
     def __updateConfigLoop(self) -> None:
         while True:
             self.__updateConfig()
@@ -63,9 +106,13 @@ class Observer:
         print('Start Motive streaming...\n')
         self.mocap.startDataListener()
 
-        update_thread = threading.Thread(target=self.__updateConfigLoop)
-        update_thread.daemon = True  
-        update_thread.start()
+        motive_thread = threading.Thread(target=self.__updateConfigLoop)
+        motive_thread.daemon = True  
+        motive_thread.start()
+
+        temp_thread = threading.Thread(target=self.__readTemperature)
+        temp_thread.daemon = True  
+        temp_thread.start()
 
         self.rgb_camera.startVideo(self.date_title)
 

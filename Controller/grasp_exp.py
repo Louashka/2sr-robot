@@ -1,12 +1,17 @@
 import env, Controller.transport as trans, Controller.traverse as trav
+import robot2sr_controller as rsr_ctrl
 import numpy as np
 import json
 import time
+import serial
 
 title = 'grasp_trial_1'
 
 # simulation = True
 simulation = False
+
+port_name = "COM3"
+serial_port = serial.Serial(port_name, 115200)
 
 class DataCollector:
     def __init__(self): 
@@ -50,11 +55,16 @@ class DataCollector:
 
 if __name__ == "__main__":
     # Set up the environment 
-    env_observer = env.Observer(title, simulation)
+    env_observer = env.Observer(title, serial_port, simulation)
     env_observer.run()
 
     data_collector = DataCollector()
     data_collector.addDate(env_observer.date_title)
+
+    agent_controller = rsr_ctrl.Controller(serial_port)
+
+    # while True:
+    #     print(env_observer.agent.temp)
 
     # ---------------------- Determine Grasping Parameters ----------------------
     env_observer.object.delta_theta = np.pi/2 - env_observer.object.theta
@@ -70,7 +80,7 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
 
     traverse_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [approach_target], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [approach_target], start_time, env_observer.rgb_camera, simulation)
     
     data_collector.addApproachData(traverse_data)
 
@@ -104,14 +114,14 @@ if __name__ == "__main__":
     # -------------------------------- Pre-grasp --------------------------------
     print('\nPre-grasp the object...\n')
     pre_grasp_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [pre_grasp], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [pre_grasp], start_time, env_observer.rgb_camera, simulation)
     
     data_collector.addPreGraspData(pre_grasp_data)
 
     # ------------------------------- Final contact -------------------------------
-    print('\Contact the object...\n')
+    print('\nContact the object...\n')
     f_contact_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [final_contact], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [final_contact], start_time, env_observer.rgb_camera, simulation)
     
     data_collector.addFinalContactData(f_contact_data)
 
@@ -123,7 +133,7 @@ if __name__ == "__main__":
     
     print('\nTransport the object...\n')
     transport_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                [trp_target], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [trp_target], start_time, env_observer.rgb_camera, simulation)
     
     data_collector.addTransportData(transport_data)
 
