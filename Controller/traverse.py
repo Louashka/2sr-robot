@@ -1845,7 +1845,7 @@ def discretizeConfigs(initial_config, way_points):
     return target_configs
 
 def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_controller: rsr_ctrl.Controller, target_configs, 
-                      start_time, rgb_camera, simulation=False) -> tuple[dict, float]:
+                      start_time, rgb_camera, flexible=False, simulation=False) -> tuple[dict, float]:
     traverse_data = {}
     idx = 1
 
@@ -1856,6 +1856,8 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_c
     vel_2_history = []
 
     for tc in target_configs:
+        # agent_controller.resetPID()
+
         if idx == len(target_configs):
             rgb_camera.expanded_obstacles = []
             
@@ -1874,13 +1876,15 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_c
 
         v_r = [0.0] * 3
         v_s = [0.0] * 2
+        sc_feedback = False
 
         target_s = [0, 0]
-        for i in range(2):
-            curv_diff = abs(tc[i+3] - agent.curvature[i])
-            print(curv_diff)
-            if curv_diff > 4:
-                target_s[i] = 1
+        if flexible:
+            for i in range(2):
+                curv_diff = abs(tc[i+3] - agent.curvature[i])
+                print(curv_diff)
+                if curv_diff > 4:
+                    target_s[i] = 1
 
         while True:
             elapsed_time = time.perf_counter() - start_time
@@ -1896,24 +1900,33 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_c
                 target_s = [0, 0]
                 v_r = [0.0] * 3
                 v_s = [0.0] * 2
-            if (target_s == [0, 0] and func.close2Pose(agent.pose, tc[:3])) or rgb_camera.finish:
+            if (target_s == [0, 0] and func.close2Pos(agent.position, tc[:2])) or rgb_camera.finish:
                 v_r = [0.0] * 3
                 v_s = [0.0] * 2
                 finish = True
             else:
                 if target_s == [0, 0]:
                     v_r, q_new = agent_controller.mpcRM(agent, tc[:3], v_r)
+                    v_s = [0.0] * 2
                 elif target_s == [1, 0]:
+                    v_r = [0.0] * 3
                     v_s, q_new = agent_controller.mpcSM1(agent, tc, v_s)
                 elif target_s == [0, 1]:
+                    v_r = [0.0] * 3
                     v_s, q_new = agent_controller.mpcSM2(agent, tc, v_s)
                 else:
+                    v_r = [0.0] * 3
                     v_s, q_new = agent_controller.mpcSM3(agent, tc, v_s)
 
+            if sc_feedback:
+                v_r = [0.0] * 3
+                v_s = [0.0] * 2
+            
             v = v_r + v_s
             print(f'Stiffness: {target_s}')
             print(f'Velocity: {v}')
 
+            target_vel.append(v)
             target_mm.append(target_s)
 
             vel_x_history.append(v_r[0])
@@ -1926,10 +1939,6 @@ def traverseObstacles(agent: robot2sr.Robot, object: manipulandum.Shape, agent_c
             print()
 
             fsm_feedback.append(sc_feedback)
-            if sc_feedback:
-                target_vel.append([0] * 5)
-            else:
-                target_vel.append(v)
             
             if simulation:
                 agent.config = q_new

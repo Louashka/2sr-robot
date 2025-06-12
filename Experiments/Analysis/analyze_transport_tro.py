@@ -25,7 +25,7 @@ line_width = 2.5  # Common variable for line width
 
 
 def transport_files():
-    directory = 'Experiments/Data/Tracking/Object_transport'
+    directory = 'Experiments/Data/Tracking/Transport'
 
     cheescake_files = [f for f in os.listdir(directory) if f.startswith('cheescake') and f.endswith('.json')]
     ellipse_files = [f for f in os.listdir(directory) if f.startswith('ellipse') and f.endswith('.json')]
@@ -72,7 +72,7 @@ def movig_avrg(x, y, window_size=10):
     return smoothed_x, smoothed_y
 
 def traverse_files():
-    directory = 'Experiments/Data/Tracking/Grasp'
+    directory = 'Experiments/Data/Tracking/Traverse'
     all_files = [f for f in os.listdir(directory) if f.endswith('.json')]
 
     transport_data = []
@@ -371,8 +371,8 @@ def process_transport_data():
     
     # Adjust spacing between subplots
     plt.tight_layout()
-    # plt.show()
-    plt.savefig('transport.pdf', format='pdf', dpi=150, bbox_inches='tight', transparent=True)
+    plt.show()
+    # plt.savefigs('transport.pdf', format='pdf', dpi=150, bbox_inches='tight', transparent=True)
 
 
 def process_grasp_data():

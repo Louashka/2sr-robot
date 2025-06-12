@@ -49,7 +49,7 @@ class Controller:
         self.NX = 5  # x = x, y, yaw
         self.NU = 2  # a = [linear velocity, linear velocity, angular velocity ]
         self.NW = 4  # number of wheels
-        self.T = 13  # horizon length
+        self.T = 11  # horizon length
 
         # mpc parameters
         self.R = np.diag([1, 10000, 0.0015])  # input cost matrix
@@ -66,6 +66,18 @@ class Controller:
         self.cardioid1 = splines.Cardioid(1)
         self.cardioid2 = splines.Cardioid(2)
         self.cardioid3 = splines.Cardioid(3)
+
+        self.kp = 0.1
+        self.ki = 0.0
+        self.kd = 0.0
+
+        self.previous_error = np.zeros(3)
+        self.integral = np.zeros(3)
+
+    def resetPID(self):
+        """Reset the controller's internal state."""
+        self.previous_error = np.zeros(3)
+        self.integral = np.zeros(3)
 
     def motionPlannerMPC(self, agent: robot2sr.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
@@ -286,6 +298,8 @@ class Controller:
 
         return q_ref
     
+    
+    
     def mpcRM(self, agent: robot2sr.Robot, target: list, v_current: list):
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
@@ -298,30 +312,26 @@ class Controller:
         dist_to_target = np.sqrt((agent.x - target[0])**2 + (agent.y - target[1])**2)
 
         # Apply scaling to velocity limits
-        max_v_x = 0.07 
+        max_v_x = 0.09 
         max_v_y = 0.07 
         max_omega = 0.7
         
-        # Apply scaling to rate of change limits (DMAX)
-        dmax_x = 0.01 
-        dmax_y = 0.01 
-        dmax_omega = 0.05 
         
         # Manipulated variables with dynamic limits       
         v_x = m.MV(value=v_current[0], lb=-max_v_x, ub=max_v_x)
         v_x.STATUS = 1
-        v_x.DMAX = dmax_x
-        v_x.DCOST = 0.15
+        v_x.DMAX = 0.02
+        v_x.DCOST = 0.1
 
         v_y = m.MV(value=v_current[1], lb=-max_v_y, ub=max_v_y)
         v_y.STATUS = 1
-        v_y.DMAX = dmax_y
-        v_y.DCOST = 0.2
+        v_y.DMAX = 0.02
+        v_y.DCOST = 0.1
 
         omega = m.MV(value=v_current[2], lb=-max_omega, ub=max_omega)
         omega.STATUS = 1
-        omega.DMAX = dmax_omega
-        omega.DCOST = 0.1
+        omega.DMAX = 0.1
+        omega.DCOST = 0.001
 
         x = m.SV(value=agent.x)
         y = m.SV(value=agent.y)
@@ -342,26 +352,12 @@ class Controller:
         m.Equations([w[i] >= -self.MAX_SPEED for i in range(4)])
         m.Equations([w[i] <= self.MAX_SPEED for i in range(4)])
 
-        # Also use sigmoid for velocity penalty scaling in cost function
-        penalty_steepness = 4.0     # Sharper transition for penalties
-        min_penalty_factor = 1.0    # Base penalty multiplier
-        max_penalty_factor = 1.7    # Maximum penalty multiplier
-        
-        # Calculate penalty scale
-        velocity_penalty_factor = sigmoid_scale(
-            distance=dist_to_target, 
-            start_point=0.05,
-            steepness=penalty_steepness,
-            min_value=min_penalty_factor,
-            max_value=max_penalty_factor
-        )
-        
         # Base weights
-        pos_weight = 5.0
-        ori_weight = 2.0
-        vel_x_weight = 0.6 * velocity_penalty_factor
-        vel_y_weight = 0.8 * velocity_penalty_factor
-        vel_omega_weight = 0.7 * velocity_penalty_factor
+        pos_weight = 10
+        ori_weight = 2
+        vel_x_weight = 0.6 
+        vel_y_weight = 1.4 
+        vel_omega_weight = 0.7
         
         # Running cost through horizon
         m.Obj(pos_weight * (target[0] - x)**2 + 
@@ -442,7 +438,7 @@ class Controller:
         m.Equation(w2 <= self.MAX_SPEED)
 
         # Calculate distance to target
-        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2)
 
         # Also use sigmoid for velocity penalty scaling in cost function
         penalty_steepness = 4.0     # Sharper transition for penalties
@@ -542,7 +538,7 @@ class Controller:
         m.Equation(w2 <= self.MAX_SPEED)
 
         # Calculate distance to target
-        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k2 - target[4])**2)
 
         # Also use sigmoid for velocity penalty scaling in cost function
         penalty_steepness = 4.0     # Sharper transition for penalties
@@ -629,7 +625,7 @@ class Controller:
         m.Equation(w2 <= self.MAX_SPEED)
 
         # Calculate distance to target
-        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k1 - target[4])**2)
+        dist_to_target = np.sqrt((agent.k1 - target[3])**2 + (agent.k2 - target[4])**2)
 
         # Also use sigmoid for velocity penalty scaling in cost function
         penalty_steepness = 4.0     # Sharper transition for penalties
@@ -645,8 +641,8 @@ class Controller:
             max_value=max_penalty_factor
         )
         
-        vel_1_weight = 5 * velocity_penalty_factor
-        vel_2_weight = 5 * velocity_penalty_factor
+        vel_1_weight = 8 * velocity_penalty_factor
+        vel_2_weight = 8 * velocity_penalty_factor
 
         Q = [3, 3, 1, 0.05, 0.05]
 
@@ -783,7 +779,7 @@ class Controller:
         sc_feedback = self.sc.control_loop(agent, s, rgb_camera)
 
         if sc_feedback:
-            self.sendCommands([0] * 4 + s + [agent.id])
+            self.sendCommands([0.0] * 4 + s + [agent.id])
         else:
             self.sendCommands(commands)
 
@@ -847,7 +843,7 @@ class StiffnessController:
     def __init__(self):
         self.agent = None
 
-        self.liquid_threshold = 63
+        self.liquid_threshold = 62
         self.solid_threshold = 53
 
     def control_loop(self, agent: robot2sr.Robot, target_states: list, rgb_camera=None) -> bool:

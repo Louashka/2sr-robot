@@ -5,7 +5,7 @@ import json
 import time
 import serial
 
-title = 'grasp_trial_1'
+title = 'grasp_bean_2'
 
 # simulation = True
 simulation = False
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     #     print(env_observer.agent.temp)
 
     # ---------------------- Determine Grasping Parameters ----------------------
-    env_observer.object.delta_theta = np.pi/2 - env_observer.object.theta
+    env_observer.object.delta_theta = np.pi/2.8 - env_observer.object.theta
     grasp_ctr_point, approach_target, pre_grasp, final_contact = trans.defineGrasp(env_observer.object)
 
     # env_observer.rgb_camera.grasp_point = pre_grasp[:2]
@@ -80,65 +80,49 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
 
     traverse_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                agent_controller, [approach_target], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [approach_target], start_time, env_observer.rgb_camera, False, simulation)
     
     data_collector.addApproachData(traverse_data)
-
-    # import matplotlib.pyplot as plt
-
-    # plt.figure(figsize=(15, 4))
-
-    # plt.subplot(1, 3, 1)
-    # plt.plot(vel[0], label='v_x')
-    # plt.legend()
-
-    # plt.subplot(1, 3, 2)
-    # plt.plot(vel[1], label='v_y')
-    # plt.legend()
-
-    # plt.subplot(1, 3, 3)
-    # plt.plot(vel[2], label='omega')
-    # plt.legend()
-
-    # plt.tight_layout()
-    # plt.show()
-
-    # dj_raw, dj_filtered = env_observer.mocap.filter.calculate_dimensionless_jerk(1)
-    # if dj_raw is not None:
-    #     improvement = 100 * (dj_raw - dj_filtered) / dj_raw
-    #     print(f"Dimensionless jerk reduced by {improvement:.1f}%")
-    #     print(f"Raw: {dj_raw:.2f}, Filtered: {dj_filtered:.2f}")
-
-    # env_observer.mocap.filter.create_window_evaluation_plot(1)
 
     # -------------------------------- Pre-grasp --------------------------------
     print('\nPre-grasp the object...\n')
     pre_grasp_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                agent_controller, [pre_grasp], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [pre_grasp], start_time, env_observer.rgb_camera, True, simulation)
     
     data_collector.addPreGraspData(pre_grasp_data)
 
     # ------------------------------- Final contact -------------------------------
     print('\nContact the object...\n')
     f_contact_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                agent_controller, [final_contact], start_time, env_observer.rgb_camera, simulation)
+                agent_controller, [final_contact], start_time, env_observer.rgb_camera, False, simulation)
     
     data_collector.addFinalContactData(f_contact_data)
 
     # -------------------------------- Transport --------------------------------
-    trp_target = env_observer.agent.config.tolist()
-    trp_target[0] -= 0.5 * np.sin(trp_target[2] - np.pi/6)
-    trp_target[1] += 0.5 * np.cos(trp_target[2])
-    trp_target[2] -= np.pi/6
+    obj_dir = np.pi/2.8
+    obj_go_dist = 0.8
+
+    obj_target_pos = [env_observer.object.x + obj_go_dist * np.cos(obj_dir),
+                      env_observer.object.y + obj_go_dist * np.sin(obj_dir)]
+
+    obj_path, obj_path_points, obj_d_th, obj_target_th = trans.generatePath(env_observer.object.pose, 
+                                                obj_target_pos, np.pi/4, np.pi/7)
+    env_observer.object.delta_theta = obj_d_th
+    env_observer.defineTargetObject([*obj_target_pos, obj_target_th])
+    env_observer.showObjPath(obj_path_points)
+
     
     print('\nTransport the object...\n')
-    transport_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-                agent_controller, [trp_target], start_time, env_observer.rgb_camera, simulation)
+    # transport_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
+    #             agent_controller, [trp_target], start_time, env_observer.rgb_camera, simulation)
+
+    transport_data = trans.transport(env_observer.agent, env_observer.object, agent_controller,
+        env_observer.object_target.position, obj_path, env_observer.rgb_camera, start_time, simulation)
     
     data_collector.addTransportData(transport_data)
 
     # ---------------------------------------s------------------------------------
     print('Save data...')
-    data_file_path = f'Experiments/Data/Tracking/Grasp/{env_observer.date_title}.json'
+    data_file_path = f'Experiments/Data/Tracking/Grasping/{env_observer.date_title}.json'
     data_collector.saveData(data_file_path, False)
 

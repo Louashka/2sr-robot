@@ -475,7 +475,8 @@ class MocapReader:
             rb_agents = [rb for rb in filtered_rigid_bodies.values() if rb['id'] < 10]
             rb_objects = [rb for rb in filtered_rigid_bodies.values() if rb['id'] > 10]
 
-            if len(filtered_markers) == 9 * len(rb_agents) + 3 * len(rb_objects):
+            # if len(filtered_markers) == 9 * len(rb_agents) + 3 * len(rb_objects):
+            if len(filtered_markers) == 12:
                 for rb_agent in rb_agents:
                     agent = {}
 

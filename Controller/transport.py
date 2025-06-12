@@ -15,8 +15,8 @@ def generatePath(manip_pose: list, manip_target_pos: list, obj_dir: float, beta=
     end = np.array(manip_target_pos)
 
     # Calculate control points for smooth exit and entrance
-    exit_distance = 0.2  # Adjust this value to control the "smoothness" of the exit
-    entrance_distance = 0.3 # Adjust this value to control the "smoothness" of the entrance
+    exit_distance = 0.3  # Adjust this value to control the "smoothness" of the exit
+    entrance_distance = 0.2 # Adjust this value to control the "smoothness" of the entrance
 
     p0 = start
     p1 = start + exit_distance * np.array([np.cos(obj_dir), np.sin(obj_dir)])
@@ -48,9 +48,11 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
     # Find a point on the contour in the opposite direction
     s_array = np.linspace(0, 1, 200)
     max_dot_product = 0
-    delta = 0.02
-    delta_2 = delta * 2
-    delta_4 = delta * 4
+    delta = 0.012
+    delta_2 = delta + 0.02
+    delta_4 = delta_2 + 0.02
+
+    offset_dist = -0.005
 
     for s in s_array:
         point = manip.getPoint(s)
@@ -64,20 +66,20 @@ def defineGrasp(manip: manipulandum.Shape) -> list:
             optimal_theta = func.normalizeAngle(theta)
             max_dot_product = dot_product
 
-            final_contact_pos = [point[0] + delta * np.cos(dir_angle), 
-                                 point[1] + delta * np.sin(dir_angle)]
+            final_contact_pos = [point[0] + delta * np.cos(dir_angle) + offset_dist * np.cos(theta), 
+                                 point[1] + delta * np.sin(dir_angle) + offset_dist * np.sin(theta)]
 
-            pre_grasp_pos = [point[0] + delta_2 * np.cos(dir_angle), 
-                            point[1] + delta_2 * np.sin(dir_angle)]
+            pre_grasp_pos = [point[0] + delta_2 * np.cos(dir_angle) + offset_dist * np.cos(theta), 
+                            point[1] + delta_2 * np.sin(dir_angle) + offset_dist * np.sin(theta)]
             
-            approach_pos = [point[0] + delta_4 * np.cos(dir_angle), 
-                            point[1] + delta_4 * np.sin(dir_angle)]
+            approach_pos = [point[0] + delta_4 * np.cos(dir_angle) + offset_dist * np.cos(theta), 
+                            point[1] + delta_4 * np.sin(dir_angle) + offset_dist * np.sin(theta)]
             
     k1 = manip.getMeanCurvature(grasp_idx, gv.L_VSS, 'clockwise')
     k2 = manip.getMeanCurvature(grasp_idx, gv.L_VSS)
 
-    k1 += -2 if k1 > 0 else 2
-    k2 += -2 if k2 > 0 else 2
+    k1 += -3 if k1 > 0 else 3
+    k2 += -3 if k2 > 0 else 3
 
     approach_config = [*approach_pos, optimal_theta, 0, 0]
     pre_grasp_config = [*pre_grasp_pos, optimal_theta, k1, k2]
@@ -93,7 +95,7 @@ NX = 3
 NU = 3
 # R = np.diag([10000, 0.08, 0.002]) # input cost matrix (sheescake)
 # R = np.diag([10000, 1.05, 0.021]) # input cost matrix (ellipse)
-R = np.diag([10000, 1.05, 0.019]) # input cost matrix (heart)
+R = np.diag([10000, 1.05, 0.001]) # input cost matrix (heart)
 # R = np.diag([10000, 1.0, 0.017]) # input cost matrix (bean)
 Q = np.diag([10, 10, 0.0]) # cost matrixq
 Qf = Q # final matrix
@@ -277,39 +279,58 @@ def cpVelocities(v_o, manip: manipulandum.Shape, c_frames):
 
     return v_c
 
-def robotVelocities(v_c, agent: robot2sr.Robot, c_frames):
+def robotVelocities(v_o, agent: robot2sr.Robot, manip: manipulandum.Shape):
+    theta_bo = manip.theta - agent.theta
+
+    rot_bo = np.array([[np.cos(theta_bo), -np.sin(theta_bo)],
+                       [np.sin(theta_bo), np.cos(theta_bo)]])
+    
     rot_rw = np.array([[np.cos(-agent.theta), -np.sin(-agent.theta)],
                        [np.sin(-agent.theta), np.cos(-agent.theta)]])
-    # B_c = np.array([[1, 0], [0, 1], [0, 0]])
-    B_c = np.identity(3)
-    angles_offset = [0, -np.pi/2, np.pi/2]
-    G_list = []
-    v_r = None
-
-    for c_i, angle_offset in zip(c_frames, angles_offset):
-        dist = np.array([c_i[0] - agent.x, c_i[1] - agent.y]).reshape(2,1)
-        
-        pos = rot_rw.dot(dist)
-        theta = c_i[2] - agent.theta + angle_offset
-
-        rot_rc = np.array([[np.cos(theta), -np.sin(theta)],
-                           [np.sin(theta), np.cos(theta)]])
-        
-        Ad_rc_inv_T = np.block([[rot_rc, np.zeros((2, 1))], 
-                                [np.array([[-pos[1,0], pos[0,0]]]).dot(rot_rc), 1]])
-        
-        G_i = Ad_rc_inv_T.dot(B_c)
-        G_list.append(G_i)
-
-    if G_list:
-        G = np.block(G_list)
-        v_r = G.dot(v_c)
+    
+    dist = np.array([manip.x - agent.x, manip.y - agent.y]).reshape(2,1)
+    pos = rot_rw.dot(dist)        
+    
+    Ad_bo = np.block([[rot_bo, np.array([[pos[1,0]], [-pos[0,0]]])],
+                      [np.zeros((1, 2)), 1]])
+    
+    v_r = Ad_bo.dot(v_o)
 
     return v_r
 
+# def robotVelocities(v_c, agent: robot2sr.Robot, c_frames):
+#     rot_rw = np.array([[np.cos(-agent.theta), -np.sin(-agent.theta)],
+#                        [np.sin(-agent.theta), np.cos(-agent.theta)]])
+#     # B_c = np.array([[1, 0], [0, 1], [0, 0]])
+#     B_c = np.identity(3)
+#     angles_offset = [0, -np.pi/2, np.pi/2]
+#     G_list = []
+#     v_r = None
+
+#     for c_i, angle_offset in zip(c_frames, angles_offset):
+#         dist = np.array([c_i[0] - agent.x, c_i[1] - agent.y]).reshape(2,1)
+        
+#         pos = rot_rw.dot(dist)
+#         theta = c_i[2] - agent.theta + angle_offset
+
+#         rot_rc = np.array([[np.cos(theta), -np.sin(theta)],
+#                            [np.sin(theta), np.cos(theta)]])
+        
+#         Ad_rc_inv_T = np.block([[rot_rc, np.zeros((2, 1))], 
+#                                 [np.array([[-pos[1,0], pos[0,0]]]).dot(rot_rc), 1]])
+        
+#         G_i = Ad_rc_inv_T.dot(B_c)
+#         G_list.append(G_i)
+
+#     if G_list:
+#         G = np.block(G_list)
+#         v_r = G.dot(v_c)
+
+#     return v_r
+
 def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, agent_controller: rsr_ctrl.Controller, manip_target_pos: list, 
               path:splines.Trajectory, rgb_camera, start_time: float, simulation=False) -> dict:
-    TARGET_SPEED = 0.06
+    TARGET_SPEED = 0.05
 
     v_r = [0.0] * 3
     v_o = [0.0] * 3
@@ -341,21 +362,22 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, agent_controller
                 manip.pose = q
             rgb_camera.add2traj(manip.position)
 
-            v_c = cpVelocities(v_o, manip, c_frames)
-            print(f'V_c: {v_c}')
+            # v_c = cpVelocities(v_o, manip, c_frames)
+            # print(f'V_c: {v_c}')
 
-            v_c_list = [v_c[3*i:3*i+3].tolist() for i in range(int(len(v_c)/3))]
-            c_dot_new = []
+            # v_c_list = [v_c[3*i:3*i+3].tolist() for i in range(int(len(v_c)/3))]
+            # c_dot_new = []
 
-            for c_i, v_c_i in zip(c_frames, v_c_list):
-                J = np.array([[np.cos(c_i[-1]), -np.sin(c_i[-1]), 0],
-                              [np.sin(c_i[-1]), np.cos(c_i[-1]), 0],
-                              [0, 0, 1]])
+            # for c_i, v_c_i in zip(c_frames, v_c_list):
+            #     J = np.array([[np.cos(c_i[-1]), -np.sin(c_i[-1]), 0],
+            #                   [np.sin(c_i[-1]), np.cos(c_i[-1]), 0],
+            #                   [0, 0, 1]])
                 
-                c_i_dot = J.dot(v_c_i)
-                c_dot_new.append(c_i_dot.tolist())
+            #     c_i_dot = J.dot(v_c_i)
+            #     c_dot_new.append(c_i_dot.tolist())
 
-            v_r = robotVelocities(v_c, agent, c_frames)
+            # v_r = robotVelocities(v_c, agent, c_frames)
+            v_r = robotVelocities(v_o, agent, manip)
             print(f'V_r: {v_r}')
 
             current_time = time.perf_counter()
@@ -363,7 +385,7 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, agent_controller
 
             object_data = {'pose' : manip.pose,
                            'target_velocity': v_o}
-            robot_data = {'pose' : agent.pose,
+            robot_data = {'config' : agent.config.tolist(),
                           'target_velocity': v_r.tolist()}
 
             tracking_data.append({'time': elapsed_time,
@@ -372,11 +394,11 @@ def transport(agent: robot2sr.Robot, manip: manipulandum.Shape, agent_controller
                                   'cp': cp_object_s})
 
         v = v_r.tolist() + [0.0] * 2
-        _, agent_q_new, _, _ = agent_controller.move(agent, v, [0, 0])
+        _, q_new, _ = agent_controller.move(agent, v, [0, 0])
         print()
 
         if simulation:
-            agent.config = agent_q_new
+            agent.config = q_new
 
         if finish:
             break

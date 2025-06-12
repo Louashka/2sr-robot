@@ -18,7 +18,7 @@ class Observer:
         self.markers = None
 
         self.agent: rsr.Robot = None
-        self.win_size = 5
+        self.win_size = 15
         self.t_history = [deque(maxlen=history_length), deque(maxlen=history_length)]
 
         self.object: manipulandum.Shape = None
@@ -72,9 +72,19 @@ class Observer:
                 if response[0] == 'B':
                     i = 1
 
+                if len(self.t_history[i]) > 0:
+                    last_temp = self.t_history[i][-1]
+                    if abs(temperature - last_temp) > 3.5:
+                        continue
+
                 if i != -1:
                     self.t_history[i].append(temperature)
                     if self.agent is not None:
+                        # if i == 0: 
+                        #     self.agent.t1 = temperature
+                        # else:
+                        #     self.agent.t2 = temperature
+
                         if len(self.t_history[i]) >= 5:
                             temp_filtered =  self.__filter(i)
                             if i == 0: 
@@ -101,6 +111,7 @@ class Observer:
             self.rgb_camera.markers = self.markers
             if self.object is not None:
                 self.rgb_camera.manip_center = self.object.pose
+                # self.rgb_camera.contour = self.object.parametric_contour[1]
 
     def run(self) -> None:
         print('Start Motive streaming...\n')

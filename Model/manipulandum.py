@@ -20,8 +20,10 @@ class Shape(Frame):
         self.__id = id
         self.delta_theta = 0 
         self.m = 10
+        self.offset = np.array([0, 0])
 
         self.__retrieveContour(shapes[id]['path'])        
+        self.__calcCenterOffset()
 
     def __str__(self) -> str:
         response = 'id: ' + str(self.id) + ', pose: (' + ', '.join(map(str, self.pose)) + ')' 
@@ -61,9 +63,18 @@ class Shape(Frame):
 
         self.default_contour = np.array(points).T 
         self.coeffs = efd(self.default_contour.T, order = self.m)
+
+    def __calcCenterOffset(self):
+        ctr = self.contour
+        origin = self.geomCentre(ctr)
+
+        param_ctr = self.parametric_contour[1]
+        param_origin = self.geomCentre(param_ctr)
+
+        self.offset = np.array(origin) - param_origin
     
     def geomCentre(self, points) -> list:
-        ctr = np.array(points).reshape((-1,1,2))
+        ctr = points.reshape((-1,1,2))
         ctr = (10000.0 * ctr).astype(np.int32)
 
         M = cv.moments(ctr)
@@ -106,25 +117,22 @@ class Shape(Frame):
         return s_array, ctr
     
     def getPoint(self, s: float) -> List[float]:
-        coords = []
+        coords = np.zeros(2)
 
         for h in range(self.m):
             arg = 2 * np.pi * (h + 1) * s
-            exp = np.array([[np.cos(arg)], [np.sin(arg)]])
+            exp = np.array([np.cos(arg), np.sin(arg)])
 
             coef = self.coeffs[h,:].reshape(2, 2)
-            coord_h = np.matmul(coef, exp).T
+            coord_h = np.matmul(coef, exp)
 
-            coords.append(coord_h)
-
-        point_normalised = sum(coords)[0]
+            coords += coord_h
 
         R = np.array([[np.cos(self.theta), -np.sin(self.theta)], 
                       [np.sin(self.theta), np.cos(self.theta)]])
-        point = R.dot(np.array([point_normalised]).T) + np.array([self.position]).T
-        point = point.T
-
-        return point[0].tolist()
+        point = R.dot(coords) + np.array(self.position) + self.offset
+        
+        return point.tolist()
     
     def getTangent(self, s: float) -> float:
         dx = 0

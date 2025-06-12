@@ -16,9 +16,9 @@ def close2Pos(current: list, target: list) -> bool:
     distance = np.linalg.norm(dist)
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.015
+    distance_threshold = 0.018
 
-    if distance > distance_threshold:
+    if distance >= distance_threshold:
         status = False
     
     print(f"Distance to goal: {distance:.3f}\n")
@@ -33,7 +33,7 @@ def close2Pose(current: list, target: list) -> bool:
     distance = np.linalg.norm(dist)
     
     # Define thresholds for position and orientation
-    distance_threshold = 0.015
+    distance_threshold = 0.02
 
     if distance >= distance_threshold:
         status = False
@@ -50,6 +50,6 @@ def close2Shape(current_k: list, target_k: list) -> bool:
     print(f'k1 diff: {k1_diff}')
     print(f'k2 diff: {k2_diff}\n')
 
-    if k1_diff > 5 or k2_diff > 5:
+    if k1_diff > 4 or k2_diff > 4:
         status = False
     return status

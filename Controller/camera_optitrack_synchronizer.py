@@ -25,7 +25,7 @@ class StatusBar:
             self.height = 90  # Status bar height
             
             # Position status bar in bottom-right corner
-            self.x = 800
+            self.x = 700
             self.y = 120
             
             # Colors
@@ -304,7 +304,7 @@ class Aligner:
     
     def __run(self, date_title: str):
         # video_path_rgb = f'Experiments/Video/Grasping/traverse_sm_{date_title}.mp4'
-        video_path_rgb = f'Experiments/Video/Grasping/{date_title}.mp4'
+        video_path_rgb = f'Experiments/Video/Grasping/v2/{date_title}.mp4'
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(video_path_rgb, fourcc, 16.0, (1080,520))
@@ -374,6 +374,14 @@ class Aligner:
                     cv2.arrowedLine(undistorted_frame, (x, y), (end_x, end_y), neon_blue, 2)
 
                 cv2.circle(undistorted_frame, (x, y), 4, (0, 0, 0), -1)
+
+            contour_points = []
+            if self.contour is not None:
+                for i in range(self.contour.shape[1]):
+                    p, _ = self.globalToImage(*self.contour[:,i], mean_z)
+                    contour_points.append(p)
+            contour_array = np.array(contour_points).reshape((-1, 1, 2))
+            cv2.polylines(undistorted_frame, [contour_array], True, neon_blue, 2)
 
             if self.manip_target_contour is not None:
                 target_contour_points = []
@@ -453,7 +461,7 @@ class Aligner:
                 tracked_points.append(pos)
 
             tracked_traj = np.array(tracked_points).reshape((-1, 1, 2))
-            cv2.polylines(undistorted_frame, [tracked_traj], False, (0, 0, 255), 2)
+            cv2.polylines(undistorted_frame, [tracked_traj], False, (254, 172, 191), 2)
 
             # if self.heading is not None:
             #     p_start_global = self.traversed_trajectory[-1]
