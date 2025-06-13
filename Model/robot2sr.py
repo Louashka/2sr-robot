@@ -10,8 +10,8 @@ class Robot(Frame):
         :param x: float, x position
         :param y: float, y position
         :param theta: float, robot orientation
-        :param k: list, list of VSF curvature values 
-        :param s: list, list of VSF stiffness values
+        :param k: list, list of VSB curvature values 
+        :param s: list, list of VSB stiffness values
         """
         self.__id = id
         super().__init__(x, y, theta)

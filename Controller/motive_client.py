@@ -1,5 +1,5 @@
 import sys
-from Motive import nat_net_client as nnc, mo_cap_data
+from OptiTrack import nat_net_client as nnc, mo_cap_data
 from Model import global_var
 import numpy as np
 import pandas as pd

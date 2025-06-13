@@ -1,4 +1,3 @@
 __pycache__/
-Experiments/
-Tracking/
-OptiTrack/
+vision-tracking/
+motive/
