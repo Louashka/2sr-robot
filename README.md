@@ -12,6 +12,8 @@ By unifying the functions of a robust mobile platform and a deformable manipulat
 
 The 2SRA platform is built with a *modular* design philosophy, separating mobility from reconfigurability. It consists of two Locomotion Units connected by the novel Variable-Stiffness Bridge.
 
+![Hardware Design Diagram](https://github.com/Louashka/2sr-swarm-control/blob/main/images/design.svg)
+
 ### Locomotion Units (LUs)
 
 The robot's mobility is provided by two self-contained, wheeled units that house all the electronics, batteries, and motors required for autonomous operation. They act as the control base of the robot.
