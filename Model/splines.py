@@ -1,5 +1,5 @@
 import numpy as np
-from Model import global_var as gv
+from model import global_var as gv
 
 k_max = np.pi / (2 * gv.L_VSS)
 max_values = [2.78, 1.4, k_max, k_max]

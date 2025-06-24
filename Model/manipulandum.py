@@ -1,4 +1,4 @@
-from Model.frame import Frame
+from model.frame import Frame
 import numpy as np
 import math
 import pandas as pd

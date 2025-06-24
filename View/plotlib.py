@@ -4,8 +4,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 import tkinter.font as font
 import numpy as np
-from Model import global_var as gv, robot2sr
-from Controller import func
+from model import global_var as gv, robot2sr
+from controller import func
 from typing import List
 from scipy.interpolate import splprep, splev
 from circle_fit import taubinSVD

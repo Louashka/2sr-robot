@@ -15,11 +15,11 @@ from typing import List
 import func
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from View import plotlib
-from Model import robot2sr, manipulandum
+from view import plotlib
+from model import robot2sr, manipulandum
 import robot2sr_controller as rsr_ctrl
 
-voronoi_plot_path = 'Experiments/Figures/voronoi_plot.pkl'
+voronoi_plot_path = 'experiments/figures/voronoi_plot.pkl'
 agent_width = 0.07
 agent_length = 0.34
 workspace_bounds = [-0.606, 0.319, -1.02, 1.034]
@@ -29,7 +29,7 @@ workspace_bounds = [-0.606, 0.319, -1.02, 1.034]
 
 class Node:
     def __init__(self, position, theta=0.0):
-        self.position = position  # [x, y]
+        self.position = position  
         self.theta = theta
         self.parent = None
         self.cost = 0.0

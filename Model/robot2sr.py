@@ -1,5 +1,5 @@
-from Model.frame import Frame
-from Model import splines
+from model.frame import Frame
+from model import splines
 from typing import List
 import numpy as np
 

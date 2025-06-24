@@ -1,8 +1,8 @@
-import env, Controller.transport as trans, Controller.traverse as trav
+import env, controller.transport as trans, controller.traverse as trav
 import numpy as np
 import json
 import time
-from Model import global_var as gv
+from model import global_var as gv
 
 obj_dir = np.pi/2
 obj_go_dist = 0.7
@@ -107,6 +107,6 @@ if __name__ == "__main__":
         print('Experiment is finished!\n')
 
     print('Save data...')
-    data_file_path = f'Experiments/Data/Tracking/Grasp/traverse_rm_{env_observer.date_title}.json'
-    data_collector.saveData(data_file_path, False)
+    # data_file_path = f'Experiments/Data/Tracking/Grasp/traverse_rm_{env_observer.date_title}.json'
+    # data_collector.saveData(data_file_path, False)
 

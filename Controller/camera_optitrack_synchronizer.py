@@ -5,7 +5,7 @@ import threading
 import time
 from scipy.interpolate import splprep, splev
 from enum import Enum
-from Model import global_var as gv
+from model import global_var as gv
 
 neon_red = (51, 87, 255)
 neon_blue = (255, 217, 4)

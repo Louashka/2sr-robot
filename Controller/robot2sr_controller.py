@@ -3,7 +3,7 @@ import math
 import numpy as np
 from typing import List
 from cvxopt import matrix, solvers
-from Model import global_var, robot2sr, splines
+from model import global_var, robot2sr, splines
 import cvxpy
 from gekko import GEKKO
 import time

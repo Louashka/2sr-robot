@@ -1,4 +1,4 @@
-from Model import splines, robot2sr, manipulandum, global_var as gv
+from model import splines, robot2sr, manipulandum, global_var as gv
 import func
 import numpy as np
 import time

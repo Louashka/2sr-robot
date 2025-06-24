@@ -1,6 +1,6 @@
 import sys
 sys.path.append('D:/Polyu/Robot 2SR/2sr-swarm-control')
-from Model import robot2sr as rsr, manipulandum
+from model import robot2sr as rsr, manipulandum
 import motive_client, camera_optitrack_synchronizer as cos
 import threading
 from datetime import datetime

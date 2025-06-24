@@ -1,4 +1,4 @@
-import env, Controller.transport as trans, Controller.traverse as trav
+import env, transport as trans, traverse as trav
 import robot2sr_controller as rsr_ctrl
 import numpy as np
 import json
@@ -63,10 +63,7 @@ if __name__ == "__main__":
 
     agent_controller = rsr_ctrl.Controller(serial_port)
 
-    # while True:
-    #     print(env_observer.agent.temp)
-
-    # ---------------------- Determine Grasping Parameters ----------------------
+    # ---------------------------------- Determine Grasping Parameters ----------------------------------
     env_observer.object.delta_theta = np.pi/2.8 - env_observer.object.theta
     grasp_ctr_point, approach_target, pre_grasp, final_contact = trans.defineGrasp(env_observer.object)
 
@@ -74,7 +71,7 @@ if __name__ == "__main__":
     env_observer.rgb_camera.heading = env_observer.object.heading_angle
     print(pre_grasp)
 
-    # --------------------------------- Approach --------------------------------
+    # --------------------------------------------- Approach --------------------------------------------
     print('Approach the object...\n')
     elapsed_time = 0
     start_time = time.perf_counter()
@@ -84,21 +81,21 @@ if __name__ == "__main__":
     
     data_collector.addApproachData(traverse_data)
 
-    # -------------------------------- Pre-grasp --------------------------------
+    # -------------------------------------------- Pre-grasp --------------------------------------------
     print('\nPre-grasp the object...\n')
     pre_grasp_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
                 agent_controller, [pre_grasp], start_time, env_observer.rgb_camera, True, simulation)
     
     data_collector.addPreGraspData(pre_grasp_data)
 
-    # ------------------------------- Final contact -------------------------------
+    # ------------------------------------------ Final contact ------------------------------------------
     print('\nContact the object...\n')
     f_contact_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
                 agent_controller, [final_contact], start_time, env_observer.rgb_camera, False, simulation)
     
     data_collector.addFinalContactData(f_contact_data)
 
-    # -------------------------------- Transport --------------------------------
+    # -------------------------------------------- Transport --------------------------------------------
     obj_dir = np.pi/2.8
     obj_go_dist = 0.8
 
@@ -113,15 +110,12 @@ if __name__ == "__main__":
 
     
     print('\nTransport the object...\n')
-    # transport_data, end_time, vel = trav.traverseObstacles(env_observer.agent, env_observer.object,
-    #             agent_controller, [trp_target], start_time, env_observer.rgb_camera, simulation)
-
     transport_data = trans.transport(env_observer.agent, env_observer.object, agent_controller,
         env_observer.object_target.position, obj_path, env_observer.rgb_camera, start_time, simulation)
     
     data_collector.addTransportData(transport_data)
 
-    # ---------------------------------------s------------------------------------
+    # ---------------------------------------------- Save -----------------------------------------------
     print('Save data...')
     data_file_path = f'Experiments/Data/Tracking/Grasping/{env_observer.date_title}.json'
     data_collector.saveData(data_file_path, False)
