@@ -12,7 +12,7 @@ By unifying the functions of a robust mobile platform and a deformable manipulat
 
 The 2SRA platform is built with a *modular* design philosophy, separating mobility from reconfigurability. It consists of two Locomotion Units connected by the novel Variable-Stiffness Bridge.
 
-![Hardware Design Diagram](blob/main/images/design.svg)
+![Hardware Design Diagram](images/design.svg)
 
 ### Locomotion Units (LUs)
 
@@ -59,7 +59,7 @@ To address this, we include *two different temperature thresholds* in the FSM co
 
 This two-threshold system makes the state transitions robust and reliable, preventing the robot from attempting to move before its structure is truly rigid. The animation below illustrates this process: a command is sent, the temperature changes, and the FSM waits for the correct threshold to be crossed before officially changing the segment's state. 
 
-The complete logic for handling stiffness transitions in VSB segments is implemented in the [FSMController](blob/main/control/stiffness_handler.py#L12) class.
+The complete logic for handling stiffness transitions in VSB segments is implemented in the [FSMController](control/stiffness_handler.py#L12) class.
 
 ## Hybrid Kinematics
 
