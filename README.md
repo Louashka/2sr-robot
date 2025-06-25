@@ -12,7 +12,7 @@ By unifying the functions of a robust mobile platform and a deformable manipulat
 
 The 2SRA platform is built with a *modular* design philosophy, separating mobility from reconfigurability. It consists of two Locomotion Units connected by the novel Variable-Stiffness Bridge.
 
-![Hardware Design Diagram](https://github.com/Louashka/2sr-swarm-control/blob/main/images/design.svg)
+![Hardware Design Diagram](blob/main/images/design.svg)
 
 ### Locomotion Units (LUs)
 
@@ -30,16 +30,36 @@ The modules are organized into two segments that can be actuated independently f
 
 Detailed information about the first-generation design **(2SRA v1)** can be found [here](https://doi.org/10.1109/LRA.2023.3241749).
 
-
 <!-- Desribe the desig, insert the image, later the animation
 
 Links to the design, cad files, pcb, etc... -->
 
 ## Stiffness Control
 
-Stiffness Model
+To control the robot's ability to switch between rigid and soft states, we developed a system based on a **Finite-State Machine (FSM)**. This system manages the transitions for each of the two segments in the Variable-Stiffness Bridge.
 
-FSM control (animation)
+The stiffness configuration of the robot is represented by a simple boolean vector: $\mathbf{s} = [s_1, s_2]^\intercal$, where $s_i$ is the state of the $i-$th segment:
+* $0$: Rigid state (alloy is solid)
+* $1$: Flexible state (alloy is liquid)
+
+This allows for four unique stiffness configurations: $[0, 0]^\intercal$ (VSB is entirely rigid), $[1, 0]^\intercal$, $[0, 1]^\intercal$, $[1, 1]^\intercal$ (VSB is entirely flexible). Based on the desired state, the controller can issue one of three actions to each segment:
+* $\;\;\:0$: maintain the current state
+* $\;\;\:1$: initiate the alloy's melting (transition to flexible)
+* $-1$: initiate the alloys cooling (transition to rigid)
+
+### Handling Thermal Hysteresis
+
+In this particular implementation, we use Field's, an alloy with a melting point of $\approx 62^\circ\text{C}$. Ideally, the alloy would melt at this temperature and solidify just below it. However, our system approximates the stiffness of an entire segment using a single temperature sensor. 
+
+>This practical simplification, combined with the thermal dynamics of cooling, creates a **hysteresis loop**: the segment doesn't become rigid again at the same temperature it became flexible.
+
+To address this, we include *two different temperature thresholds* in the FSM controller:
+1. **Upper threshold** ($62^\circ\text{C}$): Confirms the segment is fully Flexible.
+2. **Lower threshold** ($53^\circ\text{C}$): Confirms the segment is fully Rigid.
+
+This two-threshold system makes the state transitions robust and reliable, preventing the robot from attempting to move before its structure is truly rigid. The animation below illustrates this process: a command is sent, the temperature changes, and the FSM waits for the correct threshold to be crossed before officially changing the segment's state. 
+
+The complete logic for handling stiffness transitions in VSB segments is implemented in the [FSMController](blob/main/control/stiffness_handler.py#L12) class.
 
 ## Hybrid Kinematics
 

@@ -1,9 +1,9 @@
-from model.frame import Frame
-from model import splines
+from entities.coordinate_frame import Frame
+from entities import splines
 from typing import List
 import numpy as np
 
-class Robot(Frame):
+class Model(Frame):
     def __init__(self, id: int, x, y, theta, k1 = 0, k2 = 0, stiffness: List[int]=[0, 0]):
         """
         Define a robot class
@@ -142,7 +142,7 @@ class Robot(Frame):
         return J_rigid
     
     
-    def jacobian_soft(self, varsigma) -> np.ndarray:
+    def jacobian_flexible(self, varsigma) -> np.ndarray:
         cardioid1 = splines.Cardioid(1)
         cardioid2 = splines.Cardioid(2)
         cardioid3 = splines.Cardioid(3)
@@ -178,7 +178,7 @@ class Robot(Frame):
         return J_soft
     
     def jacobian(self, varsigma) -> np.ndarray:
-        return np.hstack((int(not(any(varsigma))) * self.jacobian_rigid(), self.jacobian_soft(varsigma)))
+        return np.hstack((int(not(any(varsigma))) * self.jacobian_rigid(), self.jacobian_flexible(varsigma)))
     
     def update(self, v: np.ndarray, time_step: float=0.1) -> None:
         q_dot = self.jacobian_rigid().dot(v)
