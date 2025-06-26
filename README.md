@@ -38,7 +38,12 @@ Links to the design, cad files, pcb, etc... -->
 
 To control the robot's ability to switch between rigid and soft states, we developed a system based on a **Finite-State Machine (FSM)**. This system manages the transitions for each of the two segments in the Variable-Stiffness Bridge.
 
-The stiffness configuration of the robot is represented by a simple boolean vector: $\mathbf{s} = [s_1, s_2]^\intercal$, where $s_i$ is the state of the $i\text{-th}$ segment. Based on the desired state, the controller can issue one of three actions to each segment: $(0)$ - maintain the current state; $(1)$ - initiate the alloy's melting (transition to flexible); $(-1)$ - initiate the alloys cooling (transition to rigid). The complete state-transition table of the FSM stiffness controller is provided below.
+The stiffness configuration of the robot is represented by a simple boolean vector: $\mathbf{s} = [s_1, s_2]^\intercal$, where $s_i$ is the stiffness state of the $i\text{-th}$ segment. Based on the current and desired states, the controller can issue one of three actions to each segment: 
+* $0$: maintain the current state
+* $1$: initiate the alloy's melting (transition to flexible)
+* $-1$: initiate the alloys cooling (transition to rigid). 
+
+The complete state-transition table of the FSM stiffness controller is provided below.
 
 | State | Input | Next State | Output |
 | :---: | :---: | :---: | :---: |
@@ -63,7 +68,69 @@ The complete logic for handling stiffness transitions in VSB segments is impleme
 
 ## Hybrid Kinematics
 
+### Robot's Configuration
 
+Since the robot's shape is not fixed, we define its complete configuration using five generalized coordinates: 
+$$\mathbf{q} = [x, y, \theta, \kappa_1, \kappa_2]^\intercal,$$
+where
+* $(x, y)$ is the robot's global position
+* $\theta$ is the robot's orientation
+* $(\kappa_1, \kappa_2)$ is the curvature of the first and second segments, respectively. These values define the robot's shape.
+
+### Operation Modes
+
+#### 1. Rigid State ($\mathbf{s} = [0, 0]^\intercal$)
+
+When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kappa_2$ are constant). In this mode, it behaves like a standard omnidirectional mobile platform:
+$$\dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
+    \begin{bmatrix}
+        \textbf R_z\left(\theta\right) \\
+        0 
+     \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,$$
+where $\textbf R_z\left(\theta\right) \in \mathbb{R}^3$ is a rotation matrix around the vertical axis of the global frame and $\textbf u_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
+
+#### 2. Flexible States ($\mathbf{s} \in \{[1, 0]^\intercal, [0, 1]^\intercal, [1, 1]^\intercal\}$)
+
+When one or both segments are flexible, the kinematics become far more complex. The wheels no longer just drive the robot; they also actively bend the body. The key insight was discovering that as a segment bends, the wheel at its end traces a predictable path that can be accurately modeled by a **cardioid**. 
+
+Depending on which segment is flexible and which wheel is moving, the robot follows *one of three distinct cardioid trajectories* to control its shape:
+1.  One segment is flexible while the other remains rigid. The LU adjacent to the flexible segment is in motion (Cardioid 1)
+2. One segment is flexible while the other remains rigid. The LU adjacent to the rigid segment is in motion (Cardioid 2)
+3. Both segments are flexible, with either LU moving (Cardioid 3)
+
+Through path analysis and curve fitting, we determine the cardioid's radius $r$ and rolling angle $\phi$ range for each scenario, as listed in the table below.
+
+| Cardioid | $r$ | $\phi^{\text{min}}$ | $\phi^{\text{max}}$ |
+| :---: | :---: | :---: | :---:|
+| 1 | 0.021 | 2.42 | 3.87 |
+| 2 | 0.049 | 2.19 | 4.09 |
+| 3 | 0.043 | 1.73 | 4.56 |
+
+The VSS curvature exhibits an inverse linear relationship with the rolling angle $\phi$, enabling reliable tracking of the robot's frame displacement using the cardioid equations. The robot's motion in flexible states is controlled through "soft" velocities $\mathbf{u}_s = [v_1, v_2]^T$, where $v_j$ represents the velocity of the $j$-th locomotion unit traversing a specific cardioid path. Based on the geometry of these cardioids, we derived the following "soft" Jacobian:
+$$\textbf J_{s} = 
+        \begin{bmatrix}
+            s_2 & s_1 \\
+            s_2 & s_1 \\
+            s_2 & s_1 \\
+            s_1 & s_1 \\
+            s_2 & s_2 
+        \end{bmatrix} \circ
+        \begin{bmatrix}
+           \mathbf J_{1n}(\kappa_2,\theta) &  \mathbf J_{2n}(\kappa_1,\theta) \\
+           lK_n(\kappa_2) & lK_n(\kappa_1) \\
+           -K_m(\kappa_1) & K_n(\kappa_1) \\
+           -K_n(\kappa_2) & K_m(\kappa_2) \\
+        \end{bmatrix}$$
+
+### The Unified Control Framework
+
+To manage the complex behaviour of the 2SR robot, we developed a comprehensive control strategy:
+
+1. **Unified Jacobian:** A single, unified Jacobian matrix combining both operational modes acts as a "mode selector." It dynamically adjusts how wheel velocities map to robot motion (both position and shape) based on the current stiffness configuration. This allows one mathematical model to govern all possible states:
+$$\dot{\mathbf{q}} = \mathbf{J}(\mathbf{q}, \mathbf{s})\mathbf{u}\\
+         \mathbf{J}(\mathbf{q}, \mathbf{s}) = [\mathbf{J}_r,\mathbf{J}_s]^\intercal, \quad \mathbf{u} = [\mathbf{u}_r,\mathbf{u}_s]^\intercal$$
+2. **Model Predictive Control (MPC):** With the kinematics defined, we use Model Predictive Control to generate the precise wheel velocities needed to reach a target configuration. There are four separate MPC controllers, one for each stiffness state. The system activates the appropriate controller for the current mode.
+3. **Supervisory Controller:** High-level logic in Motion & Morphology (M&M) Controller decides when to change stiffness versus when to just move. It optimizes for efficiency by keeping the robot rigid by default and only activating a shape change when necessary.
 
 ## Full-body Grasping
 
