@@ -82,11 +82,13 @@ where
 #### 1. Rigid State ($\mathbf{s} = [0, 0]^\intercal$)
 
 When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kappa_2$ are constant). In this mode, it behaves like a standard omnidirectional mobile platform:
-$$\dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
+```math
+\dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
     \begin{bmatrix}
         \textbf R_z\left(\theta\right) \\
         0 
-     \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,$$
+     \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,
+```
 where $\textbf R_z\left(\theta\right) \in \mathbb{R}^3$ is a rotation matrix around the vertical axis of the global frame and $\textbf u_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
 
 #### 2. Flexible States ($\mathbf{s} \in \{[1, 0]^\intercal, [0, 1]^\intercal, [1, 1]^\intercal\}$)
@@ -107,7 +109,8 @@ Through path analysis and curve fitting, we determine the cardioid's radius $r$ 
 | 3 | 0.043 | 1.73 | 4.56 |
 
 The VSS curvature exhibits an inverse linear relationship with the rolling angle $\phi$, enabling reliable tracking of the robot's frame displacement using the cardioid equations. The robot's motion in flexible states is controlled through "soft" velocities $\mathbf{u}_s = [v_1, v_2]^T$, where $v_j$ represents the velocity of the $j$-th locomotion unit traversing a specific cardioid path. Based on the geometry of these cardioids, we derived the following "soft" Jacobian:
-$$\textbf J_{s} = 
+```math
+\textbf J_{s} = 
         \begin{bmatrix}
             s_2 & s_1 \\
             s_2 & s_1 \\
@@ -120,15 +123,18 @@ $$\textbf J_{s} =
            lK_n(\kappa_2) & lK_n(\kappa_1) \\
            -K_m(\kappa_1) & K_n(\kappa_1) \\
            -K_n(\kappa_2) & K_m(\kappa_2) \\
-        \end{bmatrix}$$
+        \end{bmatrix}
+```
 
 ### The Unified Control Framework
 
 To manage the complex behaviour of the 2SR robot, we developed a comprehensive control strategy:
 
 1. **Unified Jacobian:** A single, unified Jacobian matrix combining both operational modes acts as a "mode selector." It dynamically adjusts how wheel velocities map to robot motion (both position and shape) based on the current stiffness configuration. This allows one mathematical model to govern all possible states:
-$$\dot{\mathbf{q}} = \mathbf{J}(\mathbf{q}, \mathbf{s})\mathbf{u}\\
-         \mathbf{J}(\mathbf{q}, \mathbf{s}) = [\mathbf{J}_r,\mathbf{J}_s]^\intercal, \quad \mathbf{u} = [\mathbf{u}_r,\mathbf{u}_s]^\intercal$$
+```math
+\dot{\mathbf{q}} = \mathbf{J}(\mathbf{q}, \mathbf{s})\mathbf{u}\\
+         \mathbf{J}(\mathbf{q}, \mathbf{s}) = [\mathbf{J}_r,\mathbf{J}_s]^\intercal, \quad \mathbf{u} = [\mathbf{u}_r,\mathbf{u}_s]^\intercal
+```
 2. **Model Predictive Control (MPC):** With the kinematics defined, we use Model Predictive Control to generate the precise wheel velocities needed to reach a target configuration. There are four separate MPC controllers, one for each stiffness state. The system activates the appropriate controller for the current mode.
 3. **Supervisory Controller:** High-level logic in Motion & Morphology (M&M) Controller decides when to change stiffness versus when to just move. It optimizes for efficiency by keeping the robot rigid by default and only activating a shape change when necessary.
 
