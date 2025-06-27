@@ -132,8 +132,10 @@ To manage the complex behaviour of the 2SR robot, we developed a comprehensive c
 
 1. **Unified Jacobian:** A single, unified Jacobian matrix combining both operational modes acts as a "mode selector." It dynamically adjusts how wheel velocities map to robot motion (both position and shape) based on the current stiffness configuration. This allows one mathematical model to govern all possible states:
 ```math
+\begin{gathered}
 \dot{\mathbf{q}} = \mathbf{J}(\mathbf{q}, \mathbf{s})\mathbf{u}\\
          \mathbf{J}(\mathbf{q}, \mathbf{s}) = [\mathbf{J}_r,\mathbf{J}_s]^\intercal, \quad \mathbf{u} = [\mathbf{u}_r,\mathbf{u}_s]^\intercal
+\end{gathered}
 ```
 2. **Model Predictive Control (MPC):** With the kinematics defined, we use Model Predictive Control to generate the precise wheel velocities needed to reach a target configuration. There are four separate MPC controllers, one for each stiffness state. The system activates the appropriate controller for the current mode.
 3. **Supervisory Controller:** High-level logic in Motion & Morphology (M&M) Controller decides when to change stiffness versus when to just move. It optimizes for efficiency by keeping the robot rigid by default and only activating a shape change when necessary.
