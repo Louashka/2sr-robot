@@ -8,7 +8,7 @@ import math
 import numpy as np
 from typing import List
 from cvxopt import matrix, solvers
-from entities import global_var, robot, splines
+from entities import global_var, robot_state, splines
 import stiffness_handler
 import cvxpy
 from gekko import GEKKO
@@ -37,7 +37,7 @@ def sigmoid_scale(distance, start_point, steepness, min_value, max_value):
 
 
 class Controller:
-    def __init__(self, serial_port, robot: robot.Model) -> None:
+    def __init__(self, serial_port, robot: robot_state.Model) -> None:
         self.serial_port = serial_port
 
         self.max_acc_x = 0.05  # m/s²
@@ -85,7 +85,7 @@ class Controller:
         self.previous_error = np.zeros(3)
         self.integral = np.zeros(3)
 
-    def motionPlannerMPC(self, agent: robot.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
+    def motionPlannerMPC(self, agent: robot_state.Robot, path: splines.Trajectory, v_current) -> tuple[List[float], List[float]]:        
         cx, cy, cyaw, s = path.params
 
         if self.sp is None:
@@ -137,7 +137,7 @@ class Controller:
         return qref, vref
 
     
-    def update_agent(self, agent: robot.Robot, q: np.ndarray):
+    def update_agent(self, agent: robot_state.Robot, q: np.ndarray):
         agent.config = q
 
         vss1 = self.__arc(agent)
@@ -158,7 +158,7 @@ class Controller:
 
         agent.tail.pose = [lu_tail_x, lu_tail_y, vss2[2]]
 
-    def __arc(self, agent: robot.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
+    def __arc(self, agent: robot_state.Robot, seg=1) -> tuple[np.ndarray, np.ndarray, float]:
         k = agent.curvature[seg-1]
         l = np.linspace(0, global_var.L_VSS, 50)
         flag = -1 if seg == 1 else 1
@@ -306,7 +306,7 @@ class Controller:
     
     
     
-    def mpcRM(self, agent: robot.Robot, target: list, v_current: list):
+    def mpcRM(self, agent: robot_state.Robot, target: list, v_current: list):
         head_wheels, _ = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, _ = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -382,7 +382,7 @@ class Controller:
         return [v_x.NEWVAL, v_y.NEWVAL, omega.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1]] + agent.curvature
     
 
-    def mpcSM1(self, agent: robot.Robot, target: list, v_current: list):
+    def mpcSM1(self, agent: robot_state.Robot, target: list, v_current: list):
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
@@ -482,7 +482,7 @@ class Controller:
         # Return the optimal control inputs
         return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], k1.PRED[1], agent.k2]
     
-    def mpcSM2(self, agent: robot.Robot, target: list, v_current: list):
+    def mpcSM2(self, agent: robot_state.Robot, target: list, v_current: list):
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
@@ -583,7 +583,7 @@ class Controller:
         return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], agent.k1, k2.PRED[1]]
 
 
-    def mpcSM3(self, agent: robot.Robot, target: list, v_current: list):
+    def mpcSM3(self, agent: robot_state.Robot, target: list, v_current: list):
         m = GEKKO(remote=False)
         m.time = np.linspace(0, global_var.DT * (self.T-1), self.T)
 
@@ -670,7 +670,7 @@ class Controller:
         return [u1.NEWVAL, u2.NEWVAL], [x.PRED[1], y.PRED[1], theta.PRED[1], k1.PRED[1], k2.PRED[1]]
 
     
-    def motionPlanner(self, agent: robot.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
+    def motionPlanner(self, agent: robot_state.Robot, path: splines.Trajectory, states: dict) -> tuple[List[float], List[float]]:
         flag = False
 
         target_point = path.getTargetPoint(agent.position, self.lookahead_distance)
@@ -738,7 +738,7 @@ class Controller:
         
         return v_optimal.tolist(), s[min_i]
     
-    def inverse_k(self, agent: robot.Robot, target_config: list) -> None:
+    def inverse_k(self, agent: robot_state.Robot, target_config: list) -> None:
         q_t = np.array(target_config)
         q_tilda = 2 * (q_t - agent.config) * global_var.DT
 
@@ -758,13 +758,13 @@ class Controller:
         
         return counterclockwise_distance
     
-    def get_config(self, agent: robot.Robot, v: List[float], s: List[float]) -> np.ndarray:
+    def get_config(self, agent: robot_state.Robot, v: List[float], s: List[float]) -> np.ndarray:
         q_dot = agent.jacobian(s) @ v
         q = agent.config + q_dot * self.dt
         
         return q
     
-    def getWheelsVelocities(self, agent: robot.Robot, v: List[float], s: List[float]) -> tuple[np.ndarray, List[List[float]], np.ndarray]:
+    def getWheelsVelocities(self, agent: robot_state.Robot, v: List[float], s: List[float]) -> tuple[np.ndarray, List[List[float]], np.ndarray]:
         head_wheels, head_wheels_global = self._calcWheelsCoords(agent.pose, agent.head.pose)
         tail_wheels, tail_wheels_global = self._calcWheelsCoords(agent.pose, agent.tail.pose, lu_type='tail')
         wheels = head_wheels + tail_wheels
@@ -778,7 +778,7 @@ class Controller:
         print(f'Wheels\' vel: {omega}')
         return omega, wheels, self.get_config(agent, v_new, s)
 
-    def move(self, agent: robot.Model, v: List[float], s: List[float], rgb_camera=None) -> tuple[List[List[float]], List[float]]:
+    def move(self, agent: robot_state.Model, v: List[float], s: List[float], rgb_camera=None) -> tuple[List[List[float]], List[float]]:
         omega, wheels, q = self.getWheelsVelocities(agent, v, s)
         commands = omega.tolist() + s + [agent.id]
 

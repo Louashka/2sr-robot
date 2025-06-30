@@ -1,17 +1,19 @@
 from entities.coordinate_frame import Frame
-from entities import splines
 from typing import List
 import numpy as np
 
 class Model(Frame):
     def __init__(self, id: int, x, y, theta, k1 = 0, k2 = 0, stiffness: List[int]=[0, 0]):
         """
-        Define a robot class
-        :param x: float, x position
-        :param y: float, y position
-        :param theta: float, robot orientation
-        :param k: list, list of VSB curvature values 
-        :param s: list, list of VSB stiffness values
+        Initializes the 2SR robot
+
+        :param id: A unique identifier for the robot
+        :param x: float, x position of the body frame
+        :param y: float, y position of the body frame
+        :param theta: float, orientation of the body frame
+        :param k1: float, curvature of the first segment
+        :param k2: float, curvature of the second segment
+        :param stiffness: list[float], stiffness values for the segments
         """
         self.__id = id
         super().__init__(x, y, theta)
@@ -131,55 +133,3 @@ class Model(Frame):
         self.theta = value[2]
         self.k1 = value[3]
         self.k2 = value[4]
-
-    def jacobian_rigid(self) -> np.ndarray:
-        J_rigid = np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
-                            [np.sin(self.theta), np.cos(self.theta), 0],
-                            [0, 0, 1],
-                            [0, 0, 0],
-                            [0, 0, 0]])
-        
-        return J_rigid
-    
-    
-    def jacobian_flexible(self, varsigma) -> np.ndarray:
-        cardioid1 = splines.Cardioid(1)
-        cardioid2 = splines.Cardioid(2)
-        cardioid3 = splines.Cardioid(3)
-
-        if all(varsigma):
-            spiral1 = spiral2 = cardioid3
-        else:
-            spiral1 = cardioid1
-            spiral2 = cardioid2
-
-        k1_ratio = spiral2.k_dot(self.k2) / cardioid1.k_dot(self.k2)
-        k2_ratio = spiral2.k_dot(self.k1) / cardioid1.k_dot(self.k1)
-
-        pos_lu1 = cardioid1.pos_dot(self.theta, self.k2, 2, 1)
-        pos_lu2 = cardioid1.pos_dot(self.theta, self.k1, 1, 2)
-
-        J = np.array([
-            [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
-            [k1_ratio * pos_lu1[1], k2_ratio * pos_lu2[1]], 
-            [spiral2.th_dot(self.k2), spiral2.th_dot(self.k1)], 
-            [-spiral1.k_dot(self.k1), spiral2.k_dot(self.k1)], 
-            [-spiral2.k_dot(self.k2), spiral1.k_dot(self.k2)]
-        ])
-        
-        stiffness_array = np.array([[varsigma[1], varsigma[0]],
-                                    [varsigma[1], varsigma[0]],
-                                    [varsigma[1], varsigma[0]],
-                                    [varsigma[0], varsigma[0]],
-                                    [varsigma[1], varsigma[1]]])
-        
-        J_soft = np.multiply(stiffness_array, J)
-        
-        return J_soft
-    
-    def jacobian(self, varsigma) -> np.ndarray:
-        return np.hstack((int(not(any(varsigma))) * self.jacobian_rigid(), self.jacobian_flexible(varsigma)))
-    
-    def update(self, v: np.ndarray, time_step: float=0.1) -> None:
-        q_dot = self.jacobian_rigid().dot(v)
-        self.config += q_dot * time_step

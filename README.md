@@ -38,7 +38,7 @@ Links to the design, cad files, pcb, etc... -->
 
 To control the robot's ability to switch between rigid and soft states, we developed a system based on a **Finite-State Machine (FSM)**. This system manages the transitions for each of the two segments in the Variable-Stiffness Bridge.
 
-The stiffness configuration of the robot is represented by a simple boolean vector: $\mathbf{s} = [s_1, s_2]^\intercal$, where $s_i$ is the stiffness state of the $i\text{-th}$ segment. Based on the current and desired states, the controller can issue one of three actions to each segment: 
+The stiffness configuration of the robot is represented by a simple boolean vector: $\mathsf{\mathbf{s}} = [s_1, s_2]^\intercal$, where $s_i$ is the stiffness state of the $i\text{-th}$ segment. Based on the current and desired states, the controller can issue one of three actions to each segment: 
 * $0$: maintain the current state
 * $1$: initiate the alloy's melting (transition to flexible)
 * $-1$: initiate the alloys cooling (transition to rigid). 
@@ -96,8 +96,8 @@ where $\textbf R_z\left(\theta\right) \in \mathbb{R}^3$ is a rotation matrix aro
 When one or both segments are flexible, the kinematics become far more complex. The wheels no longer just drive the robot; they also actively bend the body. The key insight was discovering that as a segment bends, the wheel at its end traces a predictable path that can be accurately modeled by a **cardioid**. 
 
 Depending on which segment is flexible and which wheel is moving, the robot follows *one of three distinct cardioid trajectories* to control its shape:
-1.  One segment is flexible while the other remains rigid. The LU adjacent to the flexible segment is in motion (Cardioid 1)
-2. One segment is flexible while the other remains rigid. The LU adjacent to the rigid segment is in motion (Cardioid 2)
+1. One segment is flexible while the other is rigid. The LU adjacent to the flexible segment is in motion (Cardioid 1)
+2. One segment is flexible while the other is rigid. The LU adjacent to the rigid segment is in motion (Cardioid 2)
 3. Both segments are flexible, with either LU moving (Cardioid 3)
 
 Through path analysis and curve fitting, we determine the cardioid's radius $r$ and rolling angle $\phi$ range for each scenario, as listed in the table below.

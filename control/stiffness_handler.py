@@ -7,10 +7,10 @@
     different temperature thresholds are employed.
 """
 
-from entities import robot
+from entities import robot_state
 
 class FSMController:
-    def __init__(self, robot: robot.Model):
+    def __init__(self, robot: robot_state.Model):
         self.robot = robot
 
         # The "upper" threshold (62°C) for confirming a transition to the Flexible state.
