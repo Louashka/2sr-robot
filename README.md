@@ -64,7 +64,7 @@ To address this, we include *two different temperature thresholds* in the FSM co
 
 This two-threshold system makes the state transitions robust and reliable, preventing the robot from attempting to move before its structure is truly rigid. The animation below illustrates this process: a command is sent, the temperature changes, and the FSM waits for the correct threshold to be crossed before officially changing the segment's state. 
 
-The complete logic for handling stiffness transitions in VSB segments is implemented in the [FSMController](control/stiffness_handler.py#L12) class.
+The complete logic for handling stiffness transitions in VSB segments is implemented in the [stiffness FSM](control/stiffness.py#L12) class.
 
 ## Hybrid Kinematics
 
@@ -82,13 +82,13 @@ where
 #### 1. Rigid State ($\mathbf{s} = [0, 0]^\intercal$)
 
 When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kappa_2$ are constant). In this mode, it behaves like a standard omnidirectional mobile platform:
-```math
+$$
 \dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
     \begin{bmatrix}
         \textbf R_z\left(\theta\right) \\
         0 
      \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,
-```
+$$
 where $\textbf R_z\left(\theta\right) \in \mathbb{R}^3$ is a rotation matrix around the vertical axis of the global frame and $\textbf u_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
 
 #### 2. Flexible States ($\mathbf{s} \in \{[1, 0]^\intercal, [0, 1]^\intercal, [1, 1]^\intercal\}$)

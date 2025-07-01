@@ -15,7 +15,7 @@ from typing import List
 import func
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from view import plotlib
+from view import plotlib_old
 from model import robot2sr, manipulandum
 import robot2sr_controller as rsr_ctrl
 
@@ -1707,9 +1707,9 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
         
         elif state.iteration == 1:
             # Iteration 1: rear point and its path only
-            plotlib.plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+            plotlib_old.plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
             rear_point.set_color(red_color)
-            plotlib.plotPoints([rear_pos], (rear_point,), plot_components)
+            plotlib_old.plotPoints([rear_pos], (rear_point,), plot_components)
 
             if state.idx < len(rear_path_points)-1:
                 state.idx += 1
@@ -1725,10 +1725,10 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
             
         elif state.iteration == 2:
             # Iteration 2: all points, path, and orientation
-            plotlib.plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
-            plotlib.plotPoints([front_pos, middle_pos, rear_pos], 
+            plotlib_old.plotPath(state.traversed_path, rear_pos, traversed_line, plot_components)
+            plotlib_old.plotPoints([front_pos, middle_pos, rear_pos], 
                         (front_point, middle_point, rear_point), plot_components)
-            plotlib.plotOrientation(middle_pos, orientation, orientation_line, plot_components)
+            plotlib_old.plotOrientation(middle_pos, orientation, orientation_line, plot_components)
 
             if state.idx < len(rear_path_points)-1:
                 state.idx += 1
@@ -1750,13 +1750,13 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
         elif state.iteration == 3:
             # Iteration 3: all points, orientation, robot, rear point in blue
             rear_point.set_color(blue_color)
-            plotlib.plotPoints([front_pos, middle_pos, rear_pos], 
+            plotlib_old.plotPoints([front_pos, middle_pos, rear_pos], 
                         (front_point, middle_point, rear_point), plot_components)
-            plotlib.plotOrientation(middle_pos, orientation, orientation_line, plot_components)
+            plotlib_old.plotOrientation(middle_pos, orientation, orientation_line, plot_components)
             
             robot_ref_components = (vss1_line, vss2_line, conn1_line, conn2_line, 
                                     lu1_square, lu2_square)
-            plotlib.plotRobot(q_ref_i, plot_components, robot_ref_components)
+            plotlib_old.plotRobot(q_ref_i, plot_components, robot_ref_components)
 
             if state.idx < len(rear_path_points)-1:
                 state.idx += 1
@@ -1786,7 +1786,7 @@ def runAnimation(fig, rear_path_points, front_path_points, middle_path_points, t
             robot_optim_components = (vss1_line_optim, vss2_line_optim, conn1_line_optim, conn2_line_optim, 
                                       lu1_square_optim, lu2_square_optim)
 
-            plotlib.plotRobot(q_optim_i, plot_components, robot_optim_components)
+            plotlib_old.plotRobot(q_optim_i, plot_components, robot_optim_components)
 
             if state.idx < len(rear_path_points)-1:
                 state.idx += 1
