@@ -82,13 +82,11 @@ where
 #### 1. Rigid State ($\mathbf{s} = [0, 0]^\intercal$)
 
 When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kappa_2$ are constant). In this mode, it behaves like a standard omnidirectional mobile platform:
-$$
-\dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
+$$\dot{\textbf{q}} = \underbrace{\overline{(s_1 \vee s_2)}
     \begin{bmatrix}
         \textbf R_z\left(\theta\right) \\
         0 
-     \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,
-$$
+     \end{bmatrix}}_{\mathbf{J}_r}\textbf u_r,$$
 where $\textbf R_z\left(\theta\right) \in \mathbb{R}^3$ is a rotation matrix around the vertical axis of the global frame and $\textbf u_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
 
 #### 2. Flexible States ($\mathbf{s} \in \{[1, 0]^\intercal, [0, 1]^\intercal, [1, 1]^\intercal\}$)

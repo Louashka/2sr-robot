@@ -82,9 +82,74 @@ class HybridKinematics:
         self._cardioid2 = _Cardioid(2)
         self._cardioid3 = _Cardioid(3)
 
-    def _get_rigid_jacobian(self, robot: robot_state.Model) -> np.ndarray:
+        # --- Kinematic Mode Rules ---
+        # This dictionary declares the configuration for each stiffness state (s1, s2).
+        # It specifies which cardioid models to use and whether the rigid
+        # component of the Jacobian is active.
+        self.KINEMATIC_MODES = {
+            # Key: tuple(s_flags) -> (s1, s2)
+            # Value: A dictionary defining the mode's configuration.
+            (0, 0): {
+                "is_rigid_active": True,
+                "spiral1_model": self._cardioid1, # Default, not used
+                "spiral2_model": self._cardioid2, # Default, not used
+            },
+            (0, 1): {
+                "is_rigid_active": False,
+                "spiral1_model": self._cardioid1,
+                "spiral2_model": self._cardioid2,
+            },
+            (1, 0): {
+                "is_rigid_active": False,
+                "spiral1_model": self._cardioid1,
+                "spiral2_model": self._cardioid2,
+            },
+            (1, 1): {
+                "is_rigid_active": False,
+                "spiral1_model": self._cardioid3, # Both flexible, use Cardioid 3
+                "spiral2_model": self._cardioid3,
+            },
+        }
+
+    def get_unified_jacobian(self, robot: robot_state.Model, s_flags: List[int]) -> np.ndarray:
         """
-        (Private) Computes the rigid-body Jacobian, J_r.
+        Constructs the unified Jacobian J = [J_r, J_s].
+
+        This method acts as the "engine". It looks up the configuration for the
+        current stiffness state from KINEMATIC_MODES and uses it to assemble
+        the final Jacobian matrix.
+
+        Args:
+            robot (robot_state.Model): The robot's current state object.
+            s_flags (List[int]): The stiffness configuration [s1, s2], where a value
+                                 of 0 indicates a rigid segment and 1 a flexible one.
+
+        Returns:
+            np.ndarray: The 5x5 unified hybrid Jacobian matrix, J.
+        """
+
+        # 1. Look up the declarative rule for the current stiffness mode.
+        mode_rule = self.KINEMATIC_MODES[tuple(s_flags)]
+
+        # 2. Compute the base Jacobian components. These are pure math functions.
+        J_rigid = self._get_rigid_jacobian_component(robot)
+        J_flexible = self._get_flexible_jacobian_component(
+            robot,
+            s_flags,
+            spiral1_model=mode_rule["spiral1_model"],
+            spiral2_model=mode_rule["spiral2_model"]
+        )
+
+        # 3. Use the rule to determine if the rigid component is active.
+        is_rigid_active = mode_rule["is_rigid_active"]
+        active_J_rigid = int(is_rigid_active) * J_rigid
+
+        # 4. Assemble the final Jacobian based on the rule.
+        return np.hstack((active_J_rigid, J_flexible))
+
+    def _get_rigid_jacobian_component(self, robot: robot_state.Model) -> np.ndarray:
+        """
+        Computes the rigid-body Jacobian, J_r.
 
         This 5x3 matrix maps the robot's body velocity u_r = [vx, vy, omega]
         to configuration changes (q_dot) when the robot is in its rigid state
@@ -99,45 +164,27 @@ class HybridKinematics:
             [0,              0,             0]   # kappa_2 is constant
         ])
 
-    def _get_flexible_jacobian(self, robot: robot_state.Model, s_flags: List[int]) -> np.ndarray:
+    def _get_flexible_jacobian_component(self, robot: robot_state.Model, s_flags: List[int],
+                                         spiral1_model: _Cardioid, spiral2_model: _Cardioid) -> np.ndarray:
         """
-        (Private) Computes the "soft" Jacobian for flexible states, J_s.
+        Computes the "soft" Jacobian for flexible states, J_s.
 
         This 5x2 matrix maps actuator velocities u_s = [v1, v2] to configuration
         changes when one or both segments are flexible (s != [0, 0]). It is
         calculated as the Hadamard product of a stiffness-based selector matrix
         and a matrix of kinematic coupling terms derived from the cardioid models.
-
-        Args:
-            robot (robot: robot_state.Model): The current state of the robot.
-            s_flags (List[int]): The stiffness configuration [s1, s2], where 1 is
-                                 flexible and 0 is rigid.
-
-        Returns:
-            np.ndarray: The 5x2 flexible Jacobian matrix (J_s).
         """
-        # Select the appropriate cardioid models based on the flexible state.
-        # If s = [1, 1], both segments are flexible, use Cardioid 3.
-        # Otherwise, a mix of Cardioid 1 and 2 is used.
-        if all(flag == 1 for flag in s_flags):
-            spiral1 = spiral2 = self._cardioid3
-        else:
-            spiral1 = self._cardioid1
-            spiral2 = self._cardioid2
-
-        # Calculate kinematic coupling ratios and position derivatives.
-        k1_ratio = spiral2.k_dot(robot.k2) / self._cardioid1.k_dot(robot.k2)
-        k2_ratio = spiral2.k_dot(robot.k1) / self._cardioid1.k_dot(robot.k1)
+        k1_ratio = spiral2_model.k_dot(robot.k2) / self._cardioid1.k_dot(robot.k2)
+        k2_ratio = spiral2_model.k_dot(robot.k1) / self._cardioid1.k_dot(robot.k1)
         pos_lu1 = self._cardioid1.pos_dot(robot.theta, robot.k2, 2, 1)
         pos_lu2 = self._cardioid1.pos_dot(robot.theta, robot.k1, 1, 2)
 
-        # Assemble the unscaled kinematic coupling matrix.
         J_flex_unscaled = np.array([
-            [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]], # Corresponds to J_1n, J_2n
+            [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
             [k1_ratio * pos_lu1[1], k2_ratio * pos_lu2[1]],
-            [spiral2.th_dot(robot.k2), spiral2.th_dot(robot.k1)], # Corresponds to l*K_n terms
-            [-spiral1.k_dot(robot.k1), spiral2.k_dot(robot.k1)], # Corresponds to -K_m, K_n terms
-            [-spiral2.k_dot(robot.k2), spiral1.k_dot(robot.k2)]
+            [spiral2_model.th_dot(robot.k2), spiral2_model.th_dot(robot.k1)],
+            [-spiral1_model.k_dot(robot.k1), spiral2_model.k_dot(robot.k1)],
+            [-spiral2_model.k_dot(robot.k2), spiral1_model.k_dot(robot.k2)]
         ])
 
         # This matrix acts as a selector based on the stiffness flags [s1, s2].
@@ -152,35 +199,3 @@ class HybridKinematics:
 
         # Compute the final J_s via the Hadamard (element-wise) product.
         return np.multiply(stiffness_selector, J_flex_unscaled)
-
-    def get_unified_jacobian(self, robot: robot_state.Model, s_flags: List[int]) -> np.ndarray:
-        """
-        Constructs the unified Jacobian J = [J_r, J_s].
-
-        This is the main public method. It combines the rigid and flexible Jacobians
-        into a single 5x5 matrix. This matrix acts as a mode selector, dynamically
-        adjusting how the unified control input u = [vx, vy, omega, v1, v2] maps
-        to motion based on the stiffness configuration `s_flags`.
-
-        Args:
-            robot (robot_state.Model): The robot's current state object.
-            s_flags (List[int]): The stiffness configuration [s1, s2], where a value
-                                 of 0 indicates a rigid segment and 1 a flexible one.
-
-        Returns:
-            np.ndarray: The 5x5 unified hybrid Jacobian matrix, J.
-        """
-        # The robot is in rigid mode only if both stiffness flags are 0.
-        is_rigid_mode = not any(flag == 1 for flag in s_flags)
-
-        # Compute both Jacobian components.
-        J_rigid = self._get_rigid_jacobian(robot)
-        J_flexible = self._get_flexible_jacobian(robot, s_flags)
-
-        # The rigid Jacobian component is zeroed out unless in pure rigid mode.
-        # This correctly implements the `overline(s1 or s2)` logic from the formula.
-        active_J_rigid = int(is_rigid_mode) * J_rigid
-
-        # Horizontally stack the components to form the final unified Jacobian.
-        # This creates the structure J = [J_r, J_s].
-        return np.hstack((active_J_rigid, J_flexible))
