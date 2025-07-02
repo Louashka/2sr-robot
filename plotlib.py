@@ -16,7 +16,7 @@ class RobotPlot:
         self.vss_flex_color = '#C44536'
         self.fill_color = 'lightgrey'
         self.border_color = 'darkgrey'
-        self.center_color = '#2a9df4'
+        self.center_color = '#338dc9'
 
         # --- Robot Structure Definition ---
         self.KINEMATIC_CHAIN = [
@@ -34,6 +34,20 @@ class RobotPlot:
             },
         ]
 
+
+    def arc(self, pose: list, k: float, direction=1) -> tuple[np.ndarray, np.ndarray, float]:
+        """Calculates the arc curve of a VS segment"""
+        l = np.linspace(0, gv.L_VSS, 50)
+        theta_array = pose[2] + direction * k * l
+        if abs(k) < 1e-9: # Robust check for straight line
+            x = pose[0] + direction * l * np.cos(pose[2])
+            y = pose[1] + direction * l * np.sin(pose[2])
+        else:
+            x = pose[0] + (np.sin(theta_array) - np.sin(pose[2])) / (direction * k)
+            y = pose[1] - (np.cos(theta_array) - np.cos(pose[2])) / (direction * k)
+        theta_end = theta_array[-1]
+        return x, y, theta_end % (2 * np.pi)
+    
     def plot_robot(self, ax: matplotlib.axes.Axes, robot: robot_state.Model):
         """
         Main plotting method that renders the robot based on the KINEMATIC_CHAIN definition.
@@ -54,44 +68,31 @@ class RobotPlot:
         kappa = getattr(robot, config["kappa_attr"])
         
         # 2. Calculate the VSS arc shape
-        vss_arc = self._arc(robot.pose, kappa, direction=config["direction"])
+        vssarc = self.arc(robot.pose, kappa, direction=config["direction"])
         
         # 3. Plot the VSS arc with the correct color based on stiffness
-        self._plot_vss_segment(ax, vss_arc, is_flexible=(stiffness == 1))
+        self._plot_vss_segment(ax, vssarc, is_flexible=(stiffness == 1))
 
         # 4. Calculate connector and LU geometry
-        tip_xy = (vss_arc[0][-1], vss_arc[1][-1])
-        base_xy = (tip_xy[0] + config["direction"] * gv.L_CONN * np.cos(vss_arc[2]), 
-                   tip_xy[1] + config["direction"] * gv.L_CONN * np.sin(vss_arc[2]))
+        tip_xy = (vssarc[0][-1], vssarc[1][-1])
+        base_xy = (tip_xy[0] + config["direction"] * gv.L_CONN * np.cos(vssarc[2]), 
+                   tip_xy[1] + config["direction"] * gv.L_CONN * np.sin(vssarc[2]))
 
         # 5. Plot the connector triangle
         self._plot_connector_triangle(
-            ax, tip_xy, base_xy, vss_arc[2], 
+            ax, tip_xy, base_xy, vssarc[2], 
             side_length=gv.LU_SIDE * 0.7
         )
 
         # 6. Plot the Locomotion Unit
-        lu_center = (base_xy[0] + (gv.LU_SIDE / 2) * (config["direction"] * np.cos(vss_arc[2]) + np.sin(vss_arc[2])),
-                     base_xy[1] - (gv.LU_SIDE / 2) * (np.cos(vss_arc[2]) - config["direction"] * np.sin(vss_arc[2])))
-        self._plot_lu(ax, lu_center, vss_arc[2], gv.LU_SIDE)
+        lu_center = (base_xy[0] + (gv.LU_SIDE / 2) * (config["direction"] * np.cos(vssarc[2]) + np.sin(vssarc[2])),
+                     base_xy[1] - (gv.LU_SIDE / 2) * (np.cos(vssarc[2]) - config["direction"] * np.sin(vssarc[2])))
+        self._plot_lu(ax, lu_center, vssarc[2], gv.LU_SIDE)
 
-    def _arc(self, pose: list, k: float, direction=1) -> tuple[np.ndarray, np.ndarray, float]:
-        """Calculates the arc curve of a VS segment"""
-        l = np.linspace(0, gv.L_VSS, 50)
-        theta_array = pose[2] + direction * k * l
-        if abs(k) < 1e-9: # Robust check for straight line
-            x = pose[0] + direction * l * np.cos(pose[2])
-            y = pose[1] + direction * l * np.sin(pose[2])
-        else:
-            x = pose[0] + (np.sin(theta_array) - np.sin(pose[2])) / (direction * k)
-            y = pose[1] - (np.cos(theta_array) - np.cos(pose[2])) / (direction * k)
-        theta_end = theta_array[-1]
-        return x, y, theta_end % (2 * np.pi)
-
-    def _plot_vss_segment(self, ax: matplotlib.axes.Axes, vss_arc_data: tuple, is_flexible: bool):
+    def _plot_vss_segment(self, ax: matplotlib.axes.Axes, vssarc_data: tuple, is_flexible: bool):
         """Plots the VSS arc with the correct color."""
         color = self.vss_flex_color if is_flexible else self.border_color
-        ax.plot(vss_arc_data[0], vss_arc_data[1], color=color, lw=self.lw) 
+        ax.plot(vssarc_data[0], vssarc_data[1], color=color, lw=self.lw) 
     
     def _plot_connector_triangle(self, ax: matplotlib.axes.Axes, tip_xy: tuple, base_xy: tuple, angle_rad: float, side_length: float):
         """
