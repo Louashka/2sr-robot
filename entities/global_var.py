@@ -14,7 +14,7 @@ L_VSS = scale * 77 * 10**(-3)  # VSS length
 # L_VSS = math.pi/6
 L_CONN = scale * 32 * 10**(-3)
 D_BRIDGE = scale * 7 * 10**(-3)  # bridge width
-L_VSF = 2 * L_VSS  # VSF length
+L_VSB = 2 * L_VSS  # VSF length
 
 # LU parameters
 LU_SIDE = scale * 42 * 10**(-3)  # block side length
