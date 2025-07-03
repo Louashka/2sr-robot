@@ -12,7 +12,7 @@ By unifying the functions of a robust mobile platform and a deformable manipulat
 
 The 2SR platform is built with a *modular* design philosophy, separating mobility from reconfigurability. It consists of two Locomotion Units connected by the novel Variable-Stiffness Bridge.
 
-![Hardware Design Diagram](images/design.svg)
+![Hardware Design Diagram](multimedia/design.svg)
 
 ### Locomotion Units (LUs)
 
@@ -107,6 +107,8 @@ Through path analysis and curve fitting, we determine the cardioid's radius $r$ 
 | 1 | 0.021 | 2.42 | 3.87 |
 | 2 | 0.049 | 2.19 | 4.09 |
 | 3 | 0.043 | 1.73 | 4.56 |
+
+The animation below illustrates how the 2SR robot bends and moves in flexible states according to the cardioid patterns.
 
 Cardioid 1 | Cardioid 2 | Cardioid 3
 :---------:|:---------: | :---------:
