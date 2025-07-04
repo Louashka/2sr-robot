@@ -11,7 +11,7 @@ class RobotPlot:
     """
     def __init__(self) -> None:
         # --- Style Configuration ---
-        self.lw = 2
+        self.lw = 3
         self.lu_rounding_size = 0.005
         self.vss_flex_color = '#C44536'
         self.fill_color = 'lightgrey'

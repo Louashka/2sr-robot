@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from entities import robot_state, global_var as gv
 
-plt.rc('font', size=18)   
+plt.rc('font', size=28)   
 
 class RobotAnimation:
     """
@@ -31,8 +31,8 @@ class RobotAnimation:
                 "pose_change": False,
                 "stiffness": [0, 1],
                 "k_max": np.pi / gv.L_VSS,
-                "cardioid_density": 50,
-                "cardioid_size": 5, 
+                "cardioid_density": 65,
+                "cardioid_size": 8, 
                 "frame_count": 163,     
                 "fps": 15,
                 "output_file": "multimedia/cardioid1_animation.gif",
@@ -45,8 +45,8 @@ class RobotAnimation:
                 "pose_change": True,
                 "stiffness": [1, 0],
                 "k_max": np.pi / (1.1 * gv.L_VSS),
-                "cardioid_density": 85,
-                "cardioid_size": 7,
+                "cardioid_density": 65,
+                "cardioid_size": 9,
                 "frame_count": 163,
                 "fps": 15,
                 "output_file": "multimedia/cardioid2_animation.gif",
@@ -59,8 +59,8 @@ class RobotAnimation:
                 "pose_change": True,
                 "stiffness": [1, 1],
                 "k_max": np.pi / (2 * gv.L_VSS),
-                "cardioid_density": 85,
-                "cardioid_size": 6,
+                "cardioid_density": 65,
+                "cardioid_size": 8,
                 "frame_count": 163,
                 "fps": 15,
                 "output_file": "multimedia/cardioid3_animation.gif",
@@ -179,7 +179,7 @@ class RobotAnimation:
 
 if __name__ == "__main__":
     # Choose which animation to run by name
-    scenario_to_run = 2
+    scenario_to_run = 3
 
     # Create the animation engine with the chosen scenario
     animator = RobotAnimation(scenario_to_run)
