@@ -81,13 +81,13 @@ where
 
 ### Operation Modes
 
-#### 1. Rigid State ($\textbf{s}=[0,0]^\intercal$)
+#### 1. Rigid State ($*\textbf{s}*=[0,0]^\intercal$)
 
 When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kappa_2$ are constant). In this mode, it behaves like a standard omnidirectional mobile platform:
 
 ![equation](https://latex.codecogs.com/svg.image?\dot{\textbf{q}}=\underbrace{\overline{(s_1\vee&space;s_2)}\begin{bmatrix}\textbf&space;R_z\left(\theta\right)\\0\end{bmatrix}}_{\mathbf{J}_r}\textbf&space;u_r,)
 
-where ![equation](https://latex.codecogs.com/svg.image?\inline&space;\textbf&space;R_z\left(\theta\right)\in\mathbb{R}^3) is a rotation matrix around the vertical axis of the global frame and $\textbf u_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
+where $\textbf{R}_z\left(\theta\right)$ is a rotation matrix around the vertical axis of the global frame and $\textbf{u}_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
 
 #### 2. Flexible States ($\textbf{s}\in\{[0,1]^\intercal,[1,0]^\intercal,[1,1]^\intercal\}$)
 
@@ -106,7 +106,7 @@ Through path analysis and curve fitting, we determine the cardioid's radius $r$ 
 | 2 | 0.049 | 2.19 | 4.09 |
 | 3 | 0.043 | 1.73 | 4.56 |
 
-The animation below demonstrates how the robot uses these cardioid paths to bend and move ([simulation code](simulations/cardioid_deformation.py)). 
+The animation below demonstrates how the robot uses these cardioid paths to bend and move ([simulation code](simulations/cardioid_motion.py)). 
 
 Cardioid 1 | Cardioid 2 | Cardioid 3
 :---------:|:---------: | :---------:
