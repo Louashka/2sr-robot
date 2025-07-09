@@ -50,7 +50,7 @@ class FSM:
             (1, 1): {"action_name": "NONE", "action_value": 0},
         }
 
-    def main(self, target_states: list) -> tuple:
+    def main(self, target_states: tuple) -> tuple:
         """
         Determines and applies necessary actions based on the FSM rules.
 

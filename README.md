@@ -87,7 +87,7 @@ When both segments are rigid, the robot's shape is locked ($\kappa_1$ and $\kapp
 
 where $𝐑_z\left(\theta\right)$ is a rotation matrix around the vertical axis of the global frame and $𝐮_r = [v_{x}, v_{y}, \omega]^\intercal$ is a vector of robot's "rigid" control velocities.   
 
-#### 2. Flexible States ($𝐬\in\{[0,1]^\intercal,[1,0]^\intercal,[1,1]^\intercal\}$)
+#### 2. Flexible States ($𝐬\in [[0,1]^\intercal,[1,0]^\intercal,[1,1]^\intercal]$)
 
 When one or both segments are flexible, the kinematics become far more complex. The wheels no longer just drive the robot; they also actively bend the body. The key insight was discovering that as a segment bends, the wheel at its end traces a predictable path that can be accurately modeled by a **cardioid**. 
 
