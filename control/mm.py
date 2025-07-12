@@ -28,7 +28,7 @@ class MotionMorphologyControl:
         CONTROL_MODES (dict): A dictionary defining the properties of each
                               control mode.
     """
-    def __init__(self, robot: robot_state.Model, T: int = 21, max_speed: float = 0.5):
+    def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5):
         self.robot = robot
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
@@ -94,8 +94,8 @@ class MotionMorphologyControl:
         # --- Manipulated Variables (MVs) ---
         # These are the control inputs the optimizer can change.
         m.v_x = m.MV(value=0.0, lb=-0.09, ub=0.09)
-        m.v_y = m.MV(value=0.0, lb=-0.07, ub=0.07)
-        m.omega = m.MV(value=0.0, lb=-0.7, ub=0.7)
+        m.v_y = m.MV(value=0.0, lb=-0.09, ub=0.09)
+        m.omega = m.MV(value=0.0, lb=-0.30, ub=0.30)
         m.u_1 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k1
         m.u_2 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k2
 
@@ -107,11 +107,11 @@ class MotionMorphologyControl:
         m.u_2.STATUS = 1
 
         # DCOST penalizes changes in the MV, encouraging smoother control
-        m.v_x.DCOST = 1.0
-        m.v_y.DCOST = 1.0
-        m.omega.DCOST = 0.5
-        m.u_1.DCOST = 1.0
-        m.u_2.DCOST = 1.0
+        m.v_x.DCOST = 0.5
+        m.v_y.DCOST = 0.5
+        m.omega.DCOST = 1.0
+        # m.u_1.DCOST = 1.0
+        # m.u_2.DCOST = 1.0
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
@@ -148,9 +148,9 @@ class MotionMorphologyControl:
 
         # TAU is the time constant for the reference trajectory.
         # Larger TAU = slower, smoother approach to the setpoint.
-        m.x.TAU = 1.0
-        m.y.TAU = 1.0
-        m.theta.TAU = 1.2
+        m.x.TAU = 7.0
+        m.y.TAU = 7.0
+        m.theta.TAU = 10.0
         m.k1.TAU = 1.0
         m.k2.TAU = 1.0
 
@@ -179,15 +179,29 @@ class MotionMorphologyControl:
         m.Equation(m.u_2 == 0)
 
     def _shape_morph_1_kinematics(self, m: GEKKO) -> list:
-        pass
+        m.Equation(m.v_x == 0)
+        m.Equation(m.v_y == 0)
+        m.Equation(m.omega == 0)
+
+        k2_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
+        pos = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k1, 1, 2)
+
+        m.Equation(m.x.dt() == k2_ratio * pos[0] * m.u_2)
+        m.Equation(m.y.dt() == k2_ratio * pos[1] * m.u_2)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k1) * m.u_2)
+        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid1.k_dot(self.robot.k1) * m.u_1 + 
+                   self.kinematics_handler.cardioid2.k_dot(self.robot.k1) * m.u_2)
+        m.Equation(m.k2.dt() == 0)
 
     def _shape_morph_2_kinematics(self, m: GEKKO):
-        # ... Port logic from original mpcSM2 ...
-        pass
+        m.Equation(m.v_x == 0)
+        m.Equation(m.v_y == 0)
+        m.Equation(m.omega == 0)
 
     def _shape_morph_3_kinematics(self, m: GEKKO):
-        # ... Port logic from original mpcSM3 ...
-        pass
+        m.Equation(m.v_x == 0)
+        m.Equation(m.v_y == 0)
+        m.Equation(m.omega == 0)
 
     # --- State Logic and Main Control Loop ---
     
@@ -204,7 +218,7 @@ class MotionMorphologyControl:
         """
         k1_diff = abs(self.robot.k1 - stiff_config[0])
         k2_diff = abs(self.robot.k2 - stiff_config[1])
-        k_threshold = 4.0  # Threshold to decide if a stiffness change is needed.
+        k_threshold = 0.5  # Threshold to decide if a stiffness change is needed.
 
         stiff1 = 1 if k1_diff > k_threshold else 0
         stiff2 = 1 if k2_diff > k_threshold else 0
@@ -237,7 +251,9 @@ class MotionMorphologyControl:
         """
         # 1. Determine the current control mode based on the target.
         current_mode, target_stiffness, stiff_transitions = self._determine_morph_mode(target_config[3:])
-        is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(target_config[:2]))
+        print(f'Current mode: {current_mode}')
+
+        is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(target_config[:2], dist_thresh=0.001))
 
         # 2. If idle or finished, command zero velocity.
         if current_mode == 'IDLE' or is_finished:
@@ -294,4 +310,5 @@ class MotionMorphologyControl:
         Checks if the robot's planar position is within a threshold of the target.
         """
         dist = np.linalg.norm(np.array(self.robot.position) - np.array(target_pos))
+        print(f'Distance to target: {dist}')
         return dist < dist_thresh

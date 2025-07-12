@@ -78,9 +78,9 @@ class HybridKinematics:
         Initializes the kinematics engine by pre-instantiating the three
         cardioid models used for different flexible states.
         """
-        self._cardioid1 = _Cardioid(1)
-        self._cardioid2 = _Cardioid(2)
-        self._cardioid3 = _Cardioid(3)
+        self.cardioid1 = _Cardioid(1)
+        self.cardioid2 = _Cardioid(2)
+        self.cardioid3 = _Cardioid(3)
 
         # --- Kinematic Mode Rules ---
         # This dictionary declares the configuration for each stiffness state (s1, s2).
@@ -91,23 +91,23 @@ class HybridKinematics:
             # Value: A dictionary defining the mode's configuration.
             (0, 0): {
                 "is_rigid_active": True,
-                "spiral1_model": self._cardioid1, # Default, not used
-                "spiral2_model": self._cardioid2, # Default, not used
+                "spiral1_model": self.cardioid1, # Default, not used
+                "spiral2_model": self.cardioid2, # Default, not used
             },
             (0, 1): {
                 "is_rigid_active": False,
-                "spiral1_model": self._cardioid1,
-                "spiral2_model": self._cardioid2,
+                "spiral1_model": self.cardioid1,
+                "spiral2_model": self.cardioid2,
             },
             (1, 0): {
                 "is_rigid_active": False,
-                "spiral1_model": self._cardioid1,
-                "spiral2_model": self._cardioid2,
+                "spiral1_model": self.cardioid1,
+                "spiral2_model": self.cardioid2,
             },
             (1, 1): {
                 "is_rigid_active": False,
-                "spiral1_model": self._cardioid3, # Both flexible, use Cardioid 3
-                "spiral2_model": self._cardioid3,
+                "spiral1_model": self.cardioid3, # Both flexible, use Cardioid 3
+                "spiral2_model": self.cardioid3,
             },
         }
 
@@ -174,10 +174,10 @@ class HybridKinematics:
         calculated as the Hadamard product of a stiffness-based selector matrix
         and a matrix of kinematic coupling terms derived from the cardioid models.
         """
-        k1_ratio = spiral2_model.k_dot(robot.k2) / self._cardioid1.k_dot(robot.k2)
-        k2_ratio = spiral2_model.k_dot(robot.k1) / self._cardioid1.k_dot(robot.k1)
-        pos_lu1 = self._cardioid1.pos_dot(robot.theta, robot.k2, 2, 1)
-        pos_lu2 = self._cardioid1.pos_dot(robot.theta, robot.k1, 1, 2)
+        k1_ratio = spiral2_model.k_dot(robot.k2) / self.cardioid1.k_dot(robot.k2)
+        k2_ratio = spiral2_model.k_dot(robot.k1) / self.cardioid1.k_dot(robot.k1)
+        pos_lu1 = self.cardioid1.pos_dot(robot.theta, robot.k2, 2, 1)
+        pos_lu2 = self.cardioid1.pos_dot(robot.theta, robot.k1, 1, 2)
 
         J_flex_unscaled = np.array([
             [k1_ratio * pos_lu1[0], k2_ratio * pos_lu2[0]],
