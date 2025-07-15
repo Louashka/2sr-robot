@@ -110,8 +110,11 @@ class MotionMorphologyControl:
         m.v_x.DCOST = 0.5
         m.v_y.DCOST = 0.5
         m.omega.DCOST = 1.0
-        # m.u_1.DCOST = 1.0
-        # m.u_2.DCOST = 1.0
+        m.u_1.DCOST = 0.001
+        m.u_2.DCOST = 0.001
+
+        # m.u_1.DMAX = 0.1
+        # m.u_2.DMAX = 0.1
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
@@ -150,7 +153,7 @@ class MotionMorphologyControl:
         # Larger TAU = slower, smoother approach to the setpoint.
         m.x.TAU = 7.0
         m.y.TAU = 7.0
-        m.theta.TAU = 10.0
+        m.theta.TAU = 1.0
         m.k1.TAU = 1.0
         m.k2.TAU = 1.0
 
@@ -198,10 +201,35 @@ class MotionMorphologyControl:
         m.Equation(m.v_y == 0)
         m.Equation(m.omega == 0)
 
+        k1_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k2) / self.kinematics_handler.cardioid1.k_dot(self.robot.k2)
+        pos = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k2, 2, 1)
+        
+        m.Equation(m.x.dt() == k1_ratio * pos[0] * m.u_1)
+        m.Equation(m.y.dt() == k1_ratio * pos[1] * m.u_1)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k2) * m.u_1)
+        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid2.k_dot(self.robot.k2) * m.u_1 + 
+                self.kinematics_handler.cardioid1.k_dot(self.robot.k2) * m.u_2)
+        m.Equation(m.k1.dt() == 0)
+
     def _shape_morph_3_kinematics(self, m: GEKKO):
         m.Equation(m.v_x == 0)
         m.Equation(m.v_y == 0)
         m.Equation(m.omega == 0)
+
+        k1_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k2) / self.kinematics_handler.cardioid1.k_dot(self.robot.k2)
+        pos1 = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k2, 2, 1)
+
+        k2_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
+        pos2 = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k1, 1, 2)
+
+        m.Equation(m.x.dt() == k1_ratio * pos1[0] * m.u_1 + k2_ratio * pos2[0] * m.u_2)
+        m.Equation(m.y.dt() == k1_ratio * pos1[1] * m.u_1 + k2_ratio * pos2[1] * m.u_2)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid3.th_dot(self.robot.k2) * m.u_1 + 
+                   self.kinematics_handler.cardioid3.th_dot(self.robot.k1) * m.u_2)
+        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u_1 + 
+                   self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u_2)
+        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_1 + 
+                   self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_2)
 
     # --- State Logic and Main Control Loop ---
     
@@ -218,7 +246,7 @@ class MotionMorphologyControl:
         """
         k1_diff = abs(self.robot.k1 - stiff_config[0])
         k2_diff = abs(self.robot.k2 - stiff_config[1])
-        k_threshold = 0.5  # Threshold to decide if a stiffness change is needed.
+        k_threshold = 0.05  # Threshold to decide if a stiffness change is needed.
 
         stiff1 = 1 if k1_diff > k_threshold else 0
         stiff2 = 1 if k2_diff > k_threshold else 0

@@ -9,14 +9,22 @@ class RobotPlot:
     A class dedicated to plotting a 2SR robot.
     The robot's physical structure is defined declaratively in KINEMATIC_CHAIN.
     """
-    def __init__(self) -> None:
+    def __init__(self, ax) -> None:
+        """
+        Initializes the plotter and creates all necessary artists.
+
+        Args:
+            ax (matplotlib.axes.Axes): The axes on which to draw.
+        """
+        self.ax = ax
         # --- Style Configuration ---
         self.lw = 3
         self.lu_rounding_size = 0.005
-        self.vss_flex_color = 'red'
+        self.vss_flex_color = '#d6605e'
         self.fill_color = 'lightgrey'
         self.border_color = 'darkgrey'
         self.center_color = '#075B91'
+        self.target_alpha = 0.4  # Transparency for the target plot
 
         # --- Robot Structure Definition ---
         self.KINEMATIC_CHAIN = [
@@ -34,6 +42,132 @@ class RobotPlot:
             },
         ]
 
+        # --- Artist Storage ---
+        # Artists for the main, opaque robot
+        self.vss_lines = []
+        self.connector_patches = []
+        self.lu_patches = []
+        self.center_point = None
+
+        # Artists for the transparent target robot
+        self.vss_lines_target = []
+        self.connector_patches_target = []
+        self.lu_patches_target = []
+
+        self._init_artists()
+
+    def _init_artists(self):
+        """
+        Creates all plotting artists once with dummy data.
+        """
+        # Create artists for each segment in the kinematic chain
+        for _ in self.KINEMATIC_CHAIN:
+            # Create a line artist for the VSS segment
+            line, = self.ax.plot([], [], linewidth=self.lw)
+            self.vss_lines.append(line)
+
+            # Create a polygon patch for the connector triangle
+            connector = patches.Polygon([[0,0], [0,0], [0,0]], closed=True, 
+                                        facecolor=self.fill_color, 
+                                        edgecolor=self.border_color, 
+                                        linewidth=self.lw)
+            self.ax.add_patch(connector)
+            self.connector_patches.append(connector)
+
+            # Create a FancyBboxPatch for the Locomotion Unit
+            lu_patch = patches.FancyBboxPatch(
+                xy=(-gv.LU_SIDE / 2, -gv.LU_SIDE / 2), width=gv.LU_SIDE, height=gv.LU_SIDE,
+                boxstyle=f'round,pad=0,rounding_size={self.lu_rounding_size}',
+                facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw
+            )
+            self.ax.add_patch(lu_patch)
+            self.lu_patches.append(lu_patch)
+
+
+            line, = self.ax.plot([], [], linewidth=self.lw, alpha=self.target_alpha)
+            self.vss_lines_target.append(line)
+            connector = patches.Polygon([[0,0], [0,0], [0,0]], closed=True, facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw, alpha=self.target_alpha)
+            self.ax.add_patch(connector)
+            self.connector_patches_target.append(connector)
+            lu_patch = patches.FancyBboxPatch(xy=(-gv.LU_SIDE / 2, -gv.LU_SIDE / 2), width=gv.LU_SIDE, height=gv.LU_SIDE, boxstyle=f'round,pad=0,rounding_size={self.lu_rounding_size}', facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw, alpha=self.target_alpha)
+            self.ax.add_patch(lu_patch)
+            self.lu_patches_target.append(lu_patch)
+
+        # Create an artist for the robot's center point
+        self.center_point, = self.ax.plot([], [], 'o', color=self.center_color, zorder=10)
+
+        # Initially, hide the target artists until they are needed
+        self._set_target_visibility(False)
+        
+    def _set_target_visibility(self, visible: bool):
+        """Helper function to show or hide all target artists at once."""
+        all_target_artists = self.vss_lines_target + self.connector_patches_target + self.lu_patches_target
+        for artist in all_target_artists:
+            artist.set_visible(visible)
+    
+    def plot_robot(self, robot: robot_state.Model, target: robot_state.Model = None):
+        """
+        Main plotting method. Updates the main robot and, if provided, the
+        transparent target robot.
+
+        Args:
+            robot (robot_state.Model): The current state of the robot.
+            target (robot_state.Model, optional): The target state of the robot. 
+                                                  If None, the target is hidden.
+        """
+        # Always update the main robot
+        self._update_robot_artists(robot, self.vss_lines, self.connector_patches, self.lu_patches, self.center_point)
+
+        # Update the target robot only if it's provided
+        if target:
+            self._set_target_visibility(True)
+            self._update_robot_artists(target, self.vss_lines_target, self.connector_patches_target, self.lu_patches_target)
+        else:
+            self._set_target_visibility(False)
+
+        return tuple(self.vss_lines) + tuple(self.connector_patches) + tuple(self.lu_patches) + tuple([self.center_point]) + \
+               tuple(self.vss_lines_target) + tuple(self.connector_patches_target) + tuple(self.lu_patches_target)
+
+    def _update_robot_artists(self, robot, vss_lines, connector_patches, lu_patches, center_point=None):
+        """
+        Generic internal function to update a set of robot artists based on a robot state.
+        """
+        for i, config in enumerate(self.KINEMATIC_CHAIN):
+            stiffness = getattr(robot, config["stiffness_attr"])
+            kappa = getattr(robot, config["kappa_attr"])
+            
+            vss_arc = self.arc(robot.pose, kappa, direction=config["direction"])
+            
+            # Update VSS line
+            vss_lines[i].set_data(vss_arc[0], vss_arc[1])
+            vss_lines[i].set_color(self.vss_flex_color if stiffness else self.border_color)
+
+            # Calculate geometry for connector and LU
+            tip_xy = (vss_arc[0][-1], vss_arc[1][-1])
+            base_xy = (tip_xy[0] + config["direction"] * gv.L_CONN * np.cos(vss_arc[2]), 
+                       tip_xy[1] + config["direction"] * gv.L_CONN * np.sin(vss_arc[2]))
+
+            # Update connector triangle
+            v1, v2 = np.array(tip_xy), np.array(base_xy)
+            perp_angle = vss_arc[2] - (np.pi / 2)
+            v3 = v2 + (gv.LU_SIDE * 0.7) * np.array([np.cos(perp_angle), np.sin(perp_angle)])
+            connector_patches[i].set_xy([v1, v2, v3])
+
+            # Update LU
+            lu_center = (base_xy[0] + (gv.LU_SIDE / 2) * (config["direction"] * np.cos(vss_arc[2]) + np.sin(vss_arc[2])),
+                     base_xy[1] - (gv.LU_SIDE / 2) * (np.cos(vss_arc[2]) - config["direction"] * np.sin(vss_arc[2])))
+
+            transform = (
+                transforms.Affine2D().rotate(vss_arc[2]) +
+                transforms.Affine2D().translate(lu_center[0], lu_center[1]) +
+                self.ax.transData
+            )
+            lu_patches[i].set_transform(transform)
+        
+        # Update central point
+        if center_point:
+            center_point.set_data([robot.x], [robot.y])
+
     def arc(self, pose: list, k: float, direction=1) -> tuple[np.ndarray, np.ndarray, float]:
         """Calculates the arc curve of a VS segment"""
         l = np.linspace(0, gv.L_VSS, 50)
@@ -46,95 +180,4 @@ class RobotPlot:
             y = pose[1] - (np.cos(theta_array) - np.cos(pose[2])) / k
         theta_end = theta_array[-1]
         return x, y, theta_end % (2 * np.pi)
-    
-    def plot_robot(self, ax: matplotlib.axes.Axes, robot: robot_state.Model):
-        """
-        Main plotting method that renders the robot based on the KINEMATIC_CHAIN definition.
-        """
-        # Loop through the robot structure and plot each segment assembly
-        for segment_config in self.KINEMATIC_CHAIN:
-            self._plot_segment_assembly(ax, robot, segment_config)
-
-        # Plot the robot's central reference point.
-        ax.plot(robot.x, robot.y, 'o', color=self.center_color, zorder=10)
-
-    def _plot_segment_assembly(self, ax: matplotlib.axes.Axes, robot: robot_state.Model, config: dict):
-        """
-        Plots a complete segment assembly: VSS arc, connector, and LU.
-        """
-        # 1. Get segment-specific state using attributes from the config dict
-        stiffness = getattr(robot, config["stiffness_attr"])
-        kappa = getattr(robot, config["kappa_attr"])
-        
-        # 2. Calculate the VSS arc shape
-        vss_arc = self.arc(robot.pose, kappa, direction=config["direction"])
-        
-        # 3. Plot the VSS arc with the correct color based on stiffness
-        self._plot_vss_segment(ax, vss_arc, is_flexible=(stiffness == 1))
-
-        # 4. Calculate connector and LU geometry
-        tip_xy = (vss_arc[0][-1], vss_arc[1][-1])
-        base_xy = (tip_xy[0] + config["direction"] * gv.L_CONN * np.cos(vss_arc[2]), 
-                   tip_xy[1] + config["direction"] * gv.L_CONN * np.sin(vss_arc[2]))
-
-        # 5. Plot the connector triangle
-        self._plot_connector_triangle(
-            ax, tip_xy, base_xy, vss_arc[2], 
-            side_length=gv.LU_SIDE * 0.7
-        )
-
-        # 6. Plot the Locomotion Unit
-        lu_center = (base_xy[0] + (gv.LU_SIDE / 2) * (config["direction"] * np.cos(vss_arc[2]) + np.sin(vss_arc[2])),
-                     base_xy[1] - (gv.LU_SIDE / 2) * (np.cos(vss_arc[2]) - config["direction"] * np.sin(vss_arc[2])))
-        self._plot_lu(ax, lu_center, vss_arc[2], gv.LU_SIDE)
-
-    def _plot_vss_segment(self, ax: matplotlib.axes.Axes, vss_arc_data: tuple, is_flexible: bool):
-        """Plots the VSS arc with the correct color."""
-        color = self.vss_flex_color if is_flexible else self.border_color
-        ax.plot(vss_arc_data[0], vss_arc_data[1], color=color, lw=self.lw) 
-    
-    def _plot_connector_triangle(self, ax: matplotlib.axes.Axes, tip_xy: tuple, base_xy: tuple, angle_rad: float, side_length: float):
-        """
-        Plots a VSS connector as a filled, right-angle triangle.
-
-        The right angle is located at the base of the connector, where it
-        meets the Locomotion Unit.
-
-        Args:
-            ax: The matplotlib axes to plot on.
-            tip_xy: The (x, y) coordinate of the triangle's tip (at the VSS end).
-            base_xy: The (x, y) coordinate of the right-angle vertex (at the LU end).
-            angle_rad: The orientation angle of the connector's main line.
-            side_length: The length of the side perpendicular to the connector line.
-        """
-        v1, v2 = np.array(tip_xy), np.array(base_xy)
-        perp_angle = angle_rad - (np.pi / 2)
-        v3 = v2 + side_length * np.array([np.cos(perp_angle), np.sin(perp_angle)])
-
-        triangle = patches.Polygon(
-            [v1, v2, v3], closed=True, facecolor=self.fill_color,
-            edgecolor=self.border_color, linewidth=self.lw
-        )
-
-        ax.add_patch(triangle)
-    
-    def _plot_lu(self, ax: matplotlib.axes.Axes, center_xy: tuple, angle_rad: float, size: float):
-        """Plots a single, rotated Locomotion Unit as a rounded square."""
-        
-        boxstyle = f'round,pad=0,rounding_size={self.lu_rounding_size}'
-
-        lu_patch = patches.FancyBboxPatch(
-            xy=(-size / 2, -size / 2), width=size, height=size, boxstyle=boxstyle,
-            facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw
-        )
-
-        transform = (
-            transforms.Affine2D().rotate(angle_rad) +
-            transforms.Affine2D().translate(center_xy[0], center_xy[1]) +
-            ax.transData
-        )
-
-        lu_patch.set_transform(transform)
-
-        ax.add_patch(lu_patch)
         

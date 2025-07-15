@@ -1,49 +1,24 @@
-from gekko import GEKKO
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import matplotlib.animation as animation
 
-m = GEKKO()
-m.time = np.linspace(0,20,41)
+fig, ax = plt.subplots()
+x = np.arange(0, 2 * np.pi, 0.01)
+line, = ax.plot(x, np.sin(x))
 
-# Parameters
-mass = 500
-b = m.Param(value=50)
-K = m.Param(value=0.8)
+def animate(i):
+    # Update the data
+    line.set_ydata(np.sin(x + i / 50))
 
-# Manipulated variable
-p = m.MV(value=0, lb=0, ub=100)
-p.STATUS = 1  # allow optimizer to change
-p.DCOST = 0.1 # smooth out gas pedal movement
-p.DMAX = 20   # slow down change of gas pedal
+    # Change the color based on a condition or frame number
+    if i % 10 == 0:  # Change color every 10 frames
+        line.set_color(np.random.rand(3,)) # Random RGB color
+    elif i % 5 == 0:
+        line.set_color('red')
+    else:
+        line.set_color('blue')
 
-# Controlled Variable
-v = m.CV(value=0)
-v.STATUS = 1  # add the SP to the objective
-m.options.CV_TYPE = 2 # squared error
-v.SP = 40     # set point
-v.TR_INIT = 1 # set point trajectory
-v.TAU = 5     # time constant of trajectory
+    return line, # Return the modified artist(s)
 
-# Process model
-m.Equation(mass*v.dt() == -v*b + K*b*p)
-
-m.options.IMODE = 6 # control
-m.solve(disp=False)
-
-# get additional solution information
-import json
-with open(m.path+'//results.json') as f:
-    results = json.load(f)
-
-plt.figure()
-plt.subplot(2,1,1)
-plt.plot(m.time,p.value,'b-',label='MV Optimized')
-plt.legend()
-plt.ylabel('Input')
-plt.subplot(2,1,2)
-plt.plot(m.time,results['v1.tr'],'k-',label='Reference Trajectory')
-plt.plot(m.time,v.value,'r--',label='CV Response')
-plt.ylabel('Output')
-plt.xlabel('Time')
-plt.legend(loc='best')
+ani = animation.FuncAnimation(fig, animate, interval=20, blit=True)
 plt.show()

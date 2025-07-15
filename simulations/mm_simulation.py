@@ -21,11 +21,18 @@ class RobotAnimation:
         self.robot = robot_state.Model(1, *state_history[0])
         self.mm_controller = mm.MotionMorphologyControl(self.robot)
 
-        self.rp = plotlib.RobotPlot()
-        self.fig, self.ax = plt.subplots(figsize=(12, 12))
+        self.fig, ax = plt.subplots(figsize=(12, 12))
+
+        ax.set_aspect('equal')
+        ax.set_xlim(-0.2, 0.7)
+        ax.set_ylim(-0.2, 0.7)
+
+        self.rp = plotlib.RobotPlot(ax)
 
         self.fps = 15
         self.output_file = 'multimedia/motion_and_deformation.gif'
+
+        self.vss1_line, = ax.plot([], [], linewidth=3)
 
     def _update_frame(self, frame_num: int):
         """The core function called for each frame of the animation."""
@@ -33,32 +40,40 @@ class RobotAnimation:
         self.robot.config = self.state_history[frame_num]
         self.robot.stiffness = self.stiffness_history[frame_num]
 
-        # 2. Clear the axes and redraw everything
-        self.ax.clear()
-
-        self.rp.plot_robot(self.ax, self.target_robot)
-        self.rp.plot_robot(self.ax, self.robot)
+        changed_artists = self.rp.plot_robot(self.robot, self.target_robot)
         
-        # 3. Set consistent plot limits and aspect ratio
-        self.ax.set_aspect('equal')
-        self.ax.set_xlim(-0.2, 0.7)
-        self.ax.set_ylim(-0.2, 0.7)
+        return changed_artists
+         
 
-
+    def arc(self, pose: list, k: float, direction=1) -> tuple[np.ndarray, np.ndarray, float]:
+        """Calculates the arc curve of a VS segment"""
+        l = np.linspace(0, gv.L_VSS, 50)
+        theta_array = pose[2] + direction * k * l
+        if abs(k) < 1e-9: # Robust check for straight line
+            x = pose[0] + direction * l * np.cos(pose[2])
+            y = pose[1] + direction * l * np.sin(pose[2])
+        else:
+            x = pose[0] + (np.sin(theta_array) - np.sin(pose[2])) / k
+            y = pose[1] - (np.cos(theta_array) - np.cos(pose[2])) / k
+        theta_end = theta_array[-1]
+        return x, y, theta_end % (2 * np.pi)
+    
     def run_and_save(self):
         """Creates the animation and saves it to a file."""
         self.ani = animation.FuncAnimation(
             fig=self.fig,
             func=self._update_frame,
             frames=self.frame_n,
+            repeat=True,
             interval=1000 / self.fps # Interval in milliseconds
         )
 
-        print(f"Saving animation to {self.output_file}...")
+        # print(f"Saving animation to {self.output_file}...")
 
         plt.tight_layout()
-        writer = animation.PillowWriter(fps=self.fps )
-        self.ani.save(self.output_file, writer=writer)
+        plt.show()
+        # writer = animation.PillowWriter(fps=self.fps )
+        # self.ani.save(self.output_file, writer='imagemagick')
         print("...Done!")
         
         plt.close(self.fig)
@@ -140,8 +155,11 @@ if __name__ == "__main__":
     # targets = [[0.5, 0.5, np.pi/4, 0, 0],
     #            [0.12, 0.7, 2*np.pi/3, 15, 0]]
 
+    # targets = [
+    #            [0.12, 0.5, 2*np.pi/3, 15, 0]]
+
     targets = [
-               [0.12, 0.5, 2*np.pi/3, 15, 0]]
+               [robot.x, robot.y, robot.theta, 11, 18]]
     
     mm_controller = mm.MotionMorphologyControl(robot)
 
@@ -158,7 +176,7 @@ if __name__ == "__main__":
 
         is_finished = False
 
-        while not is_finished:
+        while not is_finished and count < 500:
             print()
             current_vel, stiff_transitions, q_new, is_finished = mm_controller.go_to_target(target)
             
@@ -168,6 +186,8 @@ if __name__ == "__main__":
             robot.t2 += STIFFNESS_SIMULATION.get(stiff_transitions[1], 0.0)
 
             print(f"Velocity: {current_vel}")
+            print(f'Config: {robot.config}')
+            print(f'Stiffness: {robot.stiffness}')
 
             state_history.append(robot.config)
             stiffness_history.append(robot.stiffness)
@@ -181,8 +201,8 @@ if __name__ == "__main__":
                               velocity_history, stiffness_actions_history)
 
     # Run the process
-    # animator.run_and_save()
+    animator.run_and_save()
 
-    animator.plot_data()
+    # animator.plot_data()
 
     
