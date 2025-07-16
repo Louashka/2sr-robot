@@ -1,11 +1,137 @@
 import numpy as np
+import collections
 from gekko import GEKKO
 from entities import global_var as gv, robot_state
 from control import stiffness
 import kinematics
 
+class Morphing:
+    """
+    Manages the complex, sequential morphing of a 2-segment robot.
+    
+    This controller handles the constraint that the robot cannot bend both
+    segments in opposite directions simultaneously. It does this by creating
+    and executing a sequential plan.
+    """
+    # Mapping from stiffness state to a descriptive control mode.
+    STIFFNESS_TO_MODES = {
+        (0, 0): 'RIGID_MOTION',
+        (1, 0): 'SHAPE_MORPH_1',
+        (0, 1): 'SHAPE_MORPH_2',
+        (1, 1): 'SHAPE_MORPH_3',
+    }
 
-class MotionMorphologyControl:
+    def __init__(self, robot: robot_state.Model):
+        """
+        Initializes the Morphing Controller.
+
+        Args:
+            robot (robot_state.Model): The robot state object to control.
+            stiffness_controller (StiffnessController): The low-level FSM for
+                                                       handling stiffness transitions.
+        """
+        self.robot = robot
+        self.stiffness_controller = stiffness.FSM(robot)
+        
+        # A deque is a list optimized for adding and removing items from the ends.
+        # This will hold our sequence of (stiff1, stiff2) commands.
+        self.morph_plan = collections.deque()
+        
+        self.k_threshold = 0.05  # Threshold to decide if a stiffness change is needed.
+
+    def update_control_mode(self, target_k_config: list) -> tuple:
+        """
+        Determines and executes the next step in a morphing plan.
+        It manages the plan and returns the current action.
+
+        Args:
+            target_k_config (list): The final target [k1, k2] values.
+
+        Returns:
+            A tuple containing the determined mode (str), the current target
+            stiffness tuple, and any stiffness transition commands.
+        """
+        # --- Step 1: Create a plan if one doesn't exist ---
+        if not self.morph_plan:
+            self._create_morph_plan(target_k_config)
+
+        # --- Step 2: Execute the current step of the plan ---
+        current_target_stiffness = self.morph_plan[0] # Look at the next step
+
+        # Use the low-level FSM to manage the transition to the target stiffness
+        is_transitioning, stiff_transitions = self.stiffness_controller.main(current_target_stiffness)
+        
+        # Determine the descriptive mode for the current action
+        current_mode = self.STIFFNESS_TO_MODES.get(current_target_stiffness)
+
+        # --- Step 3: Check if the current step is complete ---
+        # The step is complete if the FSM is no longer transitioning AND the
+        # robot's curvature matches the target for the active segment(s).
+        if not is_transitioning and self._is_current_step_achieved(target_k_config):
+            self.morph_plan.popleft() # The step is done, remove it from the plan
+
+        # If we are in a transition phase (e.g., waiting for a segment to stiffen),
+        # the mode should reflect that.
+        if is_transitioning:
+            current_mode = 'IDLE'
+            
+        return current_mode, current_target_stiffness, stiff_transitions
+
+    def _create_morph_plan(self, target_k_config: list):
+        """
+        Analyzes the target and creates a sequential plan of stiffness states.
+        This is where the core logic for handling split-direction changes resides.
+        """
+        k1_target, k2_target = target_k_config[0], target_k_config[1]
+
+        # Determine if a change is needed for each segment
+        needs_k1_change = abs(self.robot.k1 - k1_target) > self.k_threshold
+        needs_k2_change = abs(self.robot.k2 - k2_target) > self.k_threshold
+        
+        # Determine the direction of change (1 for increase, -1 for decrease, 0 for no change)
+        # Using a small epsilon to avoid issues with floating point comparisons
+        k1_change_dir = int(np.sign(k1_target - self.robot.k1)) if needs_k1_change else 0
+        k2_change_dir = int(np.sign(k2_target - self.robot.k2)) if needs_k2_change else 0
+
+        stiff1 = 1 if needs_k1_change else 0
+        stiff2 = 1 if needs_k2_change else 0
+        
+        # If both need to change AND they are moving in opposite directions
+        if stiff1 and stiff2 and (k1_change_dir != k2_change_dir):
+            print("INFO: Split-direction change detected. Planning sequential morph.")
+            # Create a two-step plan. Here, we arbitrarily choose to do k1 first.
+            self.morph_plan.append((1, 0)) # Step 1: Morph k1 only
+            self.morph_plan.append((0, 1)) # Step 2: Morph k2 only
+        
+        # For all other cases (no change, single change, or both changing in same direction)
+        else:
+            # Create a simple, one-step plan
+            self.morph_plan.append((stiff1, stiff2))
+
+    def _is_current_step_achieved(self, final_target_k: list) -> bool:
+        """
+        Checks if the robot's state matches the target for the current plan step.
+        """
+        if not self.morph_plan:
+            return True # No plan, so nothing to achieve.
+            
+        current_stiffness_target = self.morph_plan[0]
+
+        # If k1 is supposed to be flexible in this step...
+        if current_stiffness_target[0] == 1:
+            # ...check if its curvature is close to the final target curvature.
+            if abs(self.robot.k1 - final_target_k[0]) < self.k_threshold:
+                return True
+        
+        # If k2 is supposed to be flexible in this step...
+        if current_stiffness_target[1] == 1:
+            # ...check if its curvature is close to the final target curvature.
+            if abs(self.robot.k2 - final_target_k[1]) < self.k_threshold:
+                return True
+        
+        return False
+
+class MMControl:
     """
     A state-driven controller for combined motion and morphology tasks.
 
@@ -30,19 +156,11 @@ class MotionMorphologyControl:
     """
     def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5):
         self.robot = robot
+        self.morph = Morphing(robot)
+        self.kinematics_handler = kinematics.HybridKinematics()
+        
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
-
-        self.stiffness_controller = stiffness.FSM(robot)
-        self.kinematics_handler = kinematics.HybridKinematics()
-
-        # This dictionary maps target stiffness states to control mode names.
-        self.STIFFNESS_TO_MODES = {
-            (0, 0): 'RIGID_MOTION',
-            (1, 0): 'SHAPE_MORPH_1',
-            (0, 1): 'SHAPE_MORPH_2',
-            (1, 1): 'SHAPE_MORPH_3'
-        }
 
         # This dictionary declares each MPC controller.
         # 'kinematics' is a function reference to the specific physics equations.
@@ -154,8 +272,8 @@ class MotionMorphologyControl:
         m.x.TAU = 7.0
         m.y.TAU = 7.0
         m.theta.TAU = 1.0
-        m.k1.TAU = 1.0
-        m.k2.TAU = 1.0
+        m.k1.TAU = 5.0
+        m.k2.TAU = 5.0
 
         # --- The Kinematic Model ---
         # This dynamically injects the specific physics equations for the
@@ -216,10 +334,10 @@ class MotionMorphologyControl:
         m.Equation(m.v_y == 0)
         m.Equation(m.omega == 0)
 
-        k1_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k2) / self.kinematics_handler.cardioid1.k_dot(self.robot.k2)
+        k1_ratio = self.kinematics_handler.cardioid3.k_dot(self.robot.k2) / self.kinematics_handler.cardioid1.k_dot(self.robot.k2)
         pos1 = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k2, 2, 1)
 
-        k2_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
+        k2_ratio = self.kinematics_handler.cardioid3.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
         pos2 = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k1, 1, 2)
 
         m.Equation(m.x.dt() == k1_ratio * pos1[0] * m.u_1 + k2_ratio * pos2[0] * m.u_2)
@@ -230,34 +348,6 @@ class MotionMorphologyControl:
                    self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u_2)
         m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_1 + 
                    self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_2)
-
-    # --- State Logic and Main Control Loop ---
-    
-    def _determine_morph_mode(self, stiff_config: list) -> tuple:
-        """
-        Determines the required control mode based on the target stiffness.
-
-        Args:
-            stiff_config (list): The target [k1, k2] values.
-
-        Returns:
-            A tuple containing the determined mode (str), stiffness transition
-            commands, and the target stiffness tuple.
-        """
-        k1_diff = abs(self.robot.k1 - stiff_config[0])
-        k2_diff = abs(self.robot.k2 - stiff_config[1])
-        k_threshold = 0.05  # Threshold to decide if a stiffness change is needed.
-
-        stiff1 = 1 if k1_diff > k_threshold else 0
-        stiff2 = 1 if k2_diff > k_threshold else 0
-        target_stiffness = (stiff1, stiff2)
-
-        # Use the FSM to handle transitions and debounce signals.
-        is_transitioning, stiff_transitions = self.stiffness_controller.main(target_stiffness)
-        
-        current_mode = 'IDLE' if is_transitioning else self.STIFFNESS_TO_MODES.get(target_stiffness)
-        
-        return current_mode, target_stiffness, stiff_transitions
 
     def go_to_target(self, target_config: list) -> tuple:
         """
@@ -278,8 +368,8 @@ class MotionMorphologyControl:
             - q_new (np.array): The predicted next state of the robot.
         """
         # 1. Determine the current control mode based on the target.
-        current_mode, target_stiffness, stiff_transitions = self._determine_morph_mode(target_config[3:])
-        print(f'Current mode: {current_mode}')
+        current_mode, target_stiffness, stiff_transitions = self.morph.update_control_mode(target_config[3:])
+        print(f"Current Plan: {list(self.morph.morph_plan)}, Current Mode: {current_mode}")
 
         is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(target_config[:2], dist_thresh=0.001))
 

@@ -19,7 +19,6 @@ class RobotAnimation:
         self.frame_n = len(self.state_history)
         
         self.robot = robot_state.Model(1, *state_history[0])
-        self.mm_controller = mm.MotionMorphologyControl(self.robot)
 
         self.fig, ax = plt.subplots(figsize=(12, 12))
 
@@ -141,6 +140,7 @@ class RobotAnimation:
 
 
 if __name__ == "__main__":
+    k_max = np.pi / (2 * gv.L_VSS)
     STIFFNESS_SIMULATION = {
         1:  0.5,  
         -1: -0.5, 
@@ -158,10 +158,15 @@ if __name__ == "__main__":
     # targets = [
     #            [0.12, 0.5, 2*np.pi/3, 15, 0]]
 
+    # targets = [
+    #            [robot.x, robot.y, robot.theta, 
+    #             np.random.uniform(-k_max, 0), np.random.uniform(0, k_max)]]
+
     targets = [
-               [robot.x, robot.y, robot.theta, 11, 18]]
+               [robot.x, robot.y, robot.theta, 
+                11, -15]]
     
-    mm_controller = mm.MotionMorphologyControl(robot)
+    mm_controller = mm.MMControl(robot)
 
     count = 0
 
@@ -186,6 +191,7 @@ if __name__ == "__main__":
             robot.t2 += STIFFNESS_SIMULATION.get(stiff_transitions[1], 0.0)
 
             print(f"Velocity: {current_vel}")
+            print(f'Target: {target}')
             print(f'Config: {robot.config}')
             print(f'Stiffness: {robot.stiffness}')
 
@@ -203,6 +209,6 @@ if __name__ == "__main__":
     # Run the process
     animator.run_and_save()
 
-    # animator.plot_data()
+    animator.plot_data()
 
     
