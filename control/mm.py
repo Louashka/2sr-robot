@@ -400,6 +400,9 @@ class MMControl:
 
         is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(self.target.position, dist_thresh=0.001))
 
+        if is_finished:
+            self.morph.morph_plan.clear()
+        
         # 2. If idle or finished, command zero velocity.
         if current_mode == 'IDLE' or is_finished:
             raw_velocities  = [0.0] * 5
@@ -454,7 +457,7 @@ class MMControl:
                 mode_mpc_model.theta.PRED[1], mode_mpc_model.k1.PRED[1],
                 mode_mpc_model.k2.PRED[1]
             ]
-            
+  
         return raw_velocities, filtered_velocities, stiff_transitions, q_new, is_finished
     
     def _is_pose_close(self, target_pos: list, dist_thresh: float = 0.018) -> bool:

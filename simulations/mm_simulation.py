@@ -20,9 +20,31 @@ class Simulation:
         self.robot = initial_robot_state
         self.controller = mm.MMControl(self.robot)
         self.k_max = np.pi / (2 * gv.L_VSS)
-        
-        # A mapping for how stiffness actuators affect the robot state in simulation.
-        self.STIFFNESS_UPDATE_MAP = {1: 0.5, -1: -0.5, 0: 0.0}
+
+        """
+        This map contains the complete logic for stiffness updates.
+
+        - Command 1:  Always heats (returns +0.5).
+        - Command -1: Always cools (returns -0.25). The cooling rate is slower than the 
+                      the heating rate.
+        - Command 0:  Conditional hold/cool.
+                      - If stiffness == 1, holds (returns 0.0).
+                      - Else if temp > 22, cools towards the minimum (returns -0.25).
+        """
+        self.STIFFNESS_LOGIC_MAP = {
+            # Command 1: Always returns 0.5, ignoring state.
+            1: lambda stiff, temp: 0.5,
+
+            # Command -1: Always returns -0.25, ignoring state.
+            -1: lambda stiff, temp: -0.25,
+
+            # Command 0: Contains the conditional logic.
+            0: lambda stiff, temp: (
+                0.0 if stiff else 
+                -0.25 if temp > 22.25 else 
+                0.0
+            )
+        }
 
         self.history = self._initialize_history()
 
@@ -53,10 +75,50 @@ class Simulation:
             return 0.0 
         else:
             return value
+        
+    def _pursue_target(self, target_config: List[float], target_label: str):
+        """
+        Executes the control loop to reach a single specified target.
+
+        This method encapsulates the logic for setting a target, running the
+        controller until the target is reached, and recording the history
+        at each step.
+
+        Args:
+            target_config (List[float]): The target state [x, y, th, k1, k2].
+            target_label (str): A descriptive string for logging purposes.
+        """
+        print(f"\n--- Pursuing {target_label}: {np.round(target_config, 2)} ---")
+        self.controller.target = target_config
+
+        # Record the state *before* starting the pursuit of this new target
+        self._append_to_history(target_config, [0.0] * 5, [0.0] * 5, [0, 0])
+
+        is_finished = False
+        while not is_finished:
+            # Get commands from the controller
+            # NOTE: Assuming go_to_target is updated to return raw_vel as well
+            raw_vel, filtered_vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
+            
+            # Update robot state based on controller output
+            self.robot.config = q_new
+            self.robot.t1 += self.STIFFNESS_LOGIC_MAP.get(stiff_transitions[0])(self.robot.stiff1, self.robot.t1)
+            self.robot.t2 += self.STIFFNESS_LOGIC_MAP.get(stiff_transitions[1])(self.robot.stiff2, self.robot.t2)
+
+            # Logging for the current step
+            print(f'Target: {[f'{v:.6f}' for v in target_config]}')
+            print(f"Velocity: {[f'{v:.6f}' for v in raw_vel]}")
+            print(f"State: {[f'{v:.6f}' for v in self.robot.config]}")
+            print(f'Stiffness: {self.robot.stiffness}')
+
+            self._append_to_history(target_config, raw_vel, filtered_vel, stiff_transitions)
 
     def run(self, num_targets: int = 1):
         """
         Runs the full simulation for a specified number of random targets.
+
+        If num_targets > 1, the robot will visit all generated targets and then
+        return to its original starting position.
 
         Args:
             num_targets (int): The number of sequential targets to generate and pursue.
@@ -64,41 +126,45 @@ class Simulation:
         Returns:
             Dict[str, List]: The populated history dictionary.
         """
-        for i in range(num_targets):
-            # Generate a new random target
+        # --- Phase 1: Capture initial state and generate target sequence ---
+
+        # 1. Store the robot's absolute starting configuration. Use .copy()!
+        initial_robot_config = self.robot.config.copy()
+        print(f"INFO: Robot starting at: {np.round(initial_robot_config, 2)}.")
+
+        targets_to_pursue = []
+        for _ in range(num_targets):
             k1 = np.random.uniform(-self.k_max, self.k_max)
             k2 = np.random.uniform(-self.k_max, self.k_max)
+            
+            # Base the next target's position on the last point in the sequence
+            # (or the initial position if the sequence is empty).
+            base_pos = targets_to_pursue[-1] if targets_to_pursue else initial_robot_config
 
             target_config = [
-                self.robot.x + np.random.uniform(-0.5, 0.5), # Add to current pos for realism
-                self.robot.y + np.random.uniform(-0.5, 0.5),
-                self.robot.theta + np.random.uniform(-np.pi / 3, np.pi / 3),
+                base_pos[0] + np.random.uniform(-0.5, 0.5),
+                base_pos[1] + np.random.uniform(-0.5, 0.5),
+                base_pos[2] + np.random.uniform(-np.pi / 3, np.pi / 3),
                 self._apply_curvature_deadband(k1),
                 self._apply_curvature_deadband(k2)
             ]
-            print(f"\n--- New Target ({i+1}/{num_targets}): {np.round(target_config, 2)} ---")
-            self.controller.target = target_config
+            targets_to_pursue.append(target_config)
 
-            # Record the initial state before starting the loop for this target
-            self._append_to_history(target_config, [0.0] * 5, [0.0] * 5, [0, 0])
+        # 2. If it's a multi-target mission, add the initial position as the final target.
+        if num_targets > 1:
+            targets_to_pursue.append(initial_robot_config)
+            print("INFO: Appending initial position to create a return-to-home path.")
 
-            is_finished = False
-            while not is_finished:
-                # Get commands from the controller
-                raw_vel, filtered_vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
-                
-                # Update robot state based on controller output
-                self.robot.config = q_new
-                self.robot.t1 += self.STIFFNESS_UPDATE_MAP.get(stiff_transitions[0], 0.0)
-                self.robot.t2 += self.STIFFNESS_UPDATE_MAP.get(stiff_transitions[1], 0.0)
-
-                print(f'Target: {[f'{v:.6f}' for v in target_config]}')
-                print(f"Velocity: {[f'{v:.6f}' for v in raw_vel]}")
-                print(f"State: {[f'{v:.6f}' for v in self.robot.config]}")
-                print(f'Stiffness: {self.robot.stiffness}')
-
-                self._append_to_history(target_config, raw_vel, filtered_vel, stiff_transitions)
+        # --- Phase 2: Execute the planned sequence ---
+        for i, target in enumerate(targets_to_pursue):
+            # Create a descriptive label for logging
+            is_return_home_target = (i == len(targets_to_pursue) - 1) and (num_targets > 1)
+            label = f"Return to Initial Position (Target {i+1}/{len(targets_to_pursue)})" if is_return_home_target else f"Target {i+1}/{len(targets_to_pursue)}"
+            
+            self._pursue_target(target, label)
         
+        print("\n--- Simulation Finished ---")
+
         return self.history
 
 class Visualization:
@@ -120,13 +186,14 @@ class Visualization:
         # Initialize robot models for plotting
         self.robot = robot_state.Model(1, *self.state_history[0])
         self.target_robot = robot_state.Model(2, *self.target_history[0])
+        self.target_robot.temp = [22, 22]
 
         # --- Animation Setup ---
         self.fig_anim, self.ax_anim = plt.subplots(figsize=(12, 12))
         self.ax_anim.set_aspect('equal')
         self.robot_plotter = plotlib.RobotPlot(self.ax_anim)
         self.fps = 15
-        self.output_file = 'multimedia/motion_and_deformation.gif'
+        self.output_file = 'multimedia/motion_and_deformation.html'
 
         # --- Determine and set the plot limits ---
         xlim, ylim = self._determine_plot_limits()
@@ -256,7 +323,7 @@ class Visualization:
         
         return self.robot_plotter.plot_robot(self.robot, self.target_robot)
     
-    def run_animation(self, save_gif=False):
+    def run_animation(self, save=False):
         """Creates and shows the animation, with an option to save."""
         ani = animation.FuncAnimation(
             fig=self.fig_anim, func=self._update_animation_frame,
@@ -264,12 +331,12 @@ class Visualization:
             interval=1000 / self.fps
         )
         
-        if save_gif:
+        if save:
             print(f"Saving animation to {self.output_file}...")
             # Ensure the multimedia directory exists
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            writer = animation.PillowWriter(fps=self.fps)
-            ani.save(self.output_file, writer=writer)
+            # writer = animation.PillowWriter(fps=self.fps)
+            ani.save(self.output_file, writer='html')
             print("...Done!")
         
         plt.tight_layout()
@@ -317,5 +384,5 @@ if __name__ == "__main__":
     visualizer = Visualization(simulation_results)
 
     # 4. Run the visualization tasks
-    visualizer.run_animation()
+    visualizer.run_animation(save=False)
     visualizer.plot_data()
