@@ -2,6 +2,7 @@ import matplotlib.axes
 import numpy as np
 import matplotlib.patches as patches
 import matplotlib.transforms as transforms
+import matplotlib.colors as mcolors
 from entities import robot_state, global_var as gv
 
 class RobotPlot:
@@ -25,6 +26,12 @@ class RobotPlot:
         self.border_color = 'darkgrey'
         self.center_color = '#075B91'
         self.target_alpha = 0.4  # Transparency for the target plot
+
+        self.max_temp = 63
+        self.min_temp = 22
+        
+        self.border_color_rgb = np.array(mcolors.to_rgb(self.border_color))
+        self.vss_flex_color_rgb = np.array(mcolors.to_rgb(self.vss_flex_color))
 
         # --- Robot Structure Definition ---
         self.KINEMATIC_CHAIN = [
@@ -104,6 +111,42 @@ class RobotPlot:
         all_target_artists = self.vss_lines_target + self.connector_patches_target + self.lu_patches_target
         for artist in all_target_artists:
             artist.set_visible(visible)
+
+    def _get_stiffness_color(self, stiffness: bool, temperature: float) -> np.ndarray:
+        """
+        Determines the appropriate color for a segment based on its stiffness state.
+        
+        - If not stiff, returns the rigid border color.
+        - If stiff, interpolates between the border color and the flex color
+          based on the provided temperature.
+
+        Args:
+            stiffness (bool): True if the segment is flexible/stiffening.
+            temperature (float): The current temperature of the segment (22 to 63).
+
+        Returns:
+            np.ndarray: The calculated RGB color as a NumPy array.
+        """
+        # If the segment is not in a flexible state, return the rigid color immediately.
+        if not stiffness:
+            return self.border_color_rgb
+
+        # --- Color Interpolation Logic ---
+        
+        # 1. Normalize the temperature to a 0.0 to 1.0 factor.
+        # We clip the value to handle any potential over/undershoots safely.
+        temp_range = self.max_temp - self.min_temp
+        if temp_range == 0: # Avoid division by zero
+            factor = 1.0
+        else:
+            normalized_temp = (temperature - self.min_temp) / temp_range
+            factor = np.clip(normalized_temp, 0.0, 1.0)
+
+        # 2. Linearly interpolate between the two colors using the factor.
+        # The formula is: C = C_start * (1 - f) + C_end * f
+        interpolated_color = self.border_color_rgb * (1 - factor) + self.vss_flex_color_rgb * factor
+        
+        return interpolated_color
     
     def plot_robot(self, robot: robot_state.Model, target: robot_state.Model = None):
         """
@@ -140,7 +183,12 @@ class RobotPlot:
             
             # Update VSS line
             vss_lines[i].set_data(vss_arc[0], vss_arc[1])
-            vss_lines[i].set_color(self.vss_flex_color if stiffness else self.border_color)
+            # vss_lines[i].set_color(self.vss_flex_color if stiffness else self.border_color)
+            temperature = robot.temp[i] 
+            # Get the dynamically calculated color
+            dynamic_color = self._get_stiffness_color(stiffness, temperature)
+            # Set the color of the line
+            vss_lines[i].set_color(dynamic_color)
 
             # Calculate geometry for connector and LU
             tip_xy = (vss_arc[0][-1], vss_arc[1][-1])

@@ -59,7 +59,7 @@ The complete state-transition table of the FSM stiffness controller is provided 
 In this particular implementation, we use Field's metal, an alloy with a melting point of $\approx62^\circ\text{C}$. Ideally, the alloy would melt at this temperature and solidify just below it. However, our system approximates the stiffness of an entire segment using a single temperature sensor. This practical simplification, combined with the thermal dynamics of cooling, creates a **hysteresis loop**: the segment doesn't become rigid again at the same temperature it became flexible.
 
 To address this, we include *two different temperature thresholds* in the FSM controller:
-1. **Upper threshold** ($62^\circ\text{C}$): Confirms the segment is fully Flexible.
+1. **Upper threshold** ($63^\circ\text{C}$): Confirms the segment is fully Flexible.
 2. **Lower threshold** ($53^\circ\text{C}$): Confirms the segment is fully Rigid.
 
 This two-threshold system makes the state transitions robust and reliable, preventing the robot from attempting to move before its structure is truly rigid. The animation below illustrates this process: a command is sent, the temperature changes, and the FSM waits for the correct threshold to be crossed before officially changing the segment's state. 

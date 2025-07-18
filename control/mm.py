@@ -1,5 +1,6 @@
 import numpy as np
 import collections
+import copy
 from gekko import GEKKO
 from entities import global_var as gv, robot_state
 from control import stiffness
@@ -22,22 +23,15 @@ class Morphing:
     }
 
     def __init__(self, robot: robot_state.Model):
-        """
-        Initializes the Morphing Controller.
-
-        Args:
-            robot (robot_state.Model): The robot state object to control.
-            stiffness_controller (StiffnessController): The low-level FSM for
-                                                       handling stiffness transitions.
-        """
         self.robot = robot
+        # The low-level FSM for handling stiffness transitions.
         self.stiffness_controller = stiffness.FSM(robot)
         
         # A deque is a list optimized for adding and removing items from the ends.
         # This will hold our sequence of (stiff1, stiff2) commands.
         self.morph_plan = collections.deque()
         
-        self.k_threshold = 0.05  # Threshold to decide if a stiffness change is needed.
+        self.k_threshold = 0.08  # Threshold to decide if a stiffness change is needed.
 
     def update_control_mode(self, target_k_config: list) -> tuple:
         """
@@ -148,19 +142,23 @@ class MMControl:
         robot (robot_state.Model): The robot state object, containing current pose,
                                    curvature, and velocities.
         T (int): The number of time steps in the MPC prediction horizon.
-        stiffness_controller (stiffness.FSM): A finite state machine to manage
-                                              transitions between stiffness states.
         kinematics_handler (kinematics.HybridKinematics): Handles kinematic calculations.
         CONTROL_MODES (dict): A dictionary defining the properties of each
                               control mode.
     """
-    def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5):
+    def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5, ema_alpha: float = 0.2):
         self.robot = robot
+        self.__target_robot = copy.copy(robot)
         self.morph = Morphing(robot)
         self.kinematics_handler = kinematics.HybridKinematics()
         
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
+
+        # --- EMA Filter Parameters ---
+        self.ema_alpha = ema_alpha
+        # Stores the previous filtered velocity state. Initialized to zeros.
+        self.__last_filtered_vel = np.zeros(5) 
 
         # This dictionary declares each MPC controller.
         # 'kinematics' is a function reference to the specific physics equations.
@@ -190,6 +188,16 @@ class MMControl:
 
         self._initialize_mpc_models()
 
+    @property
+    def target(self) -> robot_state.Model:
+        return self.__target_robot
+    
+    @target.setter
+    def target(self, value) -> None:
+        if len(value) != 5:
+            raise ValueError("Wrong number of target state values!")
+        self.__target_robot.config = value
+
     def _initialize_mpc_models(self):
         """Creates an MPC instance for each mode defined in CONTROL_MODES."""
         for mode in self.CONTROL_MODES:
@@ -214,25 +222,22 @@ class MMControl:
         m.v_x = m.MV(value=0.0, lb=-0.09, ub=0.09)
         m.v_y = m.MV(value=0.0, lb=-0.09, ub=0.09)
         m.omega = m.MV(value=0.0, lb=-0.30, ub=0.30)
-        m.u_1 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k1
-        m.u_2 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k2
+        m.u1 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k1
+        m.u2 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k2
 
         # STATUS=1 tells the optimizer to adjust these variables
         m.v_x.STATUS = 1
         m.v_y.STATUS = 1
         m.omega.STATUS = 1
-        m.u_1.STATUS = 1
-        m.u_2.STATUS = 1
+        m.u1.STATUS = 1
+        m.u2.STATUS = 1
 
         # DCOST penalizes changes in the MV, encouraging smoother control
-        m.v_x.DCOST = 0.5
-        m.v_y.DCOST = 0.5
-        m.omega.DCOST = 1.0
-        m.u_1.DCOST = 0.001
-        m.u_2.DCOST = 0.001
-
-        # m.u_1.DMAX = 0.1
-        # m.u_2.DMAX = 0.1
+        m.v_x.DCOST = 0.05
+        m.v_y.DCOST = 0.05
+        m.omega.DCOST = 0.5
+        m.u1.DCOST = 0.001
+        m.u2.DCOST = 0.001
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
@@ -269,11 +274,11 @@ class MMControl:
 
         # TAU is the time constant for the reference trajectory.
         # Larger TAU = slower, smoother approach to the setpoint.
-        m.x.TAU = 7.0
-        m.y.TAU = 7.0
-        m.theta.TAU = 1.0
-        m.k1.TAU = 5.0
-        m.k2.TAU = 5.0
+        m.x.TAU = 3.2
+        m.y.TAU = 3.2
+        m.theta.TAU = 3.0
+        m.k1.TAU = 4.0
+        m.k2.TAU = 4.0
 
         # --- The Kinematic Model ---
         # This dynamically injects the specific physics equations for the
@@ -296,8 +301,8 @@ class MMControl:
         m.Equation(m.k1.dt() == 0)
         m.Equation(m.k2.dt() == 0)
         # Explicitly constrain the unused MVs to zero
-        m.Equation(m.u_1 == 0)
-        m.Equation(m.u_2 == 0)
+        m.Equation(m.u1 == 0)
+        m.Equation(m.u2 == 0)
 
     def _shape_morph_1_kinematics(self, m: GEKKO) -> list:
         m.Equation(m.v_x == 0)
@@ -307,11 +312,11 @@ class MMControl:
         k2_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
         pos = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k1, 1, 2)
 
-        m.Equation(m.x.dt() == k2_ratio * pos[0] * m.u_2)
-        m.Equation(m.y.dt() == k2_ratio * pos[1] * m.u_2)
-        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k1) * m.u_2)
-        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid1.k_dot(self.robot.k1) * m.u_1 + 
-                   self.kinematics_handler.cardioid2.k_dot(self.robot.k1) * m.u_2)
+        m.Equation(m.x.dt() == k2_ratio * pos[0] * m.u2)
+        m.Equation(m.y.dt() == k2_ratio * pos[1] * m.u2)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k1) * m.u2)
+        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid1.k_dot(self.robot.k1) * m.u1 + 
+                   self.kinematics_handler.cardioid2.k_dot(self.robot.k1) * m.u2)
         m.Equation(m.k2.dt() == 0)
 
     def _shape_morph_2_kinematics(self, m: GEKKO):
@@ -322,11 +327,11 @@ class MMControl:
         k1_ratio = self.kinematics_handler.cardioid2.k_dot(self.robot.k2) / self.kinematics_handler.cardioid1.k_dot(self.robot.k2)
         pos = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k2, 2, 1)
         
-        m.Equation(m.x.dt() == k1_ratio * pos[0] * m.u_1)
-        m.Equation(m.y.dt() == k1_ratio * pos[1] * m.u_1)
-        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k2) * m.u_1)
-        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid2.k_dot(self.robot.k2) * m.u_1 + 
-                self.kinematics_handler.cardioid1.k_dot(self.robot.k2) * m.u_2)
+        m.Equation(m.x.dt() == k1_ratio * pos[0] * m.u1)
+        m.Equation(m.y.dt() == k1_ratio * pos[1] * m.u1)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid2.th_dot(self.robot.k2) * m.u1)
+        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid2.k_dot(self.robot.k2) * m.u1 + 
+                self.kinematics_handler.cardioid1.k_dot(self.robot.k2) * m.u2)
         m.Equation(m.k1.dt() == 0)
 
     def _shape_morph_3_kinematics(self, m: GEKKO):
@@ -340,16 +345,38 @@ class MMControl:
         k2_ratio = self.kinematics_handler.cardioid3.k_dot(self.robot.k1) / self.kinematics_handler.cardioid1.k_dot(self.robot.k1)
         pos2 = self.kinematics_handler.cardioid1.pos_dot(self.robot.theta, self.robot.k1, 1, 2)
 
-        m.Equation(m.x.dt() == k1_ratio * pos1[0] * m.u_1 + k2_ratio * pos2[0] * m.u_2)
-        m.Equation(m.y.dt() == k1_ratio * pos1[1] * m.u_1 + k2_ratio * pos2[1] * m.u_2)
-        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid3.th_dot(self.robot.k2) * m.u_1 + 
-                   self.kinematics_handler.cardioid3.th_dot(self.robot.k1) * m.u_2)
-        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u_1 + 
-                   self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u_2)
-        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_1 + 
-                   self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u_2)
+        m.Equation(m.x.dt() == k1_ratio * pos1[0] * m.u1 + k2_ratio * pos2[0] * m.u2)
+        m.Equation(m.y.dt() == k1_ratio * pos1[1] * m.u1 + k2_ratio * pos2[1] * m.u2)
+        m.Equation(m.theta.dt() == self.kinematics_handler.cardioid3.th_dot(self.robot.k2) * m.u1 + 
+                   self.kinematics_handler.cardioid3.th_dot(self.robot.k1) * m.u2)
+        m.Equation(m.k1.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u1 + 
+                   self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u2)
+        m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u1 + 
+                   self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u2)
 
-    def go_to_target(self, target_config: list) -> tuple:
+    # --- Method to apply the EMA filter ---
+    def _apply_ema_filter(self, raw_velocities: list) -> np.ndarray:
+        """
+        Applies an Exponential Moving Average filter to the raw velocity commands.
+        
+        Args:
+            raw_velocities (list): The unfiltered velocity vector from the MPC.
+        
+        Returns:
+            np.ndarray: The smoothed velocity vector.
+        """
+        # Convert raw list to a numpy array for vectorized math
+        raw_velocities_np = np.array(raw_velocities)
+        
+        # Apply the EMA formula
+        filtered_vel = (self.ema_alpha * raw_velocities_np) + \
+                        ((1 - self.ema_alpha) * self.__last_filtered_vel)
+        self.__last_filtered_vel = filtered_vel
+        
+        return filtered_vel
+        
+    
+    def go_to_target(self) -> tuple:
         """
         Calculates the required velocities to reach a target configuration.
 
@@ -368,14 +395,15 @@ class MMControl:
             - q_new (np.array): The predicted next state of the robot.
         """
         # 1. Determine the current control mode based on the target.
-        current_mode, target_stiffness, stiff_transitions = self.morph.update_control_mode(target_config[3:])
-        print(f"Current Plan: {list(self.morph.morph_plan)}, Current Mode: {current_mode}")
+        current_mode, target_stiffness, stiff_transitions = self.morph.update_control_mode(self.target.curvature)
+        print(f"\nCurrent Plan: {list(self.morph.morph_plan)}, Current Mode: {current_mode}")
 
-        is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(target_config[:2], dist_thresh=0.001))
+        is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(self.target.position, dist_thresh=0.001))
 
         # 2. If idle or finished, command zero velocity.
         if current_mode == 'IDLE' or is_finished:
-            velocities = [0.0] * 5
+            raw_velocities  = [0.0] * 5
+            filtered_velocities = [0.0] * 5
             # The robot's configuration doesn't change.
             q_new = self.robot.config
         else:
@@ -392,36 +420,42 @@ class MMControl:
             mode_mpc_model.k2.MEAS = self.robot.k2
 
             # Set the desired final state (setpoints).
-            mode_mpc_model.x.SP = target_config[0]
-            mode_mpc_model.y.SP = target_config[1]
-            mode_mpc_model.theta.SP = target_config[2]
-            mode_mpc_model.k1.SP = target_config[3]
-            mode_mpc_model.k2.SP = target_config[4]
+            mode_mpc_model.x.SP = self.target.x
+            mode_mpc_model.y.SP = self.target.y
+            mode_mpc_model.theta.SP = self.target.theta
+            mode_mpc_model.k1.SP = self.target.k1
+            mode_mpc_model.k2.SP = self.target.k2
 
             # 4. Solve for the optimal control action.
             mode_mpc_model.solve(disp=False)
 
             # 5. Extract the optimal velocities for the current time step.
-            velocities = [
+            raw_velocities  = [
                 mode_mpc_model.v_x.NEWVAL, mode_mpc_model.v_y.NEWVAL,
-                mode_mpc_model.omega.NEWVAL, mode_mpc_model.u_1.NEWVAL,
-                mode_mpc_model.u_2.NEWVAL
+                mode_mpc_model.omega.NEWVAL, mode_mpc_model.u1.NEWVAL,
+                mode_mpc_model.u2.NEWVAL
             ]
 
-            # 6. Set the optimal velocities as the starting point for the MVs 
-            # during the next cycle.
-            mode_mpc_model.v_x.VALUE = velocities[0]
-            mode_mpc_model.v_y.VALUE = velocities[1]
-            mode_mpc_model.omega.VALUE = velocities[2]
-            mode_mpc_model.u_1.VALUE = velocities[3]
-            mode_mpc_model.u_2.VALUE = velocities[4]
+            raw_velocities = [round(v, 5) for v in raw_velocities]
+
+            # 6. Filter the raw optimal velocities
+            filtered_velocities = self._apply_ema_filter(raw_velocities)
+
+            # 7. Update the MPC model's MV values for the next cycle's start.
+            mode_mpc_model.v_x.VALUE = filtered_velocities[0]
+            mode_mpc_model.v_y.VALUE = filtered_velocities[1]
+            mode_mpc_model.omega.VALUE = filtered_velocities[2]
+            mode_mpc_model.u1.VALUE = filtered_velocities[3]
+            mode_mpc_model.u2.VALUE = filtered_velocities[4]
             
             # Predict the next state using the calculated velocities.
-            q_new = self.robot.config + self.kinematics_handler.get_unified_jacobian(
-                self.robot, target_stiffness
-            ).dot(velocities) * gv.DT
+            q_new = [
+                mode_mpc_model.x.PRED[1], mode_mpc_model.y.PRED[1],
+                mode_mpc_model.theta.PRED[1], mode_mpc_model.k1.PRED[1],
+                mode_mpc_model.k2.PRED[1]
+            ]
             
-        return velocities, stiff_transitions, q_new, is_finished
+        return raw_velocities, filtered_velocities, stiff_transitions, q_new, is_finished
     
     def _is_pose_close(self, target_pos: list, dist_thresh: float = 0.018) -> bool:
         """

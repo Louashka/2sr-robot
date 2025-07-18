@@ -19,8 +19,8 @@ class FSM:
         """
 
         self.robot = robot
-        # The "upper" threshold (62°C) for confirming a transition to the Flexible state.
-        self.liquid_threshold = 62
+        # The "upper" threshold (63°C) for confirming a transition to the Flexible state.
+        self.liquid_threshold = 63
         # The "lower" threshold (53°C) for confirming a transition to the Rigid state.
         self.solid_threshold = 53
 
