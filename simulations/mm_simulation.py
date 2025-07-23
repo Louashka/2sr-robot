@@ -106,10 +106,10 @@ class Simulation:
             self.robot.t2 += self.STIFFNESS_LOGIC_MAP.get(stiff_transitions[1])(self.robot.stiff2, self.robot.t2)
 
             # Logging for the current step
-            print(f'Target: {[f'{v:.6f}' for v in target_config]}')
-            print(f"Velocity: {[f'{v:.6f}' for v in raw_vel]}")
-            print(f"State: {[f'{v:.6f}' for v in self.robot.config]}")
-            print(f'Stiffness: {self.robot.stiffness}')
+            print(f"Target      : {[f'{v:.6f}' for v in target_config]}")
+            print(f"Velocity    : {[f'{v:.6f}' for v in raw_vel]}")
+            print(f"State       : {[f'{v:.6f}' for v in self.robot.config]}")
+            print(f"Stiffness   : {self.robot.stiffness}")
 
             self._append_to_history(target_config, raw_vel, filtered_vel, stiff_transitions)
 
@@ -129,13 +129,13 @@ class Simulation:
         # --- Phase 1: Capture initial state and generate target sequence ---
 
         # 1. Store the robot's absolute starting configuration. Use .copy()!
-        initial_robot_config = self.robot.config.copy()
+        initial_robot_config = self.robot.config.copy().tolist()
         print(f"INFO: Robot starting at: {np.round(initial_robot_config, 2)}.")
 
         targets_to_pursue = []
         for _ in range(num_targets):
-            k1 = np.random.uniform(-self.k_max, self.k_max)
-            k2 = np.random.uniform(-self.k_max, self.k_max)
+            k1 = round(np.random.uniform(-self.k_max, self.k_max), 3)
+            k2 = round(np.random.uniform(-self.k_max, self.k_max), 3)
             
             # Base the next target's position on the last point in the sequence
             # (or the initial position if the sequence is empty).
@@ -193,7 +193,7 @@ class Visualization:
         self.ax_anim.set_aspect('equal')
         self.robot_plotter = plotlib.RobotPlot(self.ax_anim)
         self.fps = 15
-        self.output_file = 'multimedia/motion_and_deformation.html'
+        self.output_file = 'multimedia/motion_and_deformation.mp4'
 
         # --- Determine and set the plot limits ---
         xlim, ylim = self._determine_plot_limits()
@@ -336,7 +336,7 @@ class Visualization:
             # Ensure the multimedia directory exists
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
             # writer = animation.PillowWriter(fps=self.fps)
-            ani.save(self.output_file, writer='html')
+            ani.save(self.output_file, writer='ffmpeg')
             print("...Done!")
         
         plt.tight_layout()
@@ -345,7 +345,7 @@ class Visualization:
 
     def plot_data(self):
         """Generates and shows data plots based on PLOT_CONFIG."""
-        fig, axs = plt.subplots(2, 3, figsize=(20, 12))
+        fig, axs = plt.subplots(2, 3, figsize=(16, 10))
         
         for config in self.PLOT_CONFIG:
             ax = axs[config["ax_pos"]]
@@ -372,7 +372,7 @@ class Visualization:
 
 if __name__ == "__main__":
     # 1. Initialize the core components
-    initial_robot = robot_state.Model(1, 0, 0, 0, 0, 0)
+    initial_robot = robot_state.Model(1, 1, -2, np.pi/4, 10, 0)
     initial_robot.t1 = 22  
     initial_robot.t2 = 22
 
@@ -384,5 +384,5 @@ if __name__ == "__main__":
     visualizer = Visualization(simulation_results)
 
     # 4. Run the visualization tasks
-    visualizer.run_animation(save=False)
+    visualizer.run_animation(save=True)
     visualizer.plot_data()

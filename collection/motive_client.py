@@ -1,6 +1,6 @@
 import sys
 from motive import nat_net_client as nnc, mo_cap_data
-from model import global_var
+from entities import global_var
 import numpy as np
 import pandas as pd
 from typing import List

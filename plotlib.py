@@ -111,7 +111,7 @@ class RobotPlot:
         # --- Create and Configure the Temperature Subplot ---
         fig = self.ax.get_figure()
         # Define position: [left, bottom, width, height] in figure coordinates (0-1)
-        temp_ax_pos = [0.83, 0.07, 0.14, 0.07] 
+        temp_ax_pos = [0.8, 0.08, 0.14, 0.07] 
         self.temp_ax = fig.add_axes(temp_ax_pos)
         
         # Create the horizontal bars. We plot T1 on top (y=1) and T2 on bottom (y=0).

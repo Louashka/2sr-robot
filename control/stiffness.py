@@ -87,7 +87,7 @@ class FSM:
                 print(f"Success: Segment {i+1} is now {rule['action_name'].lower()}.")
             else:
                 # If not met, print the progress message.
-                print(rule["message"].format(idx=i+1, temp=self.robot.temp[i]))
+                print("\nINFO: " + rule["message"].format(idx=i+1, temp=self.robot.temp[i]))
             print()
 
         actions = tuple(actions_list)

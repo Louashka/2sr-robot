@@ -8,7 +8,7 @@ import kinematics
 
 class Morphing:
     """
-    Manages the complex, sequential morphing of a 2-segment robot.
+    Manages the complex, sequential morphing of a 2-segment 2SR robot.
     
     This controller handles the constraint that the robot cannot bend both
     segments in opposite directions simultaneously. It does this by creating
@@ -31,7 +31,7 @@ class Morphing:
         # This will hold our sequence of (stiff1, stiff2) commands.
         self.morph_plan = collections.deque()
         
-        self.k_threshold = 0.08  # Threshold to decide if a stiffness change is needed.
+        self.k_threshold = 0.1  # Threshold to decide if a stiffness change is needed.
 
     def update_control_mode(self, target_k_config: list) -> tuple:
         """
@@ -42,40 +42,36 @@ class Morphing:
             target_k_config (list): The final target [k1, k2] values.
 
         Returns:
-            A tuple containing the determined mode (str), the current target
-            stiffness tuple, and any stiffness transition commands.
+            A tuple: (mode, current_target_k, stiffness_transitions)
         """
-        # --- Step 1: Create a plan if one doesn't exist ---
+        # --- Step 1: Check if the current step is complete ---
+        if self.morph_plan and self._is_current_step_achieved():
+            self.morph_plan.popleft()
+
+        # --- Step 2: Create a plan if one doesn't exist ---
         if not self.morph_plan:
             self._create_morph_plan(target_k_config)
 
-        # --- Step 2: Execute the current step of the plan ---
-        current_target_stiffness = self.morph_plan[0] # Look at the next step
+        # --- Step 3: Execute the current step of the plan ---
+        current_k_target = self.morph_plan[0]['curvature']
+        current_stiffness_target = self.morph_plan[0]['stiffness']
 
-        # Use the low-level FSM to manage the transition to the target stiffness
-        is_transitioning, stiff_transitions = self.stiffness_controller.main(current_target_stiffness)
+        # Use the low-level FSM to manage the transition to the required stiffness
+        is_transitioning, stiff_transitions = self.stiffness_controller.main(current_stiffness_target)
         
-        # Determine the descriptive mode for the current action
-        current_mode = self.STIFFNESS_TO_MODES.get(current_target_stiffness)
+        current_mode = self.STIFFNESS_TO_MODES.get(current_stiffness_target)
 
-        # --- Step 3: Check if the current step is complete ---
-        # The step is complete if the FSM is no longer transitioning AND the
-        # robot's curvature matches the target for the active segment(s).
-        if not is_transitioning and self._is_current_step_achieved(target_k_config):
-            self.morph_plan.popleft() # The step is done, remove it from the plan
-
-        # If we are in a transition phase (e.g., waiting for a segment to stiffen),
-        # the mode should reflect that.
         if is_transitioning:
             current_mode = 'IDLE'
             
-        return current_mode, current_target_stiffness, stiff_transitions
+        return current_mode, current_k_target, stiff_transitions
 
     def _create_morph_plan(self, target_k_config: list):
         """
         Analyzes the target and creates a sequential plan of stiffness states.
         This is where the core logic for handling split-direction changes resides.
         """
+        k1_current, k2_current = self.robot.k1, self.robot.k2
         k1_target, k2_target = target_k_config[0], target_k_config[1]
 
         # Determine if a change is needed for each segment
@@ -84,46 +80,85 @@ class Morphing:
         
         # Determine the direction of change (1 for increase, -1 for decrease, 0 for no change)
         # Using a small epsilon to avoid issues with floating point comparisons
-        k1_change_dir = int(np.sign(k1_target - self.robot.k1)) if needs_k1_change else 0
-        k2_change_dir = int(np.sign(k2_target - self.robot.k2)) if needs_k2_change else 0
+        k1_dir = int(np.sign(k1_target - self.robot.k1)) if needs_k1_change else 0
+        k2_dir = int(np.sign(k2_target - self.robot.k2)) if needs_k2_change else 0
+        
+        # If both need to change
+        if needs_k1_change and needs_k2_change:
+            # Subcase 1.1: Split-direction change (e.g., k1 up, k2 down)
+            if k1_dir != k2_dir:
+                print("INFO: Split-direction change. Planning sequential morph.")
+                # Plan A: Morph k1, then k2.
+                self.morph_plan.append({
+                    'curvature': (k1_target, k2_current),
+                    'stiffness': (1, 0),
+                    'priority': 0 # Segment with the highest priority in bending 
+                })
+                self.morph_plan.append({
+                    'curvature': (k1_target, k2_target),
+                    'stiffness': (0, 1),
+                    'priority': 1
+                })
+            # Subcase 1.2: Co-direction change (e.g., both k1 and k2 up) -> Synchronize!
+            else:
+                print("INFO: Co-direction change. Planning synchronized morph.")
+                delta_k1 = abs(k1_target - k1_current)
+                delta_k2 = abs(k2_target - k2_current)
 
-        stiff1 = 1 if needs_k1_change else 0
-        stiff2 = 1 if needs_k2_change else 0
-        
-        # If both need to change AND they are moving in opposite directions
-        if stiff1 and stiff2 and (k1_change_dir != k2_change_dir):
-            print("INFO: Split-direction change detected. Planning sequential morph.")
-            # Create a two-step plan. Here, we arbitrarily choose to do k1 first.
-            self.morph_plan.append((1, 0)) # Step 1: Morph k1 only
-            self.morph_plan.append((0, 1)) # Step 2: Morph k2 only
-        
-        # For all other cases (no change, single change, or both changing in same direction)
+                # Find the smaller change, which will define the synchronized portion
+                min_delta = min(delta_k1, delta_k2)
+                
+                # Phase 1: Both segments move by the smaller delta
+                intermediate_k1 = round(float(k1_current + k1_dir * min_delta), 3)
+                intermediate_k2 = round(float(k2_current + k2_dir * min_delta), 3)
+
+                if delta_k1 < delta_k2:
+                    self.morph_plan.append({
+                        'curvature': (k1_target, intermediate_k2),
+                        'stiffness': (1, 1),
+                        'priority': 0
+                    })
+                    self.morph_plan.append({
+                        'curvature': (k1_target, k2_target),
+                        'stiffness': (0, 1),
+                        'priority': 1
+                    })
+                else:
+                    self.morph_plan.append({
+                        'curvature': (intermediate_k1, k2_target),
+                        'stiffness': (1, 1),
+                        'priority': 1
+                    })
+                    self.morph_plan.append({
+                        'curvature': (k1_target, k2_target),
+                        'stiffness': (1, 0),
+                        'priority': 0
+                    })                        
+        # For all other cases (no change, single change)
         else:
             # Create a simple, one-step plan
-            self.morph_plan.append((stiff1, stiff2))
+            self.morph_plan.append({
+                'curvature': (k1_target, k2_target),
+                'stiffness': (int(needs_k1_change), int(needs_k2_change)),
+                'priority': 0
+            })
 
-    def _is_current_step_achieved(self, final_target_k: list) -> bool:
+    def _is_current_step_achieved(self) -> bool:
         """
         Checks if the robot's state matches the target for the current plan step.
-        """
-        if not self.morph_plan:
-            return True # No plan, so nothing to achieve.
+        """        
+        if self.morph_plan[0]['stiffness'] == (0, 0):
+            return False
             
-        current_stiffness_target = self.morph_plan[0]
+        current_stiffness_target = self.morph_plan[0]['curvature']
 
-        # If k1 is supposed to be flexible in this step...
-        if current_stiffness_target[0] == 1:
-            # ...check if its curvature is close to the final target curvature.
-            if abs(self.robot.k1 - final_target_k[0]) < self.k_threshold:
-                return True
-        
-        # If k2 is supposed to be flexible in this step...
-        if current_stiffness_target[1] == 1:
-            # ...check if its curvature is close to the final target curvature.
-            if abs(self.robot.k2 - final_target_k[1]) < self.k_threshold:
-                return True
-        
-        return False
+        k1_achieved = abs(self.robot.k1 - current_stiffness_target[0]) < self.k_threshold
+        k2_achieved = abs(self.robot.k2 - current_stiffness_target[1]) < self.k_threshold
+
+        achieved = [k1_achieved, k2_achieved]
+
+        # Stop when the segment with the highest bending priority achieves its target curvature
+        return achieved[self.morph_plan[0]['priority']]
 
 class MMControl:
     """
@@ -186,6 +221,9 @@ class MMControl:
             }
         }
 
+        # Last used MPC model
+        self.current_mpc = None  
+
         self._initialize_mpc_models()
 
     @property
@@ -221,9 +259,9 @@ class MMControl:
         # These are the control inputs the optimizer can change.
         m.v_x = m.MV(value=0.0, lb=-0.09, ub=0.09)
         m.v_y = m.MV(value=0.0, lb=-0.09, ub=0.09)
-        m.omega = m.MV(value=0.0, lb=-0.30, ub=0.30)
-        m.u1 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k1
-        m.u2 = m.MV(value=0.0, lb=-0.05, ub=0.05) # Velocity of k2
+        m.omega = m.MV(value=0.0, lb=-0.15, ub=0.15)
+        m.u1 = m.MV(value=0.0, lb=-0.03, ub=0.03) # Velocity of k1
+        m.u2 = m.MV(value=0.0, lb=-0.03, ub=0.03) # Velocity of k2
 
         # STATUS=1 tells the optimizer to adjust these variables
         m.v_x.STATUS = 1
@@ -235,17 +273,20 @@ class MMControl:
         # DCOST penalizes changes in the MV, encouraging smoother control
         m.v_x.DCOST = 0.05
         m.v_y.DCOST = 0.05
-        m.omega.DCOST = 0.5
-        m.u1.DCOST = 0.001
-        m.u2.DCOST = 0.001
+        m.omega.DCOST = 0.01
+        m.u1.DCOST = 0.002
+        m.u2.DCOST = 0.002
+
+        # m.u1.DMAX = 0.005
+        # m.u2.DMAX = 0.005
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
-        m.x = m.CV()
-        m.y = m.CV()
-        m.theta = m.CV()
-        m.k1 = m.CV()
-        m.k2 = m.CV()
+        m.x = m.CV(value=self.robot.x)
+        m.y = m.CV(value=self.robot.y)
+        m.theta = m.CV(value=self.robot.theta)
+        m.k1 = m.CV(value=self.robot.k1)
+        m.k2 = m.CV(value=self.robot.k2)
 
         # FSTATUS=1 enables feedback from measurements
         m.x.FSTATUS = 1
@@ -276,9 +317,9 @@ class MMControl:
         # Larger TAU = slower, smoother approach to the setpoint.
         m.x.TAU = 3.2
         m.y.TAU = 3.2
-        m.theta.TAU = 3.0
-        m.k1.TAU = 4.0
-        m.k2.TAU = 4.0
+        m.theta.TAU = 1.0
+        m.k1.TAU = 5.0
+        m.k2.TAU = 5.0
 
         # --- The Kinematic Model ---
         # This dynamically injects the specific physics equations for the
@@ -395,10 +436,13 @@ class MMControl:
             - q_new (np.array): The predicted next state of the robot.
         """
         # 1. Determine the current control mode based on the target.
-        current_mode, target_stiffness, stiff_transitions = self.morph.update_control_mode(self.target.curvature)
-        print(f"\nCurrent Plan: {list(self.morph.morph_plan)}, Current Mode: {current_mode}")
-
+        current_mode, current_k_target, stiff_transitions = self.morph.update_control_mode(self.target.curvature)
         is_finished = (current_mode == 'RIGID_MOTION' and self._is_pose_close(self.target.position, dist_thresh=0.001))
+
+        # --- DEBUGGING PRINTOUT ---
+        plan_list = list(self.morph.morph_plan)
+        print(f"\nMorph Plan  : {plan_list}")
+        print("Mode        : " + current_mode)
 
         if is_finished:
             self.morph.morph_plan.clear()
@@ -413,6 +457,16 @@ class MMControl:
             # 3. If a mode is active, prepare and solve the MPC problem.
             mode_mpc_model = self.CONTROL_MODES[current_mode]['mpc']
 
+            # If the MPC model has changed, update the CV initial values
+            if self.current_mpc != mode_mpc_model:
+                mode_mpc_model.x.VALUE = self.robot.x
+                mode_mpc_model.y.VALUE = self.robot.y
+                mode_mpc_model.theta.VALUE = self.robot.theta
+                mode_mpc_model.k1.VALUE = self.robot.k1
+                mode_mpc_model.k2.VALUE = self.robot.k2
+
+                self.current_mpc = mode_mpc_model
+
             # --- Initialize the MPC state ---
 
             # Provide the current state measurements as feedback.
@@ -426,8 +480,8 @@ class MMControl:
             mode_mpc_model.x.SP = self.target.x
             mode_mpc_model.y.SP = self.target.y
             mode_mpc_model.theta.SP = self.target.theta
-            mode_mpc_model.k1.SP = self.target.k1
-            mode_mpc_model.k2.SP = self.target.k2
+            mode_mpc_model.k1.SP = current_k_target[0]
+            mode_mpc_model.k2.SP = current_k_target[1]
 
             # 4. Solve for the optimal control action.
             mode_mpc_model.solve(disp=False)
@@ -452,11 +506,15 @@ class MMControl:
             mode_mpc_model.u2.VALUE = filtered_velocities[4]
             
             # Predict the next state using the calculated velocities.
-            q_new = [
-                mode_mpc_model.x.PRED[1], mode_mpc_model.y.PRED[1],
-                mode_mpc_model.theta.PRED[1], mode_mpc_model.k1.PRED[1],
-                mode_mpc_model.k2.PRED[1]
-            ]
+            # q_new = [
+            #     mode_mpc_model.x.PRED[1], mode_mpc_model.y.PRED[1],
+            #     mode_mpc_model.theta.PRED[1], mode_mpc_model.k1.PRED[1],
+            #     mode_mpc_model.k2.PRED[1]
+            # ]
+            q_new = self.robot.config + self.kinematics_handler.get_unified_jacobian(
+                self.robot, plan_list[0]['stiffness']
+            ).dot(filtered_velocities) * gv.DT
+            q_new = q_new.tolist()
   
         return raw_velocities, filtered_velocities, stiff_transitions, q_new, is_finished
     
@@ -465,5 +523,5 @@ class MMControl:
         Checks if the robot's planar position is within a threshold of the target.
         """
         dist = np.linalg.norm(np.array(self.robot.position) - np.array(target_pos))
-        print(f'Distance to target: {dist}')
+        print(f'Pos error   : {dist}')
         return dist < dist_thresh
