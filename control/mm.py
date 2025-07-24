@@ -190,6 +190,10 @@ class MMControl:
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
 
+        self.desired_speed = [0.07, 0.07, 0.15, 0.015, 0.015]
+        self.tau_array = [0.0] * 5
+        self.tau_scale = 0.99
+
         # --- EMA Filter Parameters ---
         self.ema_alpha = ema_alpha
         # Stores the previous filtered velocity state. Initialized to zeros.
@@ -236,6 +240,24 @@ class MMControl:
             raise ValueError("Wrong number of target state values!")
         self.__target_robot.config = value
 
+    def update_tau(self):
+        for i in range(len(self.robot.config)):
+            self.tau_array[i] = abs(self.target.config[i] - self.robot.config[i]) / self.desired_speed[i]
+
+        lin_tau = max(self.tau_array[:2])
+
+        self.tau_array[0] = lin_tau
+        self.tau_array[1] = lin_tau
+        
+        for mode in self.CONTROL_MODES:
+            mpc = self.CONTROL_MODES[mode]['mpc']
+
+            mpc.x.TAU = self.tau_array[0]
+            mpc.y.TAU = self.tau_array[1]
+            mpc.theta.TAU = self.tau_array[2]
+            mpc.k1.TAU = self.tau_array[3]
+            mpc.k2.TAU = self.tau_array[4]           
+
     def _initialize_mpc_models(self):
         """Creates an MPC instance for each mode defined in CONTROL_MODES."""
         for mode in self.CONTROL_MODES:
@@ -271,14 +293,11 @@ class MMControl:
         m.u2.STATUS = 1
 
         # DCOST penalizes changes in the MV, encouraging smoother control
-        m.v_x.DCOST = 0.05
-        m.v_y.DCOST = 0.05
-        m.omega.DCOST = 0.01
+        m.v_x.DCOST = 100
+        m.v_y.DCOST = 100
+        m.omega.DCOST = 10
         m.u1.DCOST = 0.002
         m.u2.DCOST = 0.002
-
-        # m.u1.DMAX = 0.005
-        # m.u2.DMAX = 0.005
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
@@ -315,11 +334,11 @@ class MMControl:
 
         # TAU is the time constant for the reference trajectory.
         # Larger TAU = slower, smoother approach to the setpoint.
-        m.x.TAU = 3.2
-        m.y.TAU = 3.2
+        m.x.TAU = 1.0
+        m.y.TAU = 1.0
         m.theta.TAU = 1.0
-        m.k1.TAU = 5.0
-        m.k2.TAU = 5.0
+        m.k1.TAU = 1.0
+        m.k2.TAU = 1.0
 
         # --- The Kinematic Model ---
         # This dynamically injects the specific physics equations for the
@@ -469,6 +488,13 @@ class MMControl:
 
             # --- Initialize the MPC state ---
 
+            # Update TAU
+            mode_mpc_model.x.TAU *= self.tau_scale
+            mode_mpc_model.y.TAU *= self.tau_scale
+            mode_mpc_model.theta.TAU *= self.tau_scale
+            mode_mpc_model.k1.TAU *= self.tau_scale
+            mode_mpc_model.k2.TAU *= self.tau_scale
+
             # Provide the current state measurements as feedback.
             mode_mpc_model.x.MEAS = self.robot.x
             mode_mpc_model.y.MEAS = self.robot.y
@@ -495,22 +521,17 @@ class MMControl:
 
             raw_velocities = [round(v, 5) for v in raw_velocities]
 
-            # 6. Filter the raw optimal velocities
-            filtered_velocities = self._apply_ema_filter(raw_velocities)
+            # 6. Update the MPC model's MV values for the next cycle's start.
+            mode_mpc_model.v_x.VALUE = raw_velocities[0]
+            mode_mpc_model.v_y.VALUE = raw_velocities[1]
+            mode_mpc_model.omega.VALUE = raw_velocities[2]
+            mode_mpc_model.u1.VALUE = raw_velocities[3]
+            mode_mpc_model.u2.VALUE = raw_velocities[4]
 
-            # 7. Update the MPC model's MV values for the next cycle's start.
-            mode_mpc_model.v_x.VALUE = filtered_velocities[0]
-            mode_mpc_model.v_y.VALUE = filtered_velocities[1]
-            mode_mpc_model.omega.VALUE = filtered_velocities[2]
-            mode_mpc_model.u1.VALUE = filtered_velocities[3]
-            mode_mpc_model.u2.VALUE = filtered_velocities[4]
+            # 7. Filter the raw optimal velocities
+            filtered_velocities = self._apply_ema_filter(raw_velocities)
             
-            # Predict the next state using the calculated velocities.
-            # q_new = [
-            #     mode_mpc_model.x.PRED[1], mode_mpc_model.y.PRED[1],
-            #     mode_mpc_model.theta.PRED[1], mode_mpc_model.k1.PRED[1],
-            #     mode_mpc_model.k2.PRED[1]
-            # ]
+            # 8. Predict the next state using the calculated velocities.
             q_new = self.robot.config + self.kinematics_handler.get_unified_jacobian(
                 self.robot, plan_list[0]['stiffness']
             ).dot(filtered_velocities) * gv.DT

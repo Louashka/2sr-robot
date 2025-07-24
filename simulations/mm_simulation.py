@@ -90,6 +90,7 @@ class Simulation:
         """
         print(f"\n--- Pursuing {target_label}: {np.round(target_config, 2)} ---")
         self.controller.target = target_config
+        self.controller.update_tau()
 
         # Record the state *before* starting the pursuit of this new target
         self._append_to_history(target_config, [0.0] * 5, [0.0] * 5, [0, 0])
@@ -141,12 +142,19 @@ class Simulation:
             # (or the initial position if the sequence is empty).
             base_pos = targets_to_pursue[-1] if targets_to_pursue else initial_robot_config
 
+            # target_config = [
+            #     base_pos[0] + np.random.uniform(-0.5, 0.5),
+            #     base_pos[1] + np.random.uniform(-0.5, 0.5),
+            #     base_pos[2] + np.random.uniform(-np.pi / 3, np.pi / 3),
+            #     self._apply_curvature_deadband(k1),
+            #     self._apply_curvature_deadband(k2)
+            # ]
             target_config = [
-                base_pos[0] + np.random.uniform(-0.5, 0.5),
-                base_pos[1] + np.random.uniform(-0.5, 0.5),
-                base_pos[2] + np.random.uniform(-np.pi / 3, np.pi / 3),
-                self._apply_curvature_deadband(k1),
-                self._apply_curvature_deadband(k2)
+                base_pos[0] + 0.1,
+                base_pos[1] -0.36,
+                base_pos[2] + np.pi / 3,
+                self.robot.k1,
+                self.robot.k2
             ]
             targets_to_pursue.append(target_config)
 
@@ -207,10 +215,10 @@ class Visualization:
                 "title": "Planar Velocities (vx, vy)", 
                 "ylabel": "Velocity [m/s]",
                 "plots": [
-                    {"label": "v_x raw", "style": "--", "data": self.raw_velocity_history[:, 0]},
-                    {"label": "v_y raw", "style": "--", "data": self.raw_velocity_history[:, 1]},
-                    {"label": "v_x filtered", "data": self.filtered_velocity_history[:, 0]},
-                    {"label": "v_y filtered",  "data": self.filtered_velocity_history[:, 1]},
+                    {"label": "v_x raw", "style": "--", "color": "green", "data": self.raw_velocity_history[:, 0]},
+                    {"label": "v_y raw", "style": "--", "color": "red", "data": self.raw_velocity_history[:, 1]},
+                    {"label": "v_x filtered", "color": "green", "data": self.filtered_velocity_history[:, 0]},
+                    {"label": "v_y filtered", "color": "red", "data": self.filtered_velocity_history[:, 1]},
                 ]
             },
             {
