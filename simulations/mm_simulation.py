@@ -187,7 +187,9 @@ class Visualization:
 
         # --- Animation Setup ---
         self.fig_anim, self.ax_anim = plt.subplots(figsize=(12, 12))
+        self.fig_anim.subplots_adjust(left=0.041, right=0.99, top=0.995, bottom=0.03)
         self.ax_anim.set_aspect('equal')
+
         self.robot_plotter = plotlib.RobotPlot(self.ax_anim)
         self.fps = 15
         self.output_file = 'multimedia/motion_and_deformation.gif'
@@ -327,8 +329,9 @@ class Visualization:
             print(f"\nSaving animation to {self.output_file}...")
             # Ensure the multimedia directory exists
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            ani.save(self.output_file, writer='pillow')
-            print("...Done!")
+            writer = animation.PillowWriter(fps=self.fps)
+            ani.save(self.output_file, writer=writer)
+            print("\n...Done!\n")
         
         plt.tight_layout()
         plt.show()
