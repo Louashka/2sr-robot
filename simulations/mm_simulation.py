@@ -52,18 +52,16 @@ class Simulation:
         """Creates a dictionary to store all time-series data."""
         return {
             "targets": [], "states": [], "stiffness": [], "temp": [],
-            "raw_velocities": [], "filtered_velocities": [],
-            "stiffness_actions": []
+            "velocities": [], "stiffness_actions": []
         }
 
-    def _append_to_history(self, target, raw_vel, filtered_vel, stiff_actions):
+    def _append_to_history(self, target, vel, stiff_actions):
         """Appends the current step's data to the history dictionary."""
         self.history["targets"].append(target)
         self.history["states"].append(self.robot.config)
         self.history["temp"].append(self.robot.temp)
         self.history["stiffness"].append(self.robot.stiffness)
-        self.history["raw_velocities"].append(raw_vel)
-        self.history["filtered_velocities"].append(filtered_vel)
+        self.history["velocities"].append(vel)
         self.history["stiffness_actions"].append(stiff_actions)
 
     def _apply_curvature_deadband(self, value: float) -> float:
@@ -93,13 +91,12 @@ class Simulation:
         self.controller.update_tau()
 
         # Record the state *before* starting the pursuit of this new target
-        self._append_to_history(target_config, [0.0] * 5, [0.0] * 5, [0, 0])
+        self._append_to_history(target_config, [0.0] * 5, [0, 0])
 
         is_finished = False
         while not is_finished:
             # Get commands from the controller
-            # NOTE: Assuming go_to_target is updated to return raw_vel as well
-            raw_vel, filtered_vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
+            vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
             
             # Update robot state based on controller output
             self.robot.config = q_new
@@ -108,11 +105,11 @@ class Simulation:
 
             # Logging for the current step
             print(f"Target      : {[f'{v:.6f}' for v in target_config]}")
-            print(f"Velocity    : {[f'{v:.6f}' for v in raw_vel]}")
+            print(f"Velocity    : {[f'{v:.6f}' for v in vel]}")
             print(f"State       : {[f'{v:.6f}' for v in self.robot.config]}")
             print(f"Stiffness   : {self.robot.stiffness}")
 
-            self._append_to_history(target_config, raw_vel, filtered_vel, stiff_transitions)
+            self._append_to_history(target_config, vel, stiff_transitions)
 
     def run(self, num_targets: int = 1):
         """
@@ -142,22 +139,14 @@ class Simulation:
             # (or the initial position if the sequence is empty).
             base_pos = targets_to_pursue[-1] if targets_to_pursue else initial_robot_config
 
-            # target_config = [
-            #     base_pos[0] + np.random.uniform(-0.5, 0.5),
-            #     base_pos[1] + np.random.uniform(-0.5, 0.5),
-            #     base_pos[2] + np.random.uniform(-np.pi / 3, np.pi / 3),
-            #     self._apply_curvature_deadband(k1),
-            #     self._apply_curvature_deadband(k2)
-            # ]
             target_config = [
-                base_pos[0] + 0.1,
-                base_pos[1] -0.36,
-                base_pos[2] + np.pi / 3,
-                self.robot.k1,
-                self.robot.k2
+                round(base_pos[0] + (np.random.uniform(-0.5, 0.5)), 4),
+                round(base_pos[1] + (np.random.uniform(-0.5, 0.5)), 4),
+                round(base_pos[2] + (np.random.uniform(-np.pi / 3, np.pi / 3)), 4),
+                self._apply_curvature_deadband(k1),
+                self._apply_curvature_deadband(k2)
             ]
             targets_to_pursue.append(target_config)
-
         # 2. If it's a multi-target mission, add the initial position as the final target.
         if num_targets > 1:
             targets_to_pursue.append(initial_robot_config)
@@ -173,20 +162,20 @@ class Simulation:
         
         print("\n--- Simulation Finished ---")
 
-        return self.history
+        return targets_to_pursue, self.history
 
 class Visualization:
     """
     Handles all visualization tasks: animation and data plotting.
     """
-    def __init__(self, results: Dict[str, List]):
+    def __init__(self, targets:list, results: Dict[str, List]):
         # Store data from the results dictionary
+        self.targets = np.array(targets)
         self.target_history = np.array(results["targets"])
         self.state_history = np.array(results["states"])
         self.stiffness_history = results["stiffness"]
         self.temp_history = results["temp"]
-        self.raw_velocity_history = np.array(results["raw_velocities"])
-        self.filtered_velocity_history = np.array(results["filtered_velocities"])
+        self.velocity_history = np.array(results["velocities"])
         self.stiffness_actions_history = results["stiffness_actions"]
 
         self.frame_n = len(self.state_history)
@@ -201,7 +190,7 @@ class Visualization:
         self.ax_anim.set_aspect('equal')
         self.robot_plotter = plotlib.RobotPlot(self.ax_anim)
         self.fps = 15
-        self.output_file = 'multimedia/motion_and_deformation.mp4'
+        self.output_file = 'multimedia/motion_and_deformation.gif'
 
         # --- Determine and set the plot limits ---
         xlim, ylim = self._determine_plot_limits()
@@ -215,10 +204,8 @@ class Visualization:
                 "title": "Planar Velocities (vx, vy)", 
                 "ylabel": "Velocity [m/s]",
                 "plots": [
-                    {"label": "v_x raw", "style": "--", "color": "green", "data": self.raw_velocity_history[:, 0]},
-                    {"label": "v_y raw", "style": "--", "color": "red", "data": self.raw_velocity_history[:, 1]},
-                    {"label": "v_x filtered", "color": "green", "data": self.filtered_velocity_history[:, 0]},
-                    {"label": "v_y filtered", "color": "red", "data": self.filtered_velocity_history[:, 1]},
+                    {"label": "v_x", "color": "green", "data": self.velocity_history[:, 0]},
+                    {"label": "v_y", "color": "red", "data": self.velocity_history[:, 1]},
                 ]
             },
             {
@@ -226,8 +213,7 @@ class Visualization:
                 "title": "Angular Velocity (ω)", 
                 "ylabel": "[rad/s]",
                 "plots": [
-                    {"label": "ω raw", "color": "purple", "style": "--", "data": self.raw_velocity_history[:, 2]},
-                    {"label": "ω filtered", "color": "purple", "data": self.filtered_velocity_history[:, 2]},
+                    {"label": "ω", "color": "purple", "data": self.velocity_history[:, 2]},
                 ]
             },
             {
@@ -235,10 +221,8 @@ class Visualization:
                 "title": "\"Soft\" Velocities (u1, u2)", 
                 "ylabel": "[m/s]",
                 "plots": [
-                    {"label": "u1 raw", "style": "--", "data": self.raw_velocity_history[:, 3]},
-                    {"label": "u2 raw", "style": "--", "data": self.raw_velocity_history[:, 4]},
-                    {"label": "u1 filtered", "data": self.filtered_velocity_history[:, 3]},
-                    {"label": "u2 filtered", "data": self.filtered_velocity_history[:, 4]},
+                    {"label": "u1", "color": "green", "data": self.velocity_history[:, 3]},
+                    {"label": "u2", "color": "red", "data": self.velocity_history[:, 4]},
                 ]
             },
             {
@@ -250,8 +234,8 @@ class Visualization:
                 "plots": [
                     {"label": "Path",  "style": ".-",
                      "data_x": self.state_history[:, 0], "data_y": self.state_history[:, 1]},
-                     {"label": "Target", "style": "*", "markersize": 15,
-                      "data_x": [self.target_history[-1, 0]], "data_y": [self.target_history[-1, 1]]},
+                     {"label": "Target", "style": "*", "color": "orange", "markersize": 15,
+                      "data_x": [self.targets[:, 0]], "data_y": [self.targets[:, 1]]},
                 ]
             },
             {
@@ -259,8 +243,8 @@ class Visualization:
                 "title": "Orientation θ", 
                 "ylabel": "Theta [rad]",
                 "plots": [
-                    {"label": "θ", "data": self.state_history[:, 2], "color": "orange"},
                     {"label": "Target θ", "color": "orange", "style": "--", "data": self.target_history[:, 2]},
+                    {"label": "θ", "data": self.state_history[:, 2], "color": "orange"},
                 ]
             },
             {
@@ -268,10 +252,10 @@ class Visualization:
                 "title": "Curvature (k1, k2)", 
                 "ylabel": "[m⁻¹]",
                 "plots": [
-                    {"label": "k1", "data": self.state_history[:, 3]},
-                    {"label": "k2", "data": self.state_history[:, 4]},
-                    {"label": "Target k1", "style": "--", "data": self.target_history[:, 3]},
-                    {"label": "Target k2", "style": "--", "data": self.target_history[:, 4]},
+                    {"label": "Target k1", "style": "--", "color": "green", "data": self.target_history[:, 3]},
+                    {"label": "Target k2", "style": "--", "color": "red", "data": self.target_history[:, 4]},
+                    {"label": "k1", "color": "green",  "data": self.state_history[:, 3]},
+                    {"label": "k2", "color": "red", "data": self.state_history[:, 4]},
                 ]
             },
         ]
@@ -340,11 +324,10 @@ class Visualization:
         )
         
         if save:
-            print(f"Saving animation to {self.output_file}...")
+            print(f"\nSaving animation to {self.output_file}...")
             # Ensure the multimedia directory exists
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            # writer = animation.PillowWriter(fps=self.fps)
-            ani.save(self.output_file, writer='ffmpeg')
+            ani.save(self.output_file, writer='pillow')
             print("...Done!")
         
         plt.tight_layout()
@@ -380,16 +363,21 @@ class Visualization:
 
 if __name__ == "__main__":
     # 1. Initialize the core components
-    initial_robot = robot_state.Model(1, 1, -2, np.pi/4, 10, 0)
+    inital_config = [0.0] * 5
+    initial_robot = robot_state.Model(1, *inital_config)
     initial_robot.t1 = 22  
     initial_robot.t2 = 22
 
     # 2. Run the simulation to generate data
     simulator = Simulation(initial_robot)
-    simulation_results = simulator.run(num_targets=1)
+    targets_to_pursue, simulation_results = simulator.run(num_targets=2)
+
+    print("\n----- All Targets -----")
+    for i, targ in enumerate(targets_to_pursue):
+        print(f"{i}: {targ}")
 
     # 3. Pass the results to the visualizer
-    visualizer = Visualization(simulation_results)
+    visualizer = Visualization(targets_to_pursue, simulation_results)
 
     # 4. Run the visualization tasks
     visualizer.run_animation(save=True)

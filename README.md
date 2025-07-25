@@ -143,6 +143,8 @@ To manage the complex behaviour of the 2SR robot, we developed a comprehensive c
 2. **Model Predictive Control (MPC):** With the kinematics defined, we use Model Predictive Control to generate the precise wheel velocities needed to reach a target configuration. There are four separate MPC controllers, one for each stiffness state. The system activates the appropriate controller for the current mode.
 3. **Supervisory Controller:** High-level logic in Motion & Morphology (M&M) Controller decides when to change stiffness versus when to just move. It optimizes for efficiency by keeping the robot rigid by default and only activating a shape change when necessary.
 
+![Motion and Morphology control](multimedia/motion_and_deformation.gif)
+
 ## Full-body Grasping
 
 Describe the Method

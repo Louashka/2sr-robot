@@ -27,11 +27,10 @@ class Morphing:
         # The low-level FSM for handling stiffness transitions.
         self.stiffness_controller = stiffness.FSM(robot)
         
-        # A deque is a list optimized for adding and removing items from the ends.
-        # This will hold our sequence of (stiff1, stiff2) commands.
+        # This will hold a sequence of morphing commands (target curvatures and stiffness).
         self.morph_plan = collections.deque()
         
-        self.k_threshold = 0.1  # Threshold to decide if a stiffness change is needed.
+        self.k_threshold = 0.1  # Curvature tolerance.
 
     def update_control_mode(self, target_k_config: list) -> tuple:
         """
@@ -71,7 +70,6 @@ class Morphing:
         Analyzes the target and creates a sequential plan of stiffness states.
         This is where the core logic for handling split-direction changes resides.
         """
-        k1_current, k2_current = self.robot.k1, self.robot.k2
         k1_target, k2_target = target_k_config[0], target_k_config[1]
 
         # Determine if a change is needed for each segment
@@ -83,64 +81,24 @@ class Morphing:
         k1_dir = int(np.sign(k1_target - self.robot.k1)) if needs_k1_change else 0
         k2_dir = int(np.sign(k2_target - self.robot.k2)) if needs_k2_change else 0
         
-        # If both need to change
-        if needs_k1_change and needs_k2_change:
-            # Subcase 1.1: Split-direction change (e.g., k1 up, k2 down)
-            if k1_dir != k2_dir:
-                print("INFO: Split-direction change. Planning sequential morph.")
-                # Plan A: Morph k1, then k2.
-                self.morph_plan.append({
-                    'curvature': (k1_target, k2_current),
-                    'stiffness': (1, 0),
-                    'priority': 0 # Segment with the highest priority in bending 
-                })
-                self.morph_plan.append({
-                    'curvature': (k1_target, k2_target),
-                    'stiffness': (0, 1),
-                    'priority': 1
-                })
-            # Subcase 1.2: Co-direction change (e.g., both k1 and k2 up) -> Synchronize!
-            else:
-                print("INFO: Co-direction change. Planning synchronized morph.")
-                delta_k1 = abs(k1_target - k1_current)
-                delta_k2 = abs(k2_target - k2_current)
-
-                # Find the smaller change, which will define the synchronized portion
-                min_delta = min(delta_k1, delta_k2)
-                
-                # Phase 1: Both segments move by the smaller delta
-                intermediate_k1 = round(float(k1_current + k1_dir * min_delta), 3)
-                intermediate_k2 = round(float(k2_current + k2_dir * min_delta), 3)
-
-                if delta_k1 < delta_k2:
-                    self.morph_plan.append({
-                        'curvature': (k1_target, intermediate_k2),
-                        'stiffness': (1, 1),
-                        'priority': 0
-                    })
-                    self.morph_plan.append({
-                        'curvature': (k1_target, k2_target),
-                        'stiffness': (0, 1),
-                        'priority': 1
-                    })
-                else:
-                    self.morph_plan.append({
-                        'curvature': (intermediate_k1, k2_target),
-                        'stiffness': (1, 1),
-                        'priority': 1
-                    })
-                    self.morph_plan.append({
-                        'curvature': (k1_target, k2_target),
-                        'stiffness': (1, 0),
-                        'priority': 0
-                    })                        
-        # For all other cases (no change, single change)
+        # If both need to change in different directions
+        if needs_k1_change and needs_k2_change and k1_dir != k2_dir:
+            print("INFO: Split-direction change. Planning sequential morph.")
+            # Plan A: Morph k1, then k2.
+            self.morph_plan.append({
+                'curvature': (k1_target, self.robot.k2),
+                'stiffness': (1, 0)
+            })
+            self.morph_plan.append({
+                'curvature': (k1_target, k2_target),
+                'stiffness': (0, 1)
+            })        
+        # For all other cases 
         else:
             # Create a simple, one-step plan
             self.morph_plan.append({
                 'curvature': (k1_target, k2_target),
-                'stiffness': (int(needs_k1_change), int(needs_k2_change)),
-                'priority': 0
+                'stiffness': (int(needs_k1_change), int(needs_k2_change))
             })
 
     def _is_current_step_achieved(self) -> bool:
@@ -155,10 +113,10 @@ class Morphing:
         k1_achieved = abs(self.robot.k1 - current_stiffness_target[0]) < self.k_threshold
         k2_achieved = abs(self.robot.k2 - current_stiffness_target[1]) < self.k_threshold
 
-        achieved = [k1_achieved, k2_achieved]
-
-        # Stop when the segment with the highest bending priority achieves its target curvature
-        return achieved[self.morph_plan[0]['priority']]
+        if self.morph_plan[0]['stiffness'][0] and k1_achieved or self.morph_plan[0]['stiffness'][1] and k2_achieved:
+            return True
+        else:
+            return False
 
 class MMControl:
     """
@@ -190,17 +148,12 @@ class MMControl:
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
 
-        self.desired_speed = [0.07, 0.07, 0.15, 0.015, 0.015]
-        self.tau_array = [0.0] * 5
-        self.tau_scale = 0.99
-
-        # --- EMA Filter Parameters ---
-        self.ema_alpha = ema_alpha
-        # Stores the previous filtered velocity state. Initialized to zeros.
-        self.__last_filtered_vel = np.zeros(5) 
+        self.desired_speed = [0.07, 0.07, 0.2]
+        self.tau_array = [0.0] * 3
+        self.tau_scale = 0.98
 
         # This dictionary declares each MPC controller.
-        # 'kinematics' is a function reference to the specific physics equations.
+        # 'kinematics' is a function reference to the specific mode equations.
         # 'mpc' will hold the initialized GEKKO model instance.
         self.CONTROL_MODES = {
             'RIGID_MOTION': {
@@ -241,22 +194,28 @@ class MMControl:
         self.__target_robot.config = value
 
     def update_tau(self):
-        for i in range(len(self.robot.config)):
-            self.tau_array[i] = abs(self.target.config[i] - self.robot.config[i]) / self.desired_speed[i]
+        """
+        Updates the MPC trajectory time constants based on the difference between
+        the initial and target poses.
+        
+        """
+        for i in range(len(self.robot.pose)):
+            self.tau_array[i] = float(abs(self.target.pose[i] - self.robot.pose[i]) / self.desired_speed[i])
 
-        lin_tau = max(self.tau_array[:2])
+        pose_tau = max(self.tau_array[:3])
 
-        self.tau_array[0] = lin_tau
-        self.tau_array[1] = lin_tau
+        self.tau_array[0] = pose_tau
+        self.tau_array[1] = pose_tau
+        self.tau_array[2] = 0.65 * pose_tau
         
         for mode in self.CONTROL_MODES:
             mpc = self.CONTROL_MODES[mode]['mpc']
 
             mpc.x.TAU = self.tau_array[0]
             mpc.y.TAU = self.tau_array[1]
-            mpc.theta.TAU = self.tau_array[2]
-            mpc.k1.TAU = self.tau_array[3]
-            mpc.k2.TAU = self.tau_array[4]           
+            mpc.theta.TAU = self.tau_array[2]      
+
+            self.CONTROL_MODES[mode]['mpc'] = mpc
 
     def _initialize_mpc_models(self):
         """Creates an MPC instance for each mode defined in CONTROL_MODES."""
@@ -281,7 +240,7 @@ class MMControl:
         # These are the control inputs the optimizer can change.
         m.v_x = m.MV(value=0.0, lb=-0.09, ub=0.09)
         m.v_y = m.MV(value=0.0, lb=-0.09, ub=0.09)
-        m.omega = m.MV(value=0.0, lb=-0.15, ub=0.15)
+        m.omega = m.MV(value=0.0, lb=-0.3, ub=0.3)
         m.u1 = m.MV(value=0.0, lb=-0.03, ub=0.03) # Velocity of k1
         m.u2 = m.MV(value=0.0, lb=-0.03, ub=0.03) # Velocity of k2
 
@@ -293,11 +252,11 @@ class MMControl:
         m.u2.STATUS = 1
 
         # DCOST penalizes changes in the MV, encouraging smoother control
-        m.v_x.DCOST = 100
-        m.v_y.DCOST = 100
-        m.omega.DCOST = 10
-        m.u1.DCOST = 0.002
-        m.u2.DCOST = 0.002
+        m.v_x.DCOST = 1
+        m.v_y.DCOST = 1
+        m.omega.DCOST = 1
+        m.u1.DCOST = 1
+        m.u2.DCOST = 1
 
         # --- Controlled Variables (CVs) / State Variables ---
         # These are the system states we want to control
@@ -337,8 +296,8 @@ class MMControl:
         m.x.TAU = 1.0
         m.y.TAU = 1.0
         m.theta.TAU = 1.0
-        m.k1.TAU = 1.0
-        m.k2.TAU = 1.0
+        m.k1.TAU = 4.0
+        m.k2.TAU = 4.0
 
         # --- The Kinematic Model ---
         # This dynamically injects the specific physics equations for the
@@ -413,29 +372,7 @@ class MMControl:
                    self.kinematics_handler.cardioid3.k_dot(self.robot.k1) * m.u2)
         m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u1 + 
                    self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u2)
-
-    # --- Method to apply the EMA filter ---
-    def _apply_ema_filter(self, raw_velocities: list) -> np.ndarray:
-        """
-        Applies an Exponential Moving Average filter to the raw velocity commands.
-        
-        Args:
-            raw_velocities (list): The unfiltered velocity vector from the MPC.
-        
-        Returns:
-            np.ndarray: The smoothed velocity vector.
-        """
-        # Convert raw list to a numpy array for vectorized math
-        raw_velocities_np = np.array(raw_velocities)
-        
-        # Apply the EMA formula
-        filtered_vel = (self.ema_alpha * raw_velocities_np) + \
-                        ((1 - self.ema_alpha) * self.__last_filtered_vel)
-        self.__last_filtered_vel = filtered_vel
-        
-        return filtered_vel
-        
-    
+         
     def go_to_target(self) -> tuple:
         """
         Calculates the required velocities to reach a target configuration.
@@ -449,10 +386,10 @@ class MMControl:
 
         Returns:
             A tuple containing:
-            - is_finished (bool): True if the robot has reached its target.
             - velocities (list): The calculated optimal [vx, vy, w, u1, u2].
             - stiff_transitions (list): Commands for the stiffness actuators.
             - q_new (np.array): The predicted next state of the robot.
+            - is_finished (bool): True if the robot has reached its target.
         """
         # 1. Determine the current control mode based on the target.
         current_mode, current_k_target, stiff_transitions = self.morph.update_control_mode(self.target.curvature)
@@ -465,13 +402,18 @@ class MMControl:
 
         if is_finished:
             self.morph.morph_plan.clear()
+            self.current_mpc = None
+
+            for mode in self.CONTROL_MODES:
+                self.CONTROL_MODES[mode]['mpc'] = None
+                
+            self._initialize_mpc_models()
         
         # 2. If idle or finished, command zero velocity.
         if current_mode == 'IDLE' or is_finished:
-            raw_velocities  = [0.0] * 5
-            filtered_velocities = [0.0] * 5
+            optimal_velocities  = [0.0] * 5
             # The robot's configuration doesn't change.
-            q_new = self.robot.config
+            q_new = self.robot.config.tolist()
         else:
             # 3. If a mode is active, prepare and solve the MPC problem.
             mode_mpc_model = self.CONTROL_MODES[current_mode]['mpc']
@@ -488,7 +430,7 @@ class MMControl:
 
             # --- Initialize the MPC state ---
 
-            # Update TAU
+            # Scale TAU for faster approach.
             mode_mpc_model.x.TAU *= self.tau_scale
             mode_mpc_model.y.TAU *= self.tau_scale
             mode_mpc_model.theta.TAU *= self.tau_scale
@@ -513,31 +455,28 @@ class MMControl:
             mode_mpc_model.solve(disp=False)
 
             # 5. Extract the optimal velocities for the current time step.
-            raw_velocities  = [
+            optimal_velocities  = [
                 mode_mpc_model.v_x.NEWVAL, mode_mpc_model.v_y.NEWVAL,
                 mode_mpc_model.omega.NEWVAL, mode_mpc_model.u1.NEWVAL,
                 mode_mpc_model.u2.NEWVAL
             ]
 
-            raw_velocities = [round(v, 5) for v in raw_velocities]
-
             # 6. Update the MPC model's MV values for the next cycle's start.
-            mode_mpc_model.v_x.VALUE = raw_velocities[0]
-            mode_mpc_model.v_y.VALUE = raw_velocities[1]
-            mode_mpc_model.omega.VALUE = raw_velocities[2]
-            mode_mpc_model.u1.VALUE = raw_velocities[3]
-            mode_mpc_model.u2.VALUE = raw_velocities[4]
+            mode_mpc_model.v_x.VALUE = optimal_velocities[0]
+            mode_mpc_model.v_y.VALUE = optimal_velocities[1]
+            mode_mpc_model.omega.VALUE = optimal_velocities[2]
+            mode_mpc_model.u1.VALUE = optimal_velocities[3]
+            mode_mpc_model.u2.VALUE = optimal_velocities[4]
 
-            # 7. Filter the raw optimal velocities
-            filtered_velocities = self._apply_ema_filter(raw_velocities)
+            self.CONTROL_MODES[current_mode]['mpc']  = mode_mpc_model
             
-            # 8. Predict the next state using the calculated velocities.
+            # 7. Predict the next state using the calculated velocities.
             q_new = self.robot.config + self.kinematics_handler.get_unified_jacobian(
                 self.robot, plan_list[0]['stiffness']
-            ).dot(filtered_velocities) * gv.DT
+            ).dot(optimal_velocities) * gv.DT
             q_new = q_new.tolist()
   
-        return raw_velocities, filtered_velocities, stiff_transitions, q_new, is_finished
+        return optimal_velocities, stiff_transitions, q_new, is_finished
     
     def _is_pose_close(self, target_pos: list, dist_thresh: float = 0.018) -> bool:
         """
