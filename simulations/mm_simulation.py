@@ -13,7 +13,7 @@ class Simulation:
     """
     Encapsulates the logic for running a robot control simulation.
     
-    Execute the control loop, update the robot's state, and record the history 
+    Executes the control loop, updates the robot's state, and records the history 
     of all relevant variables. 
     """
     def __init__(self, initial_robot_state: robot_state.Model):
@@ -24,10 +24,10 @@ class Simulation:
         """
         This map contains the complete logic for stiffness updates.
 
-        - Command 1:  Always heats (returns +0.5).
+        - Command  1: Always heats (returns +0.5).
         - Command -1: Always cools (returns -0.25). The cooling rate is slower than the 
                       the heating rate.
-        - Command 0:  Conditional hold/cool.
+        - Command  0: Conditional hold/cool.
                       - If stiffness == 1, holds (returns 0.0).
                       - Else if temp > 22, cools towards the minimum (returns -0.25).
         """
@@ -90,10 +90,11 @@ class Simulation:
         self.controller.target = target_config
         self.controller.update_tau()
 
-        # Record the state *before* starting the pursuit of this new target
+        # Record the state before starting the pursuit of this new target
         self._append_to_history(target_config, [0.0] * 5, [0, 0])
 
         is_finished = False
+
         while not is_finished:
             # Get commands from the controller
             vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
@@ -126,28 +127,31 @@ class Simulation:
         """
         # --- Phase 1: Capture initial state and generate target sequence ---
 
-        # 1. Store the robot's absolute starting configuration. Use .copy()!
+        # 1. Store the robot's initial configuration. 
         initial_robot_config = self.robot.config.copy().tolist()
         print(f"INFO: Robot starting at: {np.round(initial_robot_config, 2)}.")
 
+        # 2. Generate random targets
         targets_to_pursue = []
+
         for _ in range(num_targets):
             k1 = round(np.random.uniform(-self.k_max, self.k_max), 3)
             k2 = round(np.random.uniform(-self.k_max, self.k_max), 3)
             
-            # Base the next target's position on the last point in the sequence
-            # (or the initial position if the sequence is empty).
-            base_pos = targets_to_pursue[-1] if targets_to_pursue else initial_robot_config
+            # Base the next target's pose on the last point in the sequence
+            # or the initial position if the sequence is empty.
+            base_pose = targets_to_pursue[-1] if targets_to_pursue else initial_robot_config
 
             target_config = [
-                round(base_pos[0] + (np.random.uniform(-0.5, 0.5)), 4),
-                round(base_pos[1] + (np.random.uniform(-0.5, 0.5)), 4),
-                round(base_pos[2] + (np.random.uniform(-np.pi / 3, np.pi / 3)), 4),
+                round(base_pose[0] + (np.random.uniform(-0.5, 0.5)), 4),
+                round(base_pose[1] + (np.random.uniform(-0.5, 0.5)), 4),
+                round(base_pose[2] + (np.random.uniform(-np.pi / 3, np.pi / 3)), 4),
                 self._apply_curvature_deadband(k1),
                 self._apply_curvature_deadband(k2)
             ]
             targets_to_pursue.append(target_config)
-        # 2. If it's a multi-target mission, add the initial position as the final target.
+       
+        # 3. If it's a multi-target mission, add the initial position as the final target.
         if num_targets > 1:
             targets_to_pursue.append(initial_robot_config)
             print("INFO: Appending initial position to create a return-to-home path.")
@@ -190,9 +194,9 @@ class Visualization:
         self.fig_anim.subplots_adjust(left=0.041, right=0.99, top=0.995, bottom=0.03)
         self.ax_anim.set_aspect('equal')
 
-        self.robot_plotter = plotlib.RobotPlot(self.ax_anim)
+        self.robot_plotter = plotlib.RobotPlot(self.ax_anim, display_temp=True)
         self.fps = 15
-        self.output_file = 'multimedia/motion_and_deformation.gif'
+        self.output_file = 'multimedia/motion_and_deformation_sim.gif'
 
         # --- Determine and set the plot limits ---
         xlim, ylim = self._determine_plot_limits()
@@ -237,7 +241,7 @@ class Visualization:
                     {"label": "Path",  "style": ".-",
                      "data_x": self.state_history[:, 0], "data_y": self.state_history[:, 1]},
                      {"label": "Target", "style": "*", "color": "orange", "markersize": 15,
-                      "data_x": [self.targets[:, 0]], "data_y": [self.targets[:, 1]]},
+                      "data_x": self.targets[:, 0], "data_y": self.targets[:, 1]},
                 ]
             },
             {
@@ -269,10 +273,6 @@ class Visualization:
         This method ensures the plot is square and includes a configurable padding 
         around the trajectory.
 
-        Args:
-            padding_factor (float): The percentage of the total range to add as
-                                    padding (e.g., 0.1 for 10%).
-
         Returns:
             A tuple containing (xlim, ylim), where each is a (min, max) tuple.
         """
@@ -298,7 +298,7 @@ class Visualization:
         
         # If there's no movement, prevent a zero range
         if max_range == 0:
-            max_range = 1.0 # Default to a 1x1 area if static
+            max_range = 1.0 
 
         # 6. Calculate the padding and the final half-width of the plot
         plot_half_width = (max_range / 2) + 1.2 * gv.L_VSB
@@ -310,6 +310,9 @@ class Visualization:
         return xlim, ylim
 
     def _update_animation_frame(self, frame_num: int):
+        """
+        Updates the state of the robot and its target and plots them. 
+        """
         self.robot.config = self.state_history[frame_num]
         self.robot.stiffness = self.stiffness_history[frame_num]
         self.robot.temp = self.temp_history[frame_num]
@@ -327,7 +330,6 @@ class Visualization:
         
         if save:
             print(f"\nSaving animation to {self.output_file}...")
-            # Ensure the multimedia directory exists
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
             writer = animation.PillowWriter(fps=self.fps)
             ani.save(self.output_file, writer=writer)
@@ -365,7 +367,7 @@ class Visualization:
         plt.show()
 
 if __name__ == "__main__":
-    # 1. Initialize the core components
+    # 1. Initialize the robot
     inital_config = [0.0] * 5
     initial_robot = robot_state.Model(1, *inital_config)
     initial_robot.t1 = 22  

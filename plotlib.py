@@ -10,7 +10,7 @@ class RobotPlot:
     A class dedicated to plotting a 2SR robot.
     The robot's physical structure is defined declaratively in KINEMATIC_CHAIN.
     """
-    def __init__(self, ax) -> None:
+    def __init__(self, ax, display_temp=False) -> None:
         """
         Initializes the plotter and creates all necessary artists.
 
@@ -62,6 +62,7 @@ class RobotPlot:
         # --- Artists for the Temperature Subplot ---
         self.temp_ax = None
         self.temp_bars = None
+        self.display_temp = display_temp
 
         self._init_artists()
 
@@ -92,7 +93,6 @@ class RobotPlot:
             self.ax.add_patch(lu_patch)
             self.lu_patches.append(lu_patch)
 
-
             line, = self.ax.plot([], [], linewidth=self.lw, alpha=self.target_alpha)
             self.vss_lines_target.append(line)
             connector = patches.Polygon([[0,0], [0,0], [0,0]], closed=True, facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw, alpha=self.target_alpha)
@@ -109,25 +109,26 @@ class RobotPlot:
         self._set_target_visibility(False)
 
         # --- Create and Configure the Temperature Subplot ---
-        fig = self.ax.get_figure()
-        # Define position: [left, bottom, width, height] in figure coordinates (0-1)
-        temp_ax_pos = [0.84, 0.06, 0.14, 0.07] 
-        self.temp_ax = fig.add_axes(temp_ax_pos)
-        
-        # Create the horizontal bars. We plot T1 on top (y=1) and T2 on bottom (y=0).
-        # Initialize with minimum temperature.
-        y_pos = [1, 0] # y-coordinates for T1 and T2 bars
-        initial_temps = [self.room_temp, self.room_temp]
-        self.temp_bars = self.temp_ax.barh(y_pos, initial_temps, align='center', height=0.3)
-        
-        # Style the temperature subplot
-        self.temp_ax.set_title("Temp (°C)", fontsize=10)
-        self.temp_ax.set_xlim(self.room_temp, self.max_temp)
-        self.temp_ax.set_yticks(y_pos)
-        self.temp_ax.set_yticklabels(['T1', 'T2'])
-        self.temp_ax.tick_params(axis='y', length=0) # Hide y-axis ticks
-        self.temp_ax.tick_params(axis='x', labelsize=8)
-        self.temp_ax.xaxis.grid(True, linestyle='--', alpha=0.6)
+        if self.display_temp:
+            fig = self.ax.get_figure()
+            # Define position: [left, bottom, width, height] in figure coordinates (0-1)
+            temp_ax_pos = [0.84, 0.06, 0.14, 0.07] 
+            self.temp_ax = fig.add_axes(temp_ax_pos)
+            
+            # Create the horizontal bars. We plot T1 on top (y=1) and T2 on bottom (y=0).
+            # Initialize with minimum temperature.
+            y_pos = [1, 0] # y-coordinates for T1 and T2 bars
+            initial_temps = [self.room_temp, self.room_temp]
+            self.temp_bars = self.temp_ax.barh(y_pos, initial_temps, align='center', height=0.3)
+            
+            # Style the temperature subplot
+            self.temp_ax.set_title("Temp (°C)", fontsize=10)
+            self.temp_ax.set_xlim(self.room_temp, self.max_temp)
+            self.temp_ax.set_yticks(y_pos)
+            self.temp_ax.set_yticklabels(['T1', 'T2'])
+            self.temp_ax.tick_params(axis='y', length=0) # Hide y-axis ticks
+            self.temp_ax.tick_params(axis='x', labelsize=8)
+            self.temp_ax.xaxis.grid(True, linestyle='--', alpha=0.6)
         
     def _set_target_visibility(self, visible: bool):
         """Helper function to show or hide all target artists at once."""
@@ -135,7 +136,7 @@ class RobotPlot:
         for artist in all_target_artists:
             artist.set_visible(visible)
 
-    def _get_stiffness_color(self, stiffness: bool, temperature: float, base_temp: float) -> np.ndarray:
+    def _get_stiffness_color(self, temperature: float, base_temp: float) -> np.ndarray:
         """
         Determines the appropriate color for a segment based on its stiffness state.
         
@@ -144,7 +145,6 @@ class RobotPlot:
           based on the provided temperature.
 
         Args:
-            stiffness (bool): True if the segment is flexible/stiffening.
             temperature (float): The current temperature of the segment (22 to 63).
 
         Returns:
@@ -169,15 +169,15 @@ class RobotPlot:
         """Updates the temperature bars based on the robot's state."""
         # Data for the bars (T1, T2)
         temps = [getattr(robot, conf["temp_attr"]) for conf in self.KINEMATIC_CHAIN]
-        stiffnesses = [getattr(robot, conf["stiffness_attr"]) for conf in self.KINEMATIC_CHAIN]
 
-        # Update T1's bar (the first artist in self.temp_bars)
-        self.temp_bars[0].set_width(temps[0])
-        self.temp_bars[0].set_color(self._get_stiffness_color(stiffnesses[0], temps[0], self.room_temp))
-        
-        # Update T2's bar (the second artist in self.temp_bars)
-        self.temp_bars[1].set_width(temps[1])
-        self.temp_bars[1].set_color(self._get_stiffness_color(stiffnesses[1], temps[1], self.room_temp))
+        if self.temp_bars:
+            # Update T1's bar (the first artist in self.temp_bars)
+            self.temp_bars[0].set_width(temps[0])
+            self.temp_bars[0].set_color(self._get_stiffness_color(temps[0], self.room_temp))
+            
+            # Update T2's bar (the second artist in self.temp_bars)
+            self.temp_bars[1].set_width(temps[1])
+            self.temp_bars[1].set_color(self._get_stiffness_color(temps[1], self.room_temp))
     
     def plot_robot(self, robot: robot_state.Model, target: robot_state.Model = None):
         """
@@ -199,14 +199,18 @@ class RobotPlot:
         else:
             self._set_target_visibility(False)
 
-         # --- Update the temperature bars ---
-        self._update_temp_bars(robot)
+        result = tuple(self.vss_lines) + tuple(self.connector_patches) + tuple(self.lu_patches) + \
+               tuple([self.center_point]) + tuple(self.vss_lines_target) + \
+               tuple(self.connector_patches_target) + tuple(self.lu_patches_target)
+        
+        # --- Update the temperature bars ---
+        if self.display_temp:
+            self._update_temp_bars(robot)
+
+            result += tuple(self.temp_bars)
 
         # Return all artists that have been modified
-        return tuple(self.vss_lines) + tuple(self.connector_patches) + tuple(self.lu_patches) + \
-               tuple([self.center_point]) + tuple(self.vss_lines_target) + \
-               tuple(self.connector_patches_target) + tuple(self.lu_patches_target) + \
-               tuple(self.temp_bars)
+        return result
 
     def _update_robot_artists(self, robot, vss_lines, connector_patches, lu_patches, center_point=None):
         """
@@ -223,7 +227,7 @@ class RobotPlot:
             # vss_lines[i].set_color(self.vss_flex_color if stiffness else self.border_color)
             temperature = robot.temp[i] 
             # Get the dynamically calculated color
-            dynamic_color = self._get_stiffness_color(stiffness, temperature, self.min_temp)
+            dynamic_color = self._get_stiffness_color(temperature, self.min_temp)
             # Set the color of the line
             vss_lines[i].set_color(dynamic_color)
 

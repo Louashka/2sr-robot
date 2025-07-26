@@ -30,6 +30,7 @@ class RobotAnimation:
                 "animated_params": ["k2"],  
                 "pose_change": False,
                 "stiffness": [0, 1],
+                "temp": [22, 64],
                 "k_max": np.pi / gv.L_VSS,
                 "cardioid_density": 65,
                 "cardioid_size": 8, 
@@ -44,6 +45,7 @@ class RobotAnimation:
                 "cardioid_color": ["k", "#338dc9"],
                 "pose_change": True,
                 "stiffness": [1, 0],
+                "temp": [64, 22],
                 "k_max": np.pi / (1.1 * gv.L_VSS),
                 "cardioid_density": 65,
                 "cardioid_size": 9,
@@ -58,6 +60,7 @@ class RobotAnimation:
                 "cardioid_color": ["k", "#338dc9"],
                 "pose_change": True,
                 "stiffness": [1, 1],
+                "temp": [64, 64],
                 "k_max": np.pi / (2 * gv.L_VSS),
                 "cardioid_density": 65,
                 "cardioid_size": 8,
@@ -70,7 +73,15 @@ class RobotAnimation:
         print(f"Initializing animation: {self.ANIMATION_SCENARIOS[no-1]['name']}")
 
         self.scenario = self.ANIMATION_SCENARIOS[no-1]
-        self.rp = plotlib.RobotPlot()
+
+        # Setup the plot figure
+        self.fig, self.ax = plt.subplots(figsize=(12, 11))
+        self.fig.subplots_adjust(left=0.11, right=0.99, top=0.995, bottom=0.03)
+        self.ax.set_aspect('equal')
+        self.ax.set_xlim(-0.16, 0.29)
+        self.ax.set_ylim(-0.22, 0.22)
+
+        self.rp = plotlib.RobotPlot(self.ax)
 
         # --- Internal State ---
         self.robot = self._setup_initial_robot_state()
@@ -82,21 +93,21 @@ class RobotAnimation:
         # Pre-calculate static plot elements
         self.cardioids = self._calculate_cardioid_path()
 
-        # Setup the plot figure
-        self.fig, self.ax = plt.subplots(figsize=(12, 12))
-
     def _setup_initial_robot_state(self) -> robot_state.Model:
         """Creates the initial robot model based on the scenario."""
         # Start with a straight robot to find the center point
         vss1_arc = self.rp.arc((0, 0, 0), 0)
         center = (vss1_arc[0][-1], vss1_arc[1][-1], vss1_arc[2])
-        
-        return robot_state.Model(
+
+        robot_model = robot_state.Model(
             id=1,
             x=center[0], y=center[1], theta=center[2],
             k1=0, k2=0,
             stiffness=self.scenario['stiffness']
         )
+        robot_model.temp = self.scenario['temp']
+        
+        return robot_model
 
     def _calculate_cardioid_path(self) -> list:
         """Calculates the cardioid paths."""
@@ -124,17 +135,8 @@ class RobotAnimation:
         # 1. Update the robot's state for the current frame
         self._update_robot_state()
 
-        # 2. Clear the axes and redraw everything
-        self.ax.clear()
-        for cardioid, clr in zip(self.cardioids, self.scenario['cardioid_color']):
-            self.ax.plot(cardioid[0], cardioid[1], '.', color=clr, markersize=self.scenario['cardioid_size'])
-        self.rp.plot_robot(self.ax, self.robot)
-        
-        # 3. Set consistent plot limits and aspect ratio
-        self.ax.set_aspect('equal')
-        self.ax.set_xlim(-0.16, 0.29)
-        self.ax.set_ylim(-0.22, 0.22)
-        # self.ax.set_title(f"{self.scenario['name']}")
+        # 2. Redraw the frame
+        return self.rp.plot_robot(self.robot)
 
     def _update_robot_state(self):
         """Handles the logic for changing the animated parameter."""
@@ -157,23 +159,31 @@ class RobotAnimation:
 
             self.robot.pose = center
 
-    def run_and_save(self):
+    def run_and_save(self, save=False):
         """Creates the animation and saves it to a file."""
+        for cardioid, clr in zip(self.cardioids, self.scenario['cardioid_color']):
+            self.ax.plot(cardioid[0], cardioid[1], '.', color=clr, markersize=self.scenario['cardioid_size'])
+        # self.ax.set_title(f"{self.scenario['name']}")
+
         ani = animation.FuncAnimation(
             fig=self.fig,
             func=self._update_frame,
+            repeat=True, 
+            blit=True,
             frames=self.scenario['frame_count'],
             interval=1000 / self.scenario['fps'] # Interval in milliseconds
         )
 
-        output_file = self.scenario['output_file']
-        print(f"Saving animation to {output_file}...")
+        if save:
+            output_file = self.scenario['output_file']
+            print(f"\nSaving animation to {output_file}...")
 
-        plt.tight_layout()
-        writer = animation.PillowWriter(fps=self.scenario['fps'])
-        ani.save(output_file, writer=writer)
-        print("...Done!")
+            writer = animation.PillowWriter(fps=self.scenario['fps'])
+            ani.save(output_file, writer=writer)
+            print("\n...Done!\n")
         
+        plt.tight_layout()
+        plt.show()
         plt.close(self.fig)
 
 
@@ -185,6 +195,6 @@ if __name__ == "__main__":
     animator = RobotAnimation(scenario_to_run)
 
     # Run the process
-    animator.run_and_save()
+    animator.run_and_save(save=True)
 
 

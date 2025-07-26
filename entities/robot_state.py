@@ -7,13 +7,13 @@ class Model(Frame):
         """
         Initializes the 2SR robot
 
-        :param id: A unique identifier for the robot
-        :param x: float, x position of the body frame
-        :param y: float, y position of the body frame
-        :param theta: float, orientation of the body frame
-        :param k1: float, curvature of the first segment
-        :param k2: float, curvature of the second segment
-        :param stiffness: list[float], stiffness values for the segments
+        :param id        : A unique identifier for the robot
+        :param x         : float, x position of the body frame
+        :param y         : float, y position of the body frame
+        :param theta     : float, orientation of the body frame
+        :param k1        : float, curvature of the first segment
+        :param k2        : float, curvature of the second segment
+        :param stiffness : List[float], stiffness values for the segments
         """
         self.__id = id
         super().__init__(x, y, theta)

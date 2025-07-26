@@ -26,15 +26,13 @@ class Morphing:
         self.robot = robot
         # The low-level FSM for handling stiffness transitions.
         self.stiffness_controller = stiffness.FSM(robot)
-        
         # This will hold a sequence of morphing commands (target curvatures and stiffness).
         self.morph_plan = collections.deque()
-        
         self.k_threshold = 0.1  # Curvature tolerance.
 
     def update_control_mode(self, target_k_config: list) -> tuple:
         """
-        Determines and executes the next step in a morphing plan.
+        Determines the next step in a morphing plan.
         It manages the plan and returns the current action.
 
         Args:
@@ -57,9 +55,11 @@ class Morphing:
 
         # Use the low-level FSM to manage the transition to the required stiffness
         is_transitioning, stiff_transitions = self.stiffness_controller.main(current_stiffness_target)
-        
+        # Determine the current motion & deformation mode
         current_mode = self.STIFFNESS_TO_MODES.get(current_stiffness_target)
 
+        # If any VSS is in the process of heating or cooling switch the mode to 'IDLE'
+        # to let the robot wait for the stiffness transition to complete
         if is_transitioning:
             current_mode = 'IDLE'
             
@@ -68,7 +68,6 @@ class Morphing:
     def _create_morph_plan(self, target_k_config: list):
         """
         Analyzes the target and creates a sequential plan of stiffness states.
-        This is where the core logic for handling split-direction changes resides.
         """
         k1_target, k2_target = target_k_config[0], target_k_config[1]
 
@@ -77,14 +76,13 @@ class Morphing:
         needs_k2_change = abs(self.robot.k2 - k2_target) > self.k_threshold
         
         # Determine the direction of change (1 for increase, -1 for decrease, 0 for no change)
-        # Using a small epsilon to avoid issues with floating point comparisons
         k1_dir = int(np.sign(k1_target - self.robot.k1)) if needs_k1_change else 0
         k2_dir = int(np.sign(k2_target - self.robot.k2)) if needs_k2_change else 0
         
         # If both need to change in different directions
         if needs_k1_change and needs_k2_change and k1_dir != k2_dir:
             print("INFO: Split-direction change. Planning sequential morph.")
-            # Plan A: Morph k1, then k2.
+            # Plan: Morph k1, then k2.
             self.morph_plan.append({
                 'curvature': (k1_target, self.robot.k2),
                 'stiffness': (1, 0)
@@ -93,9 +91,8 @@ class Morphing:
                 'curvature': (k1_target, k2_target),
                 'stiffness': (0, 1)
             })        
-        # For all other cases 
+        # For all other cases create a simple, one-step plan
         else:
-            # Create a simple, one-step plan
             self.morph_plan.append({
                 'curvature': (k1_target, k2_target),
                 'stiffness': (int(needs_k1_change), int(needs_k2_change))
@@ -139,7 +136,7 @@ class MMControl:
         CONTROL_MODES (dict): A dictionary defining the properties of each
                               control mode.
     """
-    def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5, ema_alpha: float = 0.2):
+    def __init__(self, robot: robot_state.Model, T: int = 11, max_speed: float = 0.5):
         self.robot = robot
         self.__target_robot = copy.copy(robot)
         self.morph = Morphing(robot)
@@ -148,6 +145,7 @@ class MMControl:
         self.T = T  # MPC prediction horizon
         self.MAX_SPEED = max_speed
 
+        # Desired speed of the pose change
         self.desired_speed = [0.07, 0.07, 0.2]
         self.tau_array = [0.0] * 3
         self.tau_scale = 0.98
@@ -178,8 +176,7 @@ class MMControl:
             }
         }
 
-        # Last used MPC model
-        self.current_mpc = None  
+        self.current_mpc = None # Last used MPC model
 
         self._initialize_mpc_models()
 
@@ -192,30 +189,6 @@ class MMControl:
         if len(value) != 5:
             raise ValueError("Wrong number of target state values!")
         self.__target_robot.config = value
-
-    def update_tau(self):
-        """
-        Updates the MPC trajectory time constants based on the difference between
-        the initial and target poses.
-        
-        """
-        for i in range(len(self.robot.pose)):
-            self.tau_array[i] = float(abs(self.target.pose[i] - self.robot.pose[i]) / self.desired_speed[i])
-
-        pose_tau = max(self.tau_array[:3])
-
-        self.tau_array[0] = pose_tau
-        self.tau_array[1] = pose_tau
-        self.tau_array[2] = 0.65 * pose_tau
-        
-        for mode in self.CONTROL_MODES:
-            mpc = self.CONTROL_MODES[mode]['mpc']
-
-            mpc.x.TAU = self.tau_array[0]
-            mpc.y.TAU = self.tau_array[1]
-            mpc.theta.TAU = self.tau_array[2]      
-
-            self.CONTROL_MODES[mode]['mpc'] = mpc
 
     def _initialize_mpc_models(self):
         """Creates an MPC instance for each mode defined in CONTROL_MODES."""
@@ -259,7 +232,7 @@ class MMControl:
         m.u2.DCOST = 1
 
         # --- Controlled Variables (CVs) / State Variables ---
-        # These are the system states we want to control
+        # These are the system states to control
         m.x = m.CV(value=self.robot.x)
         m.y = m.CV(value=self.robot.y)
         m.theta = m.CV(value=self.robot.theta)
@@ -293,6 +266,8 @@ class MMControl:
 
         # TAU is the time constant for the reference trajectory.
         # Larger TAU = slower, smoother approach to the setpoint.
+        # TAU values for the pose are set dynamically via update_tau() 
+        # every time the new target is set
         m.x.TAU = 1.0
         m.y.TAU = 1.0
         m.theta.TAU = 1.0
@@ -300,13 +275,15 @@ class MMControl:
         m.k2.TAU = 4.0
 
         # --- The Kinematic Model ---
-        # This dynamically injects the specific physics equations for the
+        # This dynamically injects the specific kinematics equations for the
         # requested control mode into the generic MPC model.
         self.CONTROL_MODES[mode]['kinematics'](m)
         
         # --- Solver Settings ---
         m.options.IMODE = 6  # MPC Control Mode
-        m.options.SOLVER = 3 # IPOPT solver
+
+        # m.options.SOLVER = 3 # IPOPT solver
+        m.options.SOLVER = 2 # NOTE: use a BPOPT solver if IPOPT doesn't work
 
         return m
     
@@ -373,16 +350,33 @@ class MMControl:
         m.Equation(m.k2.dt() == -self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u1 + 
                    self.kinematics_handler.cardioid3.k_dot(self.robot.k2) * m.u2)
          
+    def update_tau(self):
+        """
+        Updates the MPC trajectory time constants based on the difference between
+        the initial and target poses.
+        """
+        for i in range(len(self.robot.pose)):
+            self.tau_array[i] = float(abs(self.target.pose[i] - self.robot.pose[i]) / self.desired_speed[i])
+
+        pose_tau = max(self.tau_array[:3])
+
+        self.tau_array[0] = pose_tau
+        self.tau_array[1] = pose_tau
+        self.tau_array[2] = 0.65 * pose_tau
+        
+        for mode in self.CONTROL_MODES:
+            mpc = self.CONTROL_MODES[mode]['mpc']
+
+            mpc.x.TAU = self.tau_array[0]
+            mpc.y.TAU = self.tau_array[1]
+            mpc.theta.TAU = self.tau_array[2]      
+
+            self.CONTROL_MODES[mode]['mpc'] = mpc
+    
     def go_to_target(self) -> tuple:
         """
         Calculates the required velocities to reach a target configuration.
-
-        This is the main entry point for the controller. It acts as a state
-        machine: MORPHING -> MOVING -> IDLE.
-
-        Args:
-            target_config (list): The desired final state of the robot as
-                                  [x, y, theta, k1, k2].
+        This is the main entry point for the controller. 
 
         Returns:
             A tuple containing:
