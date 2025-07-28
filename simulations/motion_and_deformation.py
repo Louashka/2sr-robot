@@ -375,7 +375,7 @@ if __name__ == "__main__":
 
     # 2. Run the simulation to generate data
     simulator = Simulation(initial_robot)
-    targets_to_pursue, simulation_results = simulator.run(num_targets=2)
+    targets_to_pursue, simulation_results = simulator.run(num_targets=1)
 
     print("\n----- All Targets -----")
     for i, targ in enumerate(targets_to_pursue):
@@ -385,5 +385,5 @@ if __name__ == "__main__":
     visualizer = Visualization(targets_to_pursue, simulation_results)
 
     # 4. Run the visualization tasks
-    visualizer.run_animation(save=True)
+    visualizer.run_animation(save=False)
     visualizer.plot_data()

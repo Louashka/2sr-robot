@@ -8,7 +8,7 @@ from entities import robot_state, global_var as gv
 class RobotPlot:
     """
     A class dedicated to plotting a 2SR robot.
-    The robot's physical structure is defined declaratively in KINEMATIC_CHAIN.
+    The robot's physical structure is declared in KINEMATIC_CHAIN.
     """
     def __init__(self, ax, display_temp=False) -> None:
         """
@@ -72,35 +72,21 @@ class RobotPlot:
         """
         # Create artists for each segment in the kinematic chain
         for _ in self.KINEMATIC_CHAIN:
-            # Create a line artist for the VSS segment
-            line, = self.ax.plot([], [], linewidth=self.lw)
-            self.vss_lines.append(line)
-
-            # Create a polygon patch for the connector triangle
-            connector = patches.Polygon([[0,0], [0,0], [0,0]], closed=True, 
-                                        facecolor=self.fill_color, 
-                                        edgecolor=self.border_color, 
-                                        linewidth=self.lw)
-            self.ax.add_patch(connector)
-            self.connector_patches.append(connector)
-
-            # Create a FancyBboxPatch for the Locomotion Unit
-            lu_patch = patches.FancyBboxPatch(
-                xy=(-gv.LU_SIDE / 2, -gv.LU_SIDE / 2), width=gv.LU_SIDE, height=gv.LU_SIDE,
-                boxstyle=f'round,pad=0,rounding_size={self.lu_rounding_size}',
-                facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw
+            # Create and register the artists for the main robot body
+            self._create_artist_set(
+                vss_list=self.vss_lines, 
+                connector_list=self.connector_patches, 
+                lu_list=self.lu_patches,
+                alpha=1.0 
             )
-            self.ax.add_patch(lu_patch)
-            self.lu_patches.append(lu_patch)
 
-            line, = self.ax.plot([], [], linewidth=self.lw, alpha=self.target_alpha)
-            self.vss_lines_target.append(line)
-            connector = patches.Polygon([[0,0], [0,0], [0,0]], closed=True, facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw, alpha=self.target_alpha)
-            self.ax.add_patch(connector)
-            self.connector_patches_target.append(connector)
-            lu_patch = patches.FancyBboxPatch(xy=(-gv.LU_SIDE / 2, -gv.LU_SIDE / 2), width=gv.LU_SIDE, height=gv.LU_SIDE, boxstyle=f'round,pad=0,rounding_size={self.lu_rounding_size}', facecolor=self.fill_color, edgecolor=self.border_color, linewidth=self.lw, alpha=self.target_alpha)
-            self.ax.add_patch(lu_patch)
-            self.lu_patches_target.append(lu_patch)
+            # Create and register the artists for the semi-transparent target robot
+            self._create_artist_set(
+                vss_list=self.vss_lines_target, 
+                connector_list=self.connector_patches_target, 
+                lu_list=self.lu_patches_target,
+                alpha=self.target_alpha
+            )
 
         # Create an artist for the robot's center point
         self.center_point, = self.ax.plot([], [], 'o', color=self.center_color, zorder=10)
@@ -130,6 +116,47 @@ class RobotPlot:
             self.temp_ax.tick_params(axis='x', labelsize=8)
             self.temp_ax.xaxis.grid(True, linestyle='--', alpha=0.6)
         
+    def _create_artist_set(self, vss_list, connector_list, lu_list, alpha=1.0):
+        """
+        Factory method to create and register one set of artists for a segment.
+        This includes the VSS line, the connector, and the locomotion unit.
+
+        Args:
+            vss_list (list): The list to which the VSS line artist will be appended.
+            connector_list (list): The list for the connector patch artist.
+            lu_list (list): The list for the locomotion unit patch artist.
+            alpha (float): The transparency level for this set of artists.
+        """
+        # Create a line artist for the VSS segment
+        line, = self.ax.plot([], [], linewidth=self.lw, alpha=alpha)
+        vss_list.append(line)
+
+        # Create a polygon patch for the connector triangle
+        connector = patches.Polygon(
+            [[0,0], [0,0], [0,0]], 
+            closed=True, 
+            facecolor=self.fill_color, 
+            edgecolor=self.border_color, 
+            linewidth=self.lw,
+            alpha=alpha
+        )
+        self.ax.add_patch(connector)
+        connector_list.append(connector)
+
+        # Create a FancyBboxPatch for the Locomotion Unit
+        lu_patch = patches.FancyBboxPatch(
+            xy=(-gv.LU_SIDE / 2, -gv.LU_SIDE / 2), 
+            width=gv.LU_SIDE, 
+            height=gv.LU_SIDE,
+            boxstyle=f'round,pad=0,rounding_size={self.lu_rounding_size}',
+            facecolor=self.fill_color, 
+            edgecolor=self.border_color, 
+            linewidth=self.lw,
+            alpha=alpha
+        )
+        self.ax.add_patch(lu_patch)
+        lu_list.append(lu_patch)
+    
     def _set_target_visibility(self, visible: bool):
         """Helper function to show or hide all target artists at once."""
         all_target_artists = self.vss_lines_target + self.connector_patches_target + self.lu_patches_target
@@ -138,20 +165,16 @@ class RobotPlot:
 
     def _get_stiffness_color(self, temperature: float, base_temp: float) -> np.ndarray:
         """
-        Determines the appropriate color for a segment based on its stiffness state.
-        
-        - If not stiff, returns the rigid border color.
-        - If stiff, interpolates between the border color and the flex color
-          based on the provided temperature.
+        Determines the appropriate color for a segment based on its temperature
 
         Args:
-            temperature (float): The current temperature of the segment (22 to 63).
+            temperature (float): The current temperature of the segment.
+            base_temp (float): The coolest temperature in the range.
 
         Returns:
             np.ndarray: The calculated RGB color as a NumPy array.
         """       
         # 1. Normalize the temperature to a 0.0 to 1.0 factor.
-        # We clip the value to handle any potential over/undershoots safely.
         temp_range = self.max_temp - base_temp
         if temp_range == 0: # Avoid division by zero
             factor = 1.0
@@ -217,7 +240,6 @@ class RobotPlot:
         Generic internal function to update a set of robot artists based on a robot state.
         """
         for i, config in enumerate(self.KINEMATIC_CHAIN):
-            stiffness = getattr(robot, config["stiffness_attr"])
             kappa = getattr(robot, config["kappa_attr"])
             
             vss_arc = self.arc(robot.pose, kappa, direction=config["direction"])

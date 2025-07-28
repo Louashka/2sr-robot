@@ -131,7 +131,7 @@ class RobotAnimation:
         return cardioid_paths
 
     def _update_frame(self, frame_num: int):
-        """The core function called for each frame of the animation."""
+        """The function called for each frame of the animation."""
         # 1. Update the robot's state for the current frame
         self._update_robot_state()
 
@@ -162,7 +162,8 @@ class RobotAnimation:
     def run_and_save(self, save=False):
         """Creates the animation and saves it to a file."""
         for cardioid, clr in zip(self.cardioids, self.scenario['cardioid_color']):
-            self.ax.plot(cardioid[0], cardioid[1], '.', color=clr, markersize=self.scenario['cardioid_size'])
+            self.ax.plot(cardioid[0], cardioid[1], '.', color=clr, 
+                         markersize=self.scenario['cardioid_size'])
         # self.ax.set_title(f"{self.scenario['name']}")
 
         ani = animation.FuncAnimation(
@@ -188,7 +189,7 @@ class RobotAnimation:
 
 
 if __name__ == "__main__":
-    # Choose which animation to run by name
+    # Choose which animation to run
     scenario_to_run = 3
 
     # Create the animation engine with the chosen scenario
