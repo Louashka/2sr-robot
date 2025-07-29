@@ -1,4 +1,4 @@
-from model.frame import Frame
+from entities.coordinate_frame import Frame
 import numpy as np
 import math
 import pandas as pd
@@ -14,16 +14,15 @@ shapes = {11: {'type': 'cheescake', 'path': dir + 'cheescake_contour.csv'},
 
 
 class Shape(Frame):
-    def __init__(self, id: int, pose: List[float]) -> None:
+    def __init__(self, id: int, pose: List[float], heading_local=0.0) -> None:
         super().__init__(pose[0], pose[1], pose[2])
 
         self.__id = id
-        self.delta_theta = 0 
+        self.heading_local = heading_local 
         self.m = 10
-        self.offset = np.array([0, 0])
 
-        self.__retrieveContour(shapes[id]['path'])        
-        self.__calcCenterOffset()
+        self._retrieve_contour(shapes[id]['path'])        
+        self._calc_center_offset()
 
     def __str__(self) -> str:
         response = 'id: ' + str(self.id) + ', pose: (' + ', '.join(map(str, self.pose)) + ')' 
@@ -34,20 +33,38 @@ class Shape(Frame):
         return self.__id
     
     @property
-    def heading_angle(self) -> float:
-        return self.theta + self.delta_theta
+    def heading_local(self) -> float:
+        return self.__heading_local
+    
+    @heading_local.setter
+    def heading_local(self, value) -> None:
+        self.__heading_local = value
     
     @property
-    def pose_heading(self) -> List[float]:
-        return self.position + [self.heading_angle]
+    def heading(self) -> float:
+        return self.theta + self.heading_local
+    
+    @property
+    def pose_and_heading(self) -> List[float]:
+        return self.position + [self.heading]
 
     @property
-    def rotation_matrix(self) -> np.ndarray:
+    def rot2d(self) -> np.ndarray:
+        return np.array([[np.cos(self.theta), -np.sin(self.theta)],
+                         [np.sin(self.theta), np.cos(self.theta)]])
+    
+    @property
+    def rot3d(self) -> np.ndarray:
         return np.array([[np.cos(self.theta), -np.sin(self.theta), 0],
                          [np.sin(self.theta), np.cos(self.theta), 0],
                          [0, 0, 1]])
     
-    def __retrieveContour(self, path):
+    @property
+    def contour(self) -> np.ndarray:        
+        ctr = self.rot2d.dot(self.default_contour.T) + np.array([self.position]).T
+        return ctr.T
+    
+    def _retrieve_contour(self, path):
         contour_df = pd.read_csv(path)
         contour_r = contour_df['radius'].tolist()
         contour_theta = contour_df['phase_angle'].tolist()
@@ -56,67 +73,60 @@ class Shape(Frame):
         
         points = []
         for r, phi in zip(contour_params[0], contour_params[1]):
-            x = r * np.cos(phi)
-            y = r * np.sin(phi)
+            x = r * math.cos(phi)
+            y = r * math.sin(phi)
 
             points.append([x, y])
 
-        self.default_contour = np.array(points).T 
-        self.coeffs = efd(self.default_contour.T, order = self.m)
+        points.append(points[0]) # Close the contour
 
-    def __calcCenterOffset(self):
-        ctr = self.contour
-        origin = self.geomCentre(ctr)
+        self.default_contour = np.array(points)
+        self.coeffs = efd(self.default_contour, order = self.m)
 
-        param_ctr = self.parametric_contour[1]
-        param_origin = self.geomCentre(param_ctr)
-
-        self.offset = np.array(origin) - param_origin
+    def _calc_center_offset(self):
+        centroid = self.centroid(self.contour)
+        self.center_offset = centroid - np.array(self.position)
     
-    def geomCentre(self, points) -> list:
-        ctr = points.reshape((-1,1,2))
-        ctr = (10000.0 * ctr).astype(np.int32)
-
-        M = cv.moments(ctr)
-        cX = int(M["m10"] / M["m00"]) / 10000.0
-        cY = int(M["m01"] / M["m00"]) / 10000.0
-
-        r = math.hypot(cX, cY)
-        phi = math.atan2(cY, cX)
-
-        x = r * np.cos(phi)
-        y = r * np.sin(phi)
-
-        return [x, y]
-    
-    def __calcPerimeter(self, points) -> float:
-        ctr = np.array(points).reshape((-1,1,2))
-        ctr = (10000.0 * ctr).astype(np.int32)
-
-        return cv.arcLength(ctr,True) / 10000.0
-
-    @property
-    def contour(self) -> np.ndarray:
-        R = np.array([[np.cos(self.theta), -np.sin(self.theta)], 
-                      [np.sin(self.theta), np.cos(self.theta)]])
+    def centroid(self, points):
+        x = points[:, 0]
+        y = points[:, 1]
         
-        ctr = R.dot(self.default_contour) + np.array([self.position]).T
+        # The 'y_shifted' array is y[1], y[2], ..., y[0]
+        y_shifted = np.roll(y, -1)
+        # The 'x_shifted' array is x[1], x[2], ..., x[0]
+        x_shifted = np.roll(x, -1)
 
-        return ctr
+        # Calculate the signed area of the polygon using the Shoelace formula
+        # This is the sum of the cross products of adjacent vertices.
+        signed_area_term = x * y_shifted - x_shifted * y
+        total_signed_area = 0.5 * np.sum(signed_area_term)
+
+        if np.isclose(total_signed_area, 0):
+            # Avoid division by zero for degenerate polygons (e.g., a line)
+            return (np.nan, np.nan)
+
+        # Calculate the centroid coordinates using the formula
+        # The term is weighted by the same cross-product term used for the area.
+        cx = (1 / (6 * total_signed_area)) * np.sum((x + x_shifted) * signed_area_term)
+        cy = (1 / (6 * total_signed_area)) * np.sum((y + y_shifted) * signed_area_term)
+
+        return (cx, cy)
     
-    @property
-    def parametric_contour(self) -> tuple[np.ndarray, np.ndarray]:
+    def parametric_contour(self, offset=True) -> np.ndarray:
         ctr = []
         s_array = np.linspace(0, 1, 200)
         for s in s_array:
-            pos_target = self.getPoint(s)
-            ctr.append(pos_target)
+            if offset:
+                point_pos = self.get_point(s)
+            else:
+                point_pos = self._get_point_without_offset(s)
+            ctr.append(point_pos)
 
-        ctr = np.array(ctr).T
+        ctr = np.array(ctr)
 
-        return s_array, ctr
+        return ctr
     
-    def getPoint(self, s: float) -> List[float]:
+    def _get_point_without_offset(self, s: float) -> np.ndarray:
         coords = np.zeros(2)
 
         for h in range(self.m):
@@ -128,11 +138,19 @@ class Shape(Frame):
 
             coords += coord_h
 
-        R = np.array([[np.cos(self.theta), -np.sin(self.theta)], 
-                      [np.sin(self.theta), np.cos(self.theta)]])
-        point = R.dot(coords) + np.array(self.position) + self.offset
+        point = self.rot2d.dot(coords) + self.position
         
+        return point
+    
+    def get_point(self, s: float) -> list:
+        point = self._get_point_without_offset(s) + self.center_offset
         return point.tolist()
+    
+    def __calcPerimeter(self, points) -> float:
+        ctr = np.array(points).reshape((-1,1,2))
+        ctr = (10000.0 * ctr).astype(np.int32)
+
+        return cv.arcLength(ctr,True) / 10000.0
     
     def getTangent(self, s: float) -> float:
         dx = 0
@@ -155,10 +173,10 @@ class Shape(Frame):
         
         # Get a point slightly ahead on the contour
         s_ahead = (s + 0.01) % 1  # Ensure we wrap around if s is close to 1
-        point_ahead = np.array(self.getPoint(s_ahead))
+        point_ahead = np.array(self.get_point(s_ahead))
         
         # Calculate vector from current point to point ahead
-        current_point = np.array(self.getPoint(s))
+        current_point = np.array(self.get_point(s))
         direction_vector = point_ahead - current_point
         
         # Check if perpendicular vector points outwards
@@ -264,7 +282,7 @@ class Shape(Frame):
             raise ValueError("Direction must be either 'clockwise' or 'counterclockwise'")
         
         # Calculate the total perimeter length of the contour
-        _, full_contour = self.parametric_contour
+        full_contour = self.parametric_contour()
         full_perimeter = self.__calcPerimeter(full_contour.T)
         
         # Convert arc_length to parametric change
@@ -292,7 +310,7 @@ class Shape(Frame):
                 s_current += 1.0
             
             # Get current point
-            current_point = np.array(self.getPoint(s_current))
+            current_point = np.array(self.get_point(s_current))
             
             # Calculate segment length and accumulate
             if prev_point is not None:

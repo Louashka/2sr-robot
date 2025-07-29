@@ -30,6 +30,8 @@ class Model(Frame):
         self.head = Frame(0, 0, 0)
         self.tail = Frame(0, 0, 0)
 
+        self.temp = (22.0, 22.0) # Set the initial temperature of the VS segments to room temperature
+
     @property
     def id(self) -> int:
         return self.__id

@@ -18,7 +18,7 @@ class Simulation:
     """
     def __init__(self, initial_robot_state: robot_state.Model):
         self.robot = initial_robot_state
-        self.controller = mm.MMControl(self.robot)
+        self.mm_controller = mm.MMControl(self.robot)
         self.k_max = np.pi / (2 * gv.L_VSS)
 
         """
@@ -87,8 +87,8 @@ class Simulation:
             target_label (str): A descriptive string for logging purposes.
         """
         print(f"\n--- Pursuing {target_label}: {np.round(target_config, 2)} ---")
-        self.controller.target = target_config
-        self.controller.update_tau()
+        self.mm_controller.target = target_config
+        self.mm_controller.update_tau()
 
         # Record the state before starting the pursuit of this new target
         self._append_to_history(target_config, [0.0] * 5, [0, 0])
@@ -97,7 +97,7 @@ class Simulation:
 
         while not is_finished:
             # Get commands from the controller
-            vel, stiff_transitions, q_new, is_finished = self.controller.go_to_target()
+            vel, stiff_transitions, q_new, is_finished = self.mm_controller.go_to_target()
             
             # Update robot state based on controller output
             self.robot.config = q_new
@@ -187,7 +187,6 @@ class Visualization:
         # Initialize robot models for plotting
         self.robot = robot_state.Model(1, *self.state_history[0])
         self.target_robot = robot_state.Model(2, *self.target_history[0])
-        self.target_robot.temp = [22, 22]
 
         # --- Animation Setup ---
         self.fig_anim, self.ax_anim = plt.subplots(figsize=(12, 12))
