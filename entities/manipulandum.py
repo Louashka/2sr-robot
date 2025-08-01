@@ -64,32 +64,10 @@ class Shape(Frame):
         ctr = self.rot2d.dot(self.default_contour.T) + np.array([self.position]).T
         return ctr.T
     
-    def _retrieve_contour(self, path):
-        contour_df = pd.read_csv(path)
-        contour_r = contour_df['radius'].tolist()
-        contour_theta = contour_df['phase_angle'].tolist()
-
-        contour_params = [contour_r, contour_theta]
-        
-        points = []
-        for r, phi in zip(contour_params[0], contour_params[1]):
-            x = r * math.cos(phi)
-            y = r * math.sin(phi)
-
-            points.append([x, y])
-
-        points.append(points[0]) # Close the contour
-
-        self.default_contour = np.array(points)
-        self.coeffs = efd(self.default_contour, order = self.m)
-
-    def _calc_center_offset(self):
-        centroid = self.centroid(self.contour)
-        self.center_offset = centroid - np.array(self.position)
-    
-    def centroid(self, points):
-        x = points[:, 0]
-        y = points[:, 1]
+    @property
+    def centroid(self):
+        x = self.contour[:, 0]
+        y = self.contour[:, 1]
         
         # The 'y_shifted' array is y[1], y[2], ..., y[0]
         y_shifted = np.roll(y, -1)
@@ -111,6 +89,30 @@ class Shape(Frame):
         cy = (1 / (6 * total_signed_area)) * np.sum((y + y_shifted) * signed_area_term)
 
         return (cx, cy)
+    
+    def _retrieve_contour(self, path):
+        contour_df = pd.read_csv(path)
+        contour_r = contour_df['radius'].tolist()
+        contour_theta = contour_df['phase_angle'].tolist()
+
+        contour_params = [contour_r, contour_theta]
+        
+        points = []
+        for r, phi in zip(contour_params[0], contour_params[1]):
+            x = r * math.cos(phi)
+            y = r * math.sin(phi)
+
+            points.append([x, y])
+
+        points.append(points[0]) # Close the contour
+
+        self.default_contour = np.array(points)
+        self.coeffs = efd(self.default_contour, order = self.m)
+
+        self._calculate_total_arc_length()
+
+    def _calc_center_offset(self):
+        self.center_offset = self.centroid - np.array(self.position)
     
     def parametric_contour(self, offset=True) -> np.ndarray:
         ctr = []
@@ -146,13 +148,22 @@ class Shape(Frame):
         point = self._get_point_without_offset(s) + self.center_offset
         return point.tolist()
     
-    def __calcPerimeter(self, points) -> float:
+    def _calculate_total_arc_length(self):
+        total_length = 0.0
+        for i in range(len(self.default_contour)):
+            p1 = self.default_contour[i]
+            p2 = self.default_contour[(i + 1) % len(self.default_contour)]
+            total_length += np.linalg.norm(p2 - p1)
+        self.total_arc_length = total_length
+    
+
+    def __calc_perimeter(self, points) -> float:
         ctr = np.array(points).reshape((-1,1,2))
         ctr = (10000.0 * ctr).astype(np.int32)
 
         return cv.arcLength(ctr,True) / 10000.0
     
-    def getTangent(self, s: float) -> float:
+    def get_tangent(self, s: float) -> float:
         dx = 0
         dy = 0
 
@@ -166,13 +177,10 @@ class Shape(Frame):
             dy += coef[2] * exp[0] + coef[3] * exp[1]
 
         theta = np.arctan(dy/dx) + self.theta
-        # Ensure the tangent points in the positive direction of traversing the contour
-        # Calculate the vector perpendicular to the tangent
-        # perp_vector = np.array([np.cos(theta + np.pi/2), np.sin(theta + np.pi/2)])
         theta_vector = np.array([np.cos(theta), np.sin(theta)])
         
         # Get a point slightly ahead on the contour
-        s_ahead = (s + 0.01) % 1  # Ensure we wrap around if s is close to 1
+        s_ahead = (s + 0.01) % 1  
         point_ahead = np.array(self.get_point(s_ahead))
         
         # Calculate vector from current point to point ahead
@@ -183,12 +191,11 @@ class Shape(Frame):
         if np.dot(theta_vector, direction_vector) < 0:
             theta += np.pi  # Add 180 degrees if pointing outwards
 
-        
         # Normalize theta to be between 0 and 2π
         theta = theta % (2 * np.pi)
         return theta
     
-    def getCurvature(self, s: float) -> float:
+    def get_curvature(self, s: float) -> float:
         """
         Calculate the curvature of the contour at parametric point s.
         
@@ -259,7 +266,7 @@ class Shape(Frame):
         
         return curvature
     
-    def getMeanCurvature(self, s_start: float, arc_length: float, direction: str = "counterclockwise", num_samples: int = 20) -> float:
+    def get_mean_curvature(self, s_start: float, arc_length: float, direction: str = "counterclockwise", num_samples: int = 20) -> float:
         """
         Calculate the mean curvature over an arc of the contour with a specific length,
         traversing in either clockwise or counterclockwise direction.
@@ -283,7 +290,7 @@ class Shape(Frame):
         
         # Calculate the total perimeter length of the contour
         full_contour = self.parametric_contour()
-        full_perimeter = self.__calcPerimeter(full_contour.T)
+        full_perimeter = self.__calc_perimeter(full_contour.T)
         
         # Convert arc_length to parametric change
         delta_s = arc_length / full_perimeter
@@ -318,7 +325,7 @@ class Shape(Frame):
                 arc_length_accumulated += segment_length
             
             # Get curvature at this point
-            curvature = self.getCurvature(s_current)
+            curvature = self.get_curvature(s_current)
             curvatures.append(curvature)
             
             prev_point = current_point
