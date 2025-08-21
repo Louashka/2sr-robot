@@ -279,9 +279,9 @@ class RobotPlot:
         if center_point:
             center_point.set_data([robot.x], [robot.y])
 
-    def arc(self, pose: list, k: float, direction=1) -> tuple[np.ndarray, np.ndarray, float]:
+    def arc(self, pose: list, k: float, direction=1, num=50) -> tuple[np.ndarray, np.ndarray, float]:
         """Calculates the arc curve of a VS segment"""
-        l = np.linspace(0, gv.L_VSS, 50)
+        l = np.linspace(0, gv.L_VSS, num)
         theta_array = pose[2] + direction * k * l
         if abs(k) < 1e-9: # Robust check for straight line
             x = pose[0] + direction * l * np.cos(pose[2])
