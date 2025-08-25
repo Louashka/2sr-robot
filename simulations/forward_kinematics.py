@@ -14,8 +14,7 @@ def main():
     """
     # --- 1. Simulation Setup ---
     kinematics_engine = HybridKinematics()
-    # initial_state = [0.0] * 5
-    initial_state = [0.0, 0.0, 0, 0.0, 0.0]
+    initial_state = [0.0] * 5
     robot = robot_state.Model(1, *initial_state) # Start facing up
     dt = 0.1  # Time step for integration [s]
 
@@ -48,7 +47,7 @@ def main():
         end_frame = int(current_time / dt)
         for _ in range(start_frame, end_frame):
             phase_timeline.append(i)
-    phase_timeline.append(len(CONTROL_PHASES) - 1) # Ensure last frame is covered
+    phase_timeline.append(len(CONTROL_PHASES) - 1) 
 
     # --- 3. Plotting Setup ---
     fig, ax = plt.subplots(figsize=(8, 8))
@@ -58,16 +57,16 @@ def main():
     ax.set_title("2SR Robot Forward Kinematics Simulation")
     ax.grid(True, linestyle='--', alpha=0.6)
     
-    # Instantiate the plotter from your plotlib.py
+    # Instantiate the plotter from plotlib.py
     robot_plotter = RobotPlot(ax)
 
     # --- 4. Animation Core Logic ---
     def update(frame: int):
         """
-        This function is called for each frame of the animation.
+        Called for each frame of the animation.
         It performs one step of the forward kinematics.
         """
-        nonlocal robot # Modify the robot object defined in the outer scope
+        nonlocal robot
         
         # a. Determine the current control inputs from the sequence
         phase_index = phase_timeline[frame]
@@ -89,20 +88,19 @@ def main():
         # e. Update the plot with the new robot state
         artists = robot_plotter.plot_robot(robot)
         
-        # Update title to show current action
+        # Update title 
         ax.set_title(f"2SR Robot Simulation | Step: {current_phase['desc']}")
         
         return artists
 
     # --- 5. Create and Run the Animation ---
-    # The init_func is simple: just draw the initial state
     init_state_artists = robot_plotter.plot_robot(robot)
     
     ani = animation.FuncAnimation(
         fig=fig,
         func=update,
         frames=num_frames,
-        interval=dt * 1000,  # Interval in milliseconds
+        interval=dt * 1000, 
         repeat=True
     )
     

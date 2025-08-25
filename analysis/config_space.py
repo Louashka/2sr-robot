@@ -334,8 +334,8 @@ if __name__ == "__main__":
     robot = robot_state.Model(1, *init_state)
 
     # --- Step 2: Set up desired stiffness ---
-    robot.stiff1 = 0 
-    robot.stiff2 = 1
+    robot.stiff1 = 1 
+    robot.stiff2 = 0
 
     # --- Step 3: Determine the operational mode ---
     current_mode = tuple(robot.stiffness)
