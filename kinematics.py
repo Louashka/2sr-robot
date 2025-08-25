@@ -50,9 +50,11 @@ class _Cardioid:
     def pos_dot(self, th0: float, kappa: float, seg: int, lu: int) -> List[float]:
         phi = self.phi(kappa)
         th = th0 + (-1)**seg * kappa * gv.L_VSS
-        pos_dot_matrix = np.array([
-            [2 * self.a * (-np.sin(phi + th) + np.sin(2 * phi + th))],
-            [(-1)**(lu - 1) * 2 * self.a * (np.cos(phi + th) - np.cos(2 * th))]
+        pos_dot_matrix = 2 * self.a * np.array([
+            [(np.sin(2 * phi) - np.sin(phi)) * np.cos(th) - 
+             (-1)**(lu - 1) * (np.cos(phi) - np.cos(2 * phi)) * np.sin(th)],
+            [(np.sin(2 * phi) - np.sin(phi)) * np.sin(th) + 
+             (-1)**(lu - 1) * (np.cos(phi) - np.cos(2 * phi)) * np.cos(th)]
         ])
         return pos_dot_matrix.flatten().tolist()
 
@@ -174,8 +176,8 @@ class HybridKinematics:
         calculated as the Hadamard product of a stiffness-based selector matrix
         and a matrix of kinematic coupling terms derived from the cardioid models.
         """
-        k1_ratio = spiral2_model.k_dot(robot.k2) / self.cardioid1.k_dot(robot.k2)
-        k2_ratio = spiral2_model.k_dot(robot.k1) / self.cardioid1.k_dot(robot.k1)
+        k1_ratio = self.cardioid1.delta_phi / (self.cardioid2.delta_phi * self.cardioid2.rho(robot.k2))
+        k2_ratio = self.cardioid1.delta_phi / (self.cardioid2.delta_phi * self.cardioid2.rho(robot.k1))
         pos_lu1 = self.cardioid1.pos_dot(robot.theta, robot.k2, 2, 1)
         pos_lu2 = self.cardioid1.pos_dot(robot.theta, robot.k1, 1, 2)
 

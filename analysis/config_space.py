@@ -35,7 +35,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
+import matplotlib.colors as mcolors
 
 # --- Add project root to Python path for custom module imports ---
 # This allows the script to find modules like 'entities' and 'kinematics'
@@ -61,25 +61,24 @@ VARS_COLORS = {
 MODES = {
     (1, 0): {
         'file_path': "analysis/data/semi_flex_1_data.parquet",
-        'hm_fig_path': "analysis/figures/semi_flex_1_hm.pdf",
-        'traj_fig_path': "analysis/figures/semi_flex_1_traj.pdf",
+        'hm_fig_path': "analysis/figures/semi_flex_1_heatmap.pdf",
+        'workspace_fig_path': "analysis/figures/semi_flex_1_workspace.pdf",
         'state_vars': ['x', 'y', 'theta', 'k1'],
         'curvature_to_display': "k1",
         'title': 'Semi-Flex Mode 1 (k1 deformable)'
     },
     (0, 1): {
         'file_path': "analysis/data/semi_flex_2_data.parquet",
-        'hm_fig_path': "analysis/figures/semi_flex_2_hm.pdf",
-        'traj_fig_path': "analysis/figures/semi_flex_2_traj.pdf",
+        'hm_fig_path': "analysis/figures/semi_flex_2_heatmap.pdf",
+        'workspace_fig_path': "analysis/figures/semi_flex_2_workspace.pdf",
         'state_vars': ['x', 'y', 'theta', 'k2'],
         'curvature_to_display': "k2",
-        'azim': -180,
         'title': 'Semi-Flex Mode 2 (k2 deformable)'
     },
     (1, 1): {
         'file_path': "analysis/data/flex_data.parquet",
-        'hm_fig_path': "analysis/figures/flex_hm.pdf",
-        'traj_fig_path': "analysis/figures/flex_traj.pdf",
+        'hm_fig_path': "analysis/figures/flex_heatmap.pdf",
+        'workspace_fig_path': "analysis/figures/flex_workspace.pdf",
         'state_vars': ['x', 'y', 'theta', 'k1'],
         'curvature_to_display': "k1",
         'title': 'Fully Flexible Mode (k1, k2 deformable)'
@@ -160,7 +159,6 @@ def collect_data(robot: robot_state.Model, config: dict):
     df_performance.to_parquet(file_path, engine='pyarrow', compression='snappy')
     print("\nData collection complete!")
 
-
 def analyse_data(config: dict):
     """
     Loads and analyzes trajectory data, generating and displaying summary plots.
@@ -178,131 +176,16 @@ def analyse_data(config: dict):
     df = pd.read_parquet(file_path)
     var_scale = 100 # Scaling factor for visualization (e.g., m to cm)
 
-    # plot_workspace_trajectories(df, config, var_scale)
-    # plot_3d(df)
-
     # --- Generate and Display Plots ---
     hm_fig = plot_heatmaps(df, config, var_scale)
-    # traj_fig = plot_3d_trajectories(df, config, var_scale)
+    workspace_fig = plot_workspace_and_manifold(df, config, var_scale)
 
-    # print("\nSaving figures...")
-    hm_fig.savefig(config["hm_fig_path"], dpi=300, transparent=True)
-    # traj_fig.savefig(config["traj_fig_path"], dpi=300, transparent=True)
+    print("\nSaving figures...")
+    hm_fig.savefig(config["hm_fig_path"], dpi=150, transparent=True)
+    workspace_fig.savefig(config["workspace_fig_path"], dpi=150)
 
     print("\nDisplaying generated figures...")
     plt.show()
-
-def plot_workspace_trajectories(df: pd.DataFrame, config: dict, var_scale: float):
-    """
-    Generates a two-part figure to visualize the robot's workspace.
-
-    The left subplot shows all trajectories to define the reachable workspace.
-    The right subplot uses the RobotPlot class to draw the robot's final
-    shape for a representative subset of control inputs, illustrating a "sweep"
-    of its possible configurations.
-
-    Args:
-        df (pd.DataFrame): The input dataframe containing all trajectory data.
-        config (dict): The configuration for the current mode.
-        var_scale (float): A scaling factor for display units (e.g., 100 for m to cm).
-    """
-    print("Generating 2D workspace and robot shape sweep plots...")
-
-    # --- Plotting Setup ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(17, 8))
-    fig.suptitle(f'Workspace Analysis ({config["title"]})', fontsize=16)
-
-    # --- Subplot 1: Full Reachable Workspace ---
-    print("  Plotting all trajectories for reachable workspace...")
-    ax1.set_title('Reachable Workspace')
-    ax1.set_xlabel('x position [cm]')
-    ax1.set_ylabel('y position [cm]')
-    ax1.grid(True, linestyle='--', alpha=0.6)
-    ax1.set_aspect('equal', adjustable='box')
-
-    # Plot every trajectory with a light, transparent color.
-    # The density of lines will show the most common paths.
-    for _, traj in df.groupby(["v1", "v2"]):
-        ax1.plot(
-            traj['x'] * var_scale,
-            traj['y'] * var_scale,
-            color='#333333', # A dark gray color
-            alpha=0.05,     # Very transparent
-            linewidth=1.0
-        )
-
-    # --- Subplot 2: Robot Shape Sweep ---
-    print("  Plotting a sweep of final robot shapes...")
-    ax2.set_title('Final Robot Poses (Subset Sweep)')
-    ax2.set_xlabel('x position [cm]')
-    ax2.set_ylabel('y position [cm]')
-    ax2.grid(True, linestyle='--', alpha=0.6)
-    ax2.set_aspect('equal', adjustable='box')
-
-    # Instantiate the provided robot plotter on the second axes
-    robot_plotter = plotlib.RobotPlot(ax=ax2)
-
-    # Get the final state (last row) of each trajectory
-    final_states = df.groupby(["v1", "v2"]).last()
-
-    # To avoid a completely black plot, we only draw the robot for a subset
-    # of the final states. Let's plot ~100 robot shapes.
-    num_trajectories = len(final_states)
-    subsample_rate = max(1, num_trajectories // 100)
-
-    for i, (_, row) in enumerate(final_states.iterrows()):
-        if i % subsample_rate == 0:
-            # Create a robot_state instance from the final state data in the row.
-            # Note: We scale x and y to cm here so the plot is in the correct units.
-            # The RobotPlot class expects its internal calculations to be in meters,
-            # but by passing scaled x/y, the final drawing lands on the correct
-            # coordinates of our cm-based axes.
-            robot_instance = robot_state.Model(
-                id = 2,
-                x=row['x'] * var_scale,
-                y=row['y'] * var_scale,
-                theta=row['theta'],
-                k1=row['k1'],
-                k2=row['k2']
-            )
-            # The RobotPlot class uses its own internal lengths (gv.L_VSS etc)
-            # which are in meters. We need to scale them for the cm plot.
-            # A cleaner way is to let RobotPlot draw in meters and just set the axes limits.
-            # Let's revert to the unscaled version and set limits later.
-            robot_instance_meters = robot_state.Model(1, row.x, row.y, row.theta, row.k1, row.k2)
-            robot_plotter.plot_robot(robot_instance_meters)
-
-    # Ensure the scales of both plots match for easy comparison.
-    # We get the limits from the first plot (in cm) and apply them to the second.
-    xlim = ax1.get_xlim()
-    ylim = ax1.get_ylim()
-    ax2.set_xlim(xlim)
-    ax2.set_ylim(ylim)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-def plot_3d(df: pd.DataFrame):
-    sub_df = df.iloc[::10]
-    fig = plt.figure(figsize=(14, 6))
-
-    # First subplot: z = x
-    ax1 = fig.add_subplot(1, 2, 1, projection='3d')
-    ax1.scatter(sub_df['v1'], sub_df['v2'], sub_df['x'], c=sub_df['x'], cmap='viridis', alpha=0.7)
-    ax1.set_xlabel('v1')
-    ax1.set_ylabel('v2')
-    ax1.set_zlabel('x')
-    ax1.set_title('3D Plot: v1, v2, x')
-
-    # Second subplot: z = y
-    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
-    ax2.scatter(sub_df['v1'], sub_df['v2'], sub_df['y'], c=sub_df['y'], cmap='plasma', alpha=0.7)
-    ax2.set_xlabel('v1')
-    ax2.set_ylabel('v2')
-    ax2.set_zlabel('y')
-    ax2.set_title('3D Plot: v1, v2, y')
-
-    plt.tight_layout()
-
 
 def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
     """
@@ -327,7 +210,7 @@ def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
     pivot_curv = summary_df.pivot(index='v2', columns='v1', values='final_curvature')
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 13))
-    fig.suptitle(f'Control Space Performance Metrics ({config["title"]})', fontsize=16)
+    # fig.suptitle(f'Control Space Performance Metrics ({config["title"]})', fontsize=16)
 
     v1_min, v1_max = df['v1'].min() * var_scale, df['v1'].max() * var_scale
     v2_min, v2_max = df['v2'].min() * var_scale, df['v2'].max() * var_scale
@@ -368,63 +251,76 @@ def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
 
     return fig
 
-
-def plot_3d_trajectories(df: pd.DataFrame, config: dict, var_scale: float):
+def plot_workspace_and_manifold(df: pd.DataFrame, config: dict, var_scale: float):
     """
-    Generates 3D plots showing the evolution of each state variable over the
-    entire control space.
+    Generates a two-part figure showing the workspace and the 3D configuration manifold.
 
-    Args:
-        df (pd.DataFrame): The input dataframe containing all trajectory data.
-        config (dict): The configuration for the current mode.
-        var_scale (float): A scaling factor for display units.
+    - Left: All trajectories plotted to show the full reachable workspace.
+    - Right: The constrained (x, y, theta) manifold, colored by curvature.
     """
-    print("\nGenerating 3D trajectory plots...")
+    print("\nGenerating combined workspace and 3D manifold plots...")
+
+    curv_to_display = config.get("curvature_to_display", "k1")
+    if curv_to_display == "k1":
+        k_label = r'${k_1}$ [$m^{-1}$]'
+    else:
+        k_label = r'${k_2}$ [$m^{-1}$]'
+
+    # --- 1. Plotting Setup ---
+    fig = plt.figure(figsize=(18, 8))
+    # fig.suptitle(f'Workspace and Configuration Manifold ({config["title"]})', fontsize=16)
+
+    # --- 2. Left Subplot: Full Reachable Workspace ---
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.set_title('Reachable Workspace (Position)')
+    ax1.set_xlabel('x [cm]')
+    ax1.set_ylabel('y [cm]')
+    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.set_aspect('equal', adjustable='box')
+
+    # Plot every trajectory with a light, transparent color
+    for _, traj in df.groupby(["v1", "v2"]):
+        ax1.plot(
+            traj['x'] * var_scale,
+            traj['y'] * var_scale,
+            color='#4169E1',
+            alpha=0.05,
+            linewidth=1.0
+        )
+
+    # --- 3. Right Subplot: 3D Configuration Manifold ---
+    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
     
-    # Subsample the data for faster plotting. Plotting every single point is slow
-    # and often not necessary for visualization.
-    df_sub = df[::10].copy() # Take every 10th row
+    # Subsample data for a clearer 3D plot
+    sub_df = df.groupby(["v1", "v2"]).apply(lambda x: x.iloc[::10],include_groups=False).reset_index(drop=True)
+    
+    ax2.scatter(
+        sub_df['x'] * var_scale, sub_df['y'] * var_scale, sub_df['theta'],
+        c=sub_df[curv_to_display],
+        cmap='plasma',
+        s=0.2,
+        alpha=0.2
+    )
 
-    state_vars_to_plot = config['state_vars']
-    num_plots = len(state_vars_to_plot)
-    fig = plt.figure(figsize=(12, 5 * (num_plots // 2)))
-    # fig.suptitle(f'State Trajectories over Control Space ({config["title"]})', fontsize=18)
+    # --- Create a separate, opaque artist for the colorbar ---
+    # 1. Define the normalization based on the data's min/max
+    norm = mcolors.Normalize(vmin=sub_df[curv_to_display].min(), vmax=sub_df[curv_to_display].max())
+    # 2. Create a ScalarMappable with the same normalization and colormap, but it will be opaque by default
+    sm = plt.cm.ScalarMappable(cmap='plasma', norm=norm)
+    # 3. Generate the colorbar from this new mappable, not from the scatter plot
+    fig.colorbar(sm, ax=ax2, shrink=0.6, label=k_label)
+    
+    ax2.set_title('Constrained Configuration Manifold')
+    ax2.set_xlabel('x [cm]')
+    ax2.set_ylabel('y [cm]')
+    ax2.set_zlabel('$\\theta$ [rad]')
 
-    # --- Create a subplot for each state variable ---
-    for i, state_var in enumerate(state_vars_to_plot):
-        ax = fig.add_subplot( (num_plots + 1) // 2, 2, i + 1, projection='3d')
+    # --- 4. Synchronize Axes and Finalize ---
+    # Set the initial view of the 3D plot to match the 2D plot's extents
+    ax2.set_xlim(ax1.get_xlim())
+    ax2.set_ylim(ax1.get_ylim())
 
-        # Normalize colors based on the final value of the state for each trajectory
-        final_values = df_sub.groupby(['v1', 'v2'])[state_var].last()
-        norm = Normalize(vmin=final_values.min(), vmax=final_values.max())
-        cmap = plt.get_cmap(VARS_COLORS[state_var])
-
-        # Group by each control input pair and plot its trajectory as a line
-        for (v1, v2), group in df_sub.groupby(['v1', 'v2']):
-            final_val = final_values.loc[(v1, v2)]
-            color = cmap(norm(final_val))
-            
-            # The z-axis is the evolving state variable
-            z_values = group[state_var]
-            if state_var in ['x', 'y']:
-                z_values *= var_scale # Scale position variables to cm
-
-            ax.plot(group['v1'] * var_scale, group['v2'] * var_scale, z_values,
-                    color=color, alpha=0.5, linewidth=0.8)
-
-        # --- Formatting ---
-        z_label = f'{state_var} [cm]' if state_var in ['x', 'y'] else state_var
-        if state_var == 'theta': z_label = r'$\theta$ [rad]'
-        if state_var == 'k1': z_label = r'$k_1$ [$m^{-1}$]'
-        if state_var == 'k2': z_label = r'$k_2$ [$m^{-1}$]'
-        
-        # ax.set_title(f'Evolution of {state_var}')
-        ax.set_xlabel(r'$v_1$ [cm/s]', labelpad=10)
-        ax.set_ylabel(r'$v_2$ [cm/s]', labelpad=10)
-        ax.set_zlabel(z_label, labelpad=10)
-        # ax.view_init(azim=-145)
-
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
 
     return fig
 
@@ -438,7 +334,7 @@ if __name__ == "__main__":
     robot = robot_state.Model(1, *init_state)
 
     # --- Step 2: Set up desired stiffness ---
-    robot.stiff1 = 1 
+    robot.stiff1 = 0 
     robot.stiff2 = 1
 
     # --- Step 3: Determine the operational mode ---
@@ -449,7 +345,7 @@ if __name__ == "__main__":
     # To generate new data, uncomment the line below.
     # NOTE: This can take a long time to run.
 
-    # collect_data(robot, mode_config)
+    collect_data(robot, mode_config)
 
     # To analyze existing data, run the line below.
     analyse_data(mode_config)
