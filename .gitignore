@@ -1,4 +1,6 @@
 __pycache__/
 vision-tracking/
 motive/
+View/
+Experiments/
 *.parquet
