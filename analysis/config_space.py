@@ -1,6 +1,5 @@
 # =============================================================================
 #
-# flexible_robot_analysis.py
 #
 # DESCRIPTION:
 #   A script for collecting and analyzing the behavior of a 2SR robot
@@ -13,14 +12,15 @@
 #       compressed Parquet file.
 #   2.  analyse_data: Loads the saved data and generates two key figures:
 #       - A set of 2D heatmaps showing performance metrics across the control space.
-#       - A set of 3D trajectory plots visualizing how each state variable
-#         evolves over time for every control input pair.
-#
+#       - 2D trajectory plots visualizing the reachable (position) workspace of the robot.
+#       - A 3D scatter plot visualizing a constrained manifold in 4D configuration space.
 # USAGE:
 #   1.  Set up the desried robot stiffness (robot.stiff1 and robot.stiff2).
-#   2.  Set the CURRENT_MODE variable to the desired mode you want to run.
+#   2.  Determine the motion mode that corresponds to the chosen stiffness.
 #   3.  To generate new data, uncomment the `collect_data(robot, mode_config)` line.
-#   4.  To analyze existing data, run the script with the `analyse_data(mode_config)` line active.
+#   4.  To analyze data for the chosen motion mode, run the script with the 
+#       `analyse_data(mode_config)` line active. To analyse the whole data accross all 
+#       modes run 'analyse_all_data()'.
 #
 # REQUIREMENTS:
 #   - pandas
@@ -36,13 +36,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-
-# --- Add project root to Python path for custom module imports ---
-# This allows the script to find modules like 'entities' and 'kinematics'
-# when run from the 'analysis' directory.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from entities import global_var as gv, robot_state
-import kinematics, plotlib
+import kinematics
 
 # =============================================================================
 # SCRIPT CONFIGURATION
@@ -62,12 +58,10 @@ VARS_COLORS = {
     "x": "viridis",
     "y": "viridis",
     "theta": "plasma",
-    "k1": "cool",
-    "k2": "cool",
+    "k": "coolwarm",
 }
 
-# This dictionary defines the parameters for each flexible operational mode of 
-# the robot.
+# This dictionary defines the parameters for each flexible operational mode of the robot.
 MODES = {
     (1, 0): {
         'file_path': "analysis/data/semi_flex_1_data.parquet",
@@ -135,7 +129,6 @@ def collect_data(robot: robot_state.Model, config: dict):
             step_counter = 0
             while True:
                 # --- Simulation Step ---
-                # Use the mapping from the config to create the command vector
                 command_vector = [0.0, 0.0, 0.0, v1, v2]
                 J = kinematics_handler.get_unified_jacobian(robot, robot.stiffness)
                 q_dot = J.dot(command_vector)
@@ -143,7 +136,6 @@ def collect_data(robot: robot_state.Model, config: dict):
                 robot.config = new_config.tolist()
 
                 # --- Data Storage ---
-                # Create a dictionary (a "record") for the current time step
                 current_record = {
                     'v1': v1,
                     'v2': v2,
@@ -168,9 +160,8 @@ def collect_data(robot: robot_state.Model, config: dict):
     print("\n...Creating DataFrame...")
     df_performance = pd.DataFrame(performance_records)
     
-    # Ensure the directory exists before saving
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    
+
     print(f"Saving performance data to {file_path}...")
     df_performance.to_parquet(file_path, engine='pyarrow', compression='snappy')
     print("\nData collection complete!")
@@ -183,24 +174,24 @@ def analyse_data(config: dict):
         config (dict): The configuration dictionary for the current mode from MODES.
     """
     file_path = config['file_path']
-    print(f"Loading data from {file_path}...")
+    print(f"\nLoading data from {file_path}...")
     if not os.path.exists(file_path):
-        print(f"Error: Data file not found at {file_path}.")
+        print(f"\nError: Data file not found at {file_path}.")
         print("Please run the `collect_data` function first.")
         return
 
     df = pd.read_parquet(file_path)
-    var_scale = 100 # Scaling factor for visualization (e.g., m to cm)
+    var_scale = 100 # Scaling factor for visualization (m to cm)
 
     # --- Generate and Display Plots ---
     hm_fig = plot_heatmaps(df, config, var_scale)
-    # workspace_fig, workspace_ax  = plot_workspace(df, config, var_scale)
-    # manifold_fig = plot_manifold(df, config, var_scale )
+    workspace_fig, workspace_ax  = plot_workspace(df, config, var_scale)
+    manifold_fig = plot_manifold(df, config, var_scale)
 
     print("\nSaving figures...")
     hm_fig.savefig(config["hm_fig_path"], dpi=150, transparent=True)
-    # workspace_fig.savefig(config["workspace_fig_path"], dpi=150, transparent=True)
-    # manifold_fig.savefig(config["manifold_fig_path"], dpi=300, transparent=True)
+    workspace_fig.savefig(config["workspace_fig_path"], dpi=150, transparent=True, bbox_inches='tight')
+    manifold_fig.savefig(config["manifold_fig_path"], dpi=300, transparent=True, bbox_inches='tight')
 
     print("\nDisplaying generated figures...")
     plt.show()
@@ -238,7 +229,7 @@ def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
     vmax_disp = max(pivot_x.max().max(), pivot_y.max().max())
     
     ax = axes[0, 0]
-    im = ax.imshow(pivot_x.values, extent=plot_extent, cmap='viridis', aspect='equal', origin='lower', vmin=0, vmax=vmax_disp)
+    im = ax.imshow(pivot_x.values, extent=plot_extent, cmap=VARS_COLORS['x'], aspect='equal', origin='lower', vmin=0, vmax=vmax_disp)
     # ax.set_title('Absolute Max Displacement in X')
     ax.set_ylabel(r'$v_2$ [cm/s]')
     ax.set_yticks([-7.0, 0.0, 7.0])
@@ -246,14 +237,14 @@ def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
     ax1_cbar.set_label('Max |x| [cm]', labelpad=35)
 
     ax = axes[0, 1]
-    im = ax.imshow(pivot_y.values, extent=plot_extent, cmap='viridis', aspect='equal', origin='lower', vmin=0, vmax=vmax_disp)
+    im = ax.imshow(pivot_y.values, extent=plot_extent, cmap=VARS_COLORS['y'], aspect='equal', origin='lower', vmin=0, vmax=vmax_disp)
     # ax.set_title('Absolute Max Displacement in Y')
     ax2_cbar = fig.colorbar(im, ax=ax)
     ax2_cbar.set_label('Max |y| [cm]', labelpad=35)
 
     # BOTTOM ROW: ROTATION & CURVATURE (Independent colormaps)
     ax = axes[1, 0]
-    im = ax.imshow(pivot_rot.values, extent=plot_extent, cmap='plasma', aspect='equal', origin='lower')
+    im = ax.imshow(pivot_rot.values, extent=plot_extent, cmap=VARS_COLORS['theta'], aspect='equal', origin='lower')
     # ax.set_title('Total Rotation')
     ax.set_ylabel(r'$v_2$ [cm/s]')
     ax.set_yticks([-7.0, 0.0, 7.0])
@@ -261,7 +252,7 @@ def plot_heatmaps(df: pd.DataFrame, config: dict, var_scale: float):
     ax3_cbar.set_label(r'Total $\theta$ [rad]', labelpad=37)
 
     ax = axes[1, 1]
-    im = ax.imshow(pivot_curv.values, extent=plot_extent, cmap='coolwarm', aspect='equal', origin='lower')
+    im = ax.imshow(pivot_curv.values, extent=plot_extent, cmap=VARS_COLORS['k'], aspect='equal', origin='lower')
     # ax.set_title(f'Final Curvature ({curv_to_display})')
     ax.set_xlabel(r'$v_1$ [cm/s]')
     fig.colorbar(im, ax=ax, label=f'Final {config['k_label']} ($m^{{-1}}$)')
@@ -293,8 +284,7 @@ def plot_workspace(df: pd.DataFrame, config: dict, var_scale: float):
     fig, ax = plt.subplots(figsize=(8, 8))
     fig.canvas.manager.set_window_title('Reachable Workspace')
     
-    # ax.set_title(f'Reachable Workspace ({config.get("title", "")})')
-    ax.set_title(f'Reachable Workspace')
+    # ax.set_title(f'Reachable Workspace ({config.get("title", "")})', pad=15)
     ax.set_xlabel(f'x [cm]')
     ax.set_ylabel(f'y [cm]')
     ax.grid(True, linestyle='--', alpha=0.6)
@@ -308,7 +298,7 @@ def plot_workspace(df: pd.DataFrame, config: dict, var_scale: float):
         ax.plot(
             traj['x'] * var_scale,
             traj['y'] * var_scale,
-            color='#4169E1',
+            color='#4169E1', # Royal blue
             alpha=0.05,
             linewidth=1.0
         )
@@ -343,7 +333,6 @@ def plot_manifold(df: pd.DataFrame, config: dict, var_scale: float, ax_workspace
     ax = fig.add_subplot(1, 1, 1, projection='3d')
     
     # --- Data Preparation ---
-    # Subsample data for a clearer 3D plot
     sub_df_grouped = df.groupby(["v1", "v2"])
     sub_df_3d = sub_df_grouped.apply(lambda x: x.iloc[::10], include_groups=False).reset_index(drop=True)
     
@@ -359,14 +348,16 @@ def plot_manifold(df: pd.DataFrame, config: dict, var_scale: float, ax_workspace
     # --- Colorbar ---
     norm = mcolors.Normalize(vmin=sub_df_3d[curv_to_display].min(), vmax=sub_df_3d[curv_to_display].max())
     sm = plt.cm.ScalarMappable(cmap='plasma', norm=norm)
-    fig.colorbar(sm, ax=ax, shrink=0.6, label=k_label)
+    fig.colorbar(sm, ax=ax, shrink=0.6, label=k_label, fraction=0.03, aspect=30, pad=0.12)
     
     # --- Labels and Title ---
     # ax.set_title(f'Constrained Configuration Manifold ({config.get("title", "")})')
-    ax.set_title(f'Constrained Configuration Manifold')
-    ax.set_xlabel('x [cm]')
-    ax.set_ylabel('y [cm]')
-    ax.set_zlabel('$\\theta$ [rad]')
+    ax.set_xlabel('x [cm]', labelpad=20)
+    ax.set_ylabel('y [cm]', labelpad=20)
+    ax.set_zlabel('$\\theta$ [rad]', labelpad=15)
+
+    ax.set_yticks([-6.0, 0.0, 6.0])
+    ax.set_zticks([-5.0, 0.0, 5.0])
 
     # --- Synchronize Axes (if workspace axes are provided) ---
     if ax_workspace:
@@ -382,7 +373,7 @@ def analyse_all_data():
     """
     Generates and saves the combined heatmap figure for all modes.
     """
-    var_scale = 100  # Scaling factor for visualization (e.g., m to cm)
+    var_scale = 100  # Scaling factor for visualization (m to cm)
 
     # Generate the combined figure
     combined_fig = plot_all_modes_heatmaps(MODES, var_scale)
@@ -416,7 +407,6 @@ def plot_all_modes_heatmaps(modes_config: dict, var_scale: float):
     num_modes = len(modes_config)
     
     # --- Part 1: Pre-compute global color limits for consistent scaling ---
-    # This ensures that a color (e.g., bright yellow) means the same value in all plots.
     global_max_disp = 0
     global_max_rot = 0
     global_min_curv, global_max_curv = float('inf'), float('-inf')
@@ -477,7 +467,7 @@ def plot_all_modes_heatmaps(modes_config: dict, var_scale: float):
         
         # --- Plotting on the grid ---
         # Set column title on the top-most plot
-        axes[0, col_idx].set_title(config['title'], pad=15)
+        axes[0, col_idx].set_title(config['title'], fontweight='bold', pad=15)
 
         # Row 0: Max |x|
         im0 = axes[0, col_idx].imshow(pivot_x.values, extent=plot_extent, cmap='viridis', aspect='equal', origin='lower', vmin=0, vmax=global_max_disp)
@@ -542,7 +532,7 @@ if __name__ == "__main__":
     # collect_data(robot, mode_config)
 
     # To analyze the current mode, run the line below.
-    analyse_data(mode_config)
+    # analyse_data(mode_config)
 
     # ... or analyze data accross all modes.
-    # analyse_all_data()
+    analyse_all_data()
