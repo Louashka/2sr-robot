@@ -37,4 +37,4 @@ ax.tick_params(axis='x', labelsize=font_size)
 ax.tick_params(axis='y', labelsize=font_size)
 
 # plt.axis('equal')
-plt.show()
+plt.show() 

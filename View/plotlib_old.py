@@ -54,7 +54,7 @@ class GUI:
         for marker in markers.values():
             self.__ax.plot(marker['marker_x'], marker['marker_y'], 'bo', markersize=2)
 
-        self.show()
+        self.show() 
 
     def plotPaths(self, paths: dict, area_lim: list, display='original') -> None:
         style = styles[display]

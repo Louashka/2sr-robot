@@ -369,8 +369,6 @@ if __name__ == "__main__":
     # 1. Initialize the robot
     inital_config = [0.0] * 5
     initial_robot = robot_state.Model(1, *inital_config)
-    initial_robot.t1 = 22  
-    initial_robot.t2 = 22
 
     # 2. Run the simulation to generate data
     simulator = Simulation(initial_robot)
