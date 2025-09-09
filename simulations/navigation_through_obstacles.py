@@ -1,15 +1,18 @@
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
+import numpy as np
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from entities.robot_state import Model
-from entities.coordinate_frame import Frame # Assuming this exists
 from plotlib import RobotPlot
 from entities import obstacles_map
-from collision_checker import is_in_collision
+from collision import is_in_collision
+from motion_planning.rrt import RRT
+from motion_planning.rrt_tree import Tree
+from entities.obstacles_map import Environment
 
-def main():
+def phase0():
     """
     Main function to demonstrate Phase 0: Foundation.
     """
@@ -66,9 +69,95 @@ def main():
 
     plt.show()
 
+def plot_tree(ax, tree: Tree):
+    """Helper function to draw the RRT tree."""
+    for node in tree.nodes:
+        if node.parent:
+            ax.plot([node.parent.config[0], node.config[0]],
+                    [node.parent.config[1], node.config[1]],
+                    color='lightblue', linewidth=0.5, zorder=1)
+
+def plot_path(ax, path: list[np.ndarray]):
+    """Helper function to draw the final path."""
+    if not path:
+        return
+    path_coords = np.array(path)
+    ax.plot(path_coords[:, 0], path_coords[:, 1], color='red', linewidth=2, zorder=2, label='Final Path')
+
+def plot_tree(ax, tree: Tree):
+    """Helper function to draw the RRT tree."""
+    for node in tree.nodes:
+        if node.parent:
+            ax.plot([node.parent.config[0], node.config[0]],
+                    [node.parent.config[1], node.config[1]],
+                    color='lightblue', linewidth=0.5, zorder=1)
+
+def plot_path(ax, path: list[np.ndarray]):
+    """Helper function to draw the final path."""
+    if not path:
+        return
+    path_coords = np.array(path)
+    ax.plot(path_coords[:, 0], path_coords[:, 1], color='red', linewidth=2, zorder=2, label='Final Path')
+
+def phase1():
+    """Main function to demonstrate Phase 1: Basic RRT."""
+    print("Running Phase 1: Basic RRT Test...")
+
+    # 1. SETUP THE ENVIRONMENT
+    obstacle = Polygon([(0.3, 0.2), (0.3, 0.8), (0.4, 0.8), (0.4, 0.2)])
+    env = Environment(obstacles=[obstacle])
+
+    # 2. DEFINE START AND GOAL
+    start_config = np.array([0.1, 0.5, 0, 0, 0])
+    goal_config = np.array([0.8, 0.5, 0, 0, 0])
+
+    # 3. SETUP THE ALGORITHM
+    config_bounds = {
+        'x': [0, 1], 'y': [0, 1],
+        'theta': [-np.pi, np.pi],
+        'k1': [-10, 10], 'k2': [-10, 10]
+    }
+    
+    # Create a robot model instance to be used by the algorithm
+    robot_template = Model(id=99, x=0, y=0, theta=0)
+
+    # Instantiate the RRT algorithm with its configuration
+    rrt_algorithm = RRT(
+        env=env,
+        robot_model=robot_template,
+        config_bounds=config_bounds,
+        step_size=0.5,
+        max_iter=10000,
+        goal_tolerance=0.2
+    )
+
+    # 4. RUN THE ALGORITHM
+    final_path, tree = rrt_algorithm.run(start_config, goal_config)
+
+    # 5. VISUALIZE THE RESULTS
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.set_aspect('equal')
+    ax.set_xlim(-0.05, 1)
+    ax.set_ylim(0, 1)
+    ax.grid(True)
+    ax.set_title("Phase 1: Basic RRT Result")
+
+    env.plot(ax)
+    plot_tree(ax, tree)
+    if final_path:
+        plot_path(ax, final_path)
+
+    robot_plotter = RobotPlot(ax)
+    start_robot = Model(id=1, x=0,y=0,theta=0); start_robot.config = start_config
+    goal_robot = Model(id=2, x=0,y=0,theta=0); goal_robot.config = goal_config
+    robot_plotter.plot_robot(start_robot, target=goal_robot)
+    
+    ax.text(start_config[0], start_config[1] + 0.05, 'Start', color='green', ha='center')
+    ax.text(goal_config[0], goal_config[1] + 0.05, 'Goal', color='purple', ha='center')
+    
+    ax.legend()
+    plt.show()
+
 
 if __name__ == '__main__':
-    # You might need to add the project root to your Python path
-    # if you have issues with imports, e.g., from entities.
-    # For now, we assume you run this from the project_folder.
-    main()
+    phase1()
