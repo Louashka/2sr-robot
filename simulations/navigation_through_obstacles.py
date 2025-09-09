@@ -127,7 +127,7 @@ def phase1():
         robot_model=robot_template,
         config_bounds=config_bounds,
         step_size=0.5,
-        max_iter=10000,
+        max_iter=500,
         goal_tolerance=0.2
     )
 
