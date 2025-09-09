@@ -189,9 +189,9 @@ def analyse_data(config: dict):
     manifold_fig = plot_manifold(df, config, var_scale)
 
     print("\nSaving figures...")
-    hm_fig.savefig(config["hm_fig_path"], dpi=150, transparent=True)
-    workspace_fig.savefig(config["workspace_fig_path"], dpi=150, transparent=True, bbox_inches='tight')
-    manifold_fig.savefig(config["manifold_fig_path"], dpi=300, transparent=True, bbox_inches='tight')
+    # hm_fig.savefig(config["hm_fig_path"], dpi=150, transparent=True)
+    # workspace_fig.savefig(config["workspace_fig_path"], dpi=150, transparent=True, bbox_inches='tight')
+    # manifold_fig.savefig(config["manifold_fig_path"], dpi=300, transparent=True, bbox_inches='tight')
 
     print("\nDisplaying generated figures...")
     plt.show()
@@ -532,7 +532,7 @@ if __name__ == "__main__":
     # collect_data(robot, mode_config)
 
     # To analyze the current mode, run the line below.
-    # analyse_data(mode_config)
+    analyse_data(mode_config)
 
     # ... or analyze data accross all modes.
-    analyse_all_data()
+    # analyse_all_data()
