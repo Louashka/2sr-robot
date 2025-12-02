@@ -143,16 +143,19 @@ To manage the complex behaviour of the 2SR robot, we developed a comprehensive c
 2. **Model Predictive Control (MPC):** With the kinematics defined, we use Model Predictive Control to generate the precise wheel velocities needed to reach a target configuration. There are four separate MPC controllers, one for each stiffness state. The system activates the appropriate controller for the current mode.
 3. **Supervisory Controller:** High-level logic in Motion & Morphology (M&M) Controller decides when to change stiffness versus when to just move. It optimizes for efficiency by keeping the robot rigid by default and only activating a shape change when necessary.
 
-![Motion and Morphology control](multimedia/motion_and_deformation.gif)
+<p align="center">
+    <img src="multimedia/motion_and_deformation.gif" width="70%" alt="animated" />
+</p>
 
-## Full-body Grasping
+## Voronoi-assisted Motion and Morphology Planning (VMMP)
 
-Describe the Method
+To navigate autonomously in cluttered environments, the 2SR robot needs a high-level planner that can reason about both motion and shape-shifting. This is a complex, high-dimensional problem. Our solution is the Voronoi-assisted Motion and Morphology Planner (VMMP), a hierarchical framework that breaks the problem down into manageable steps:
 
-## Mobile Manipulation
+1. **Environment Analysis**: First, VMMP uses *Voronoi diagrams* to analyze the workspace. This generates a "skeleton" of the free space, identifying the safest and widest paths through obstacles and creating a graph of traversable passages.
+2. **Path Planning for Control Points**: Instead of planning for the entire complex body, VMMP simplifies the problem by planning paths for just three critical points along the robot's body: the front, middle, and rear. It finds optimal paths for these points along the Voronoi graph.
+3. **Full Configuration Reconstruction**: The three individual point-paths are then used as a guide. A constrained optimization process calculates a continuous sequence of full robot configurations ($[x, y, \theta, \kappa_1, \kappa_2]^\intercal$) that best fit these paths, ensuring the robot's physical limits (kinematic constraints) are respected and unnecessary bending is minimized.
+4. **Discretizing Crucial Waypoints**: A physical robot can't continuously deform and move simultaneously. Therefore, the final step is to distill the continuous path into a minimal set of discrete *waypoint configurations*. These waypoints capture the most essential shape changes required to navigate the passage.
 
-...
-
-## Morphology-aware Navigation
-
-...
+<p align="center">
+  <img src="multimedia/sm_anim.gif" width="50%" alt="animated" />
+</p>
